@@ -1,7 +1,7 @@
 // pages/Sensors/Radars/Live/RadarStatusHub.jsx
 import { useState, useRef } from "react";
 import glossaryData from "../Data/glossary";
-import { useNavigate } from "react-router-dom";
+import { useRouter } from "next/navigation";
 import LogoSection from "../components/HeaderComponents/LogoSection";
 import React from "react";
 
@@ -9,7 +9,7 @@ const GlossaryPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
-  const navigate = useNavigate();
+  const router = useRouter();
 
   // Filter by search term
   const filteredGlossary = glossaryData

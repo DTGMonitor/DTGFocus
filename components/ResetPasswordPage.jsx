@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
 import { MdShield } from "react-icons/md";
 
@@ -11,8 +11,7 @@ const ResetPasswordPage = () => {
   const [error, setError] = useState("");
   const [token, setToken] = useState(null);
 
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const router = useRouter();
 
   useEffect(() => {
     const hash = window.location.hash; // e.g. #access_token=...
@@ -47,7 +46,7 @@ const ResetPasswordPage = () => {
       } else {
         setMessage("Password successfully updated! Redirecting to login...");
         setTimeout(() => {
-          navigate("/");
+          router.push("/");
         }, 2000);
       }
     } catch (err) {

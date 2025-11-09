@@ -241,7 +241,7 @@ const LoginPage = () => {
                     {error && <p style={{ color: "red", marginTop: 10 }}>{error}</p>}
                     <p
                         style={{ marginTop: 20, fontSize: 12, color: "#03716E", cursor: "pointer", textDecoration: "underline" }}
-                        onClick={() => navigate("/forgot-password")}
+                        onClick={() => router.push("/forgot-password")}
                     >
                         Forgot Password?
                     </p>

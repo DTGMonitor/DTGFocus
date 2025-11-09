@@ -1,13 +1,13 @@
 'use client';
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const handleSendReset = async () => {
     setError("");
@@ -23,7 +23,7 @@ const ForgotPasswordPage = () => {
     } else {
       setMessage("Password reset email sent! Check your inbox.");
       setTimeout(() => {
-        navigate("/");
+        router.push("/");
       }, 3000);
     }
   };
