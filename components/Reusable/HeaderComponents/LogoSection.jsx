@@ -25,7 +25,7 @@ function LogoSection({ Subtitle = [] }) {
     };
 
     return (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div className="flex justify-between items-center mb-5 mt-5">
             <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", padding: "5px 10px", flex: "0 0 auto" }}>
                     <button

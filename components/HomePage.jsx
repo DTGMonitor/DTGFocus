@@ -62,6 +62,17 @@ const HomePage = () => {
       Path: `/tools/${client}/VWP`,
       bgColor: "rgba(231,100,0,1)",
       gradColor: "linear-gradient(90deg, #863700 0%, #C25300 50%, #E76400 100%)",
+    }, 
+    {
+      id: 5,
+      key: "RAINFALL",
+      title: "RAINFALL",
+      url: `/images/home/Rainfall.png`,
+      Description: "Get the realtime rainfall data to support analysis",
+      Path: `/tools/${client}/Rainfall`,
+      bgColor: "rgba(0,0,255, 1)",
+      gradColor:
+        "linear-gradient(90deg, #05012eff 0%, #1504fdff 50%, #28b8e4ff 100%)",
     },
   ];
 

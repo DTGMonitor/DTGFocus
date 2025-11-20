@@ -44,7 +44,7 @@ function Radar() {
 
     return (
         <div className="full-screen-container">
-            <div className="sticky-header">
+            <div className="sticky-header bg-[var(--dtg-bg-primary)]">
                 <LogoSection Subtitle="Radar" />
 
                 <NavSection

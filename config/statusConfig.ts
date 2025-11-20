@@ -55,6 +55,12 @@ export const getQualityColor = (quality: number) => {
   return 'text-red-500';
 };
 
+export const getQualityStatus = (score: number) => {
+  if (score >= 90) return { label: 'Excellent', color: 'bg-green-500' };
+  if (score >= 75) return { label: 'Good', color: 'bg-yellow-500' };
+  return { label: 'Needs Attention', color: 'bg-red-500' };
+};
+
 import {
   AlertTriangle, Bell, WifiOff, CheckCircle, Settings, TrendingUp,
   Filter, Search, Clock, MapPin, User, X, ChevronDown, Activity, Zap

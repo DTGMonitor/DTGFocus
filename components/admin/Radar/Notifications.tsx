@@ -37,7 +37,7 @@ const notificationData: Notification[] = [
   {
     id: '2',
     type: 'alarm',
-    title: 'Critical Alarm - SSR-04',
+    title: 'Critical Alarm - IBIS01',
     message: 'Velocity threshold exceeded. Immediate review required',
     location: 'South Bench',
     timestamp: '2025-10-20 14:15',
@@ -48,8 +48,8 @@ const notificationData: Notification[] = [
   {
     id: '3',
     type: 'downtime',
-    title: 'Connection Lost - SSR-04',
-    message: 'SSR-04 South Bench has lost connection. Last data received at 10:45',
+    title: 'Connection Lost - IBIS01',
+    message: 'IBIS01 South Bench has lost connection. Last data received at 10:45',
     location: 'South Bench',
     timestamp: '2025-10-20 11:00',
     severity: 'critical',
@@ -93,7 +93,7 @@ const notificationData: Notification[] = [
     id: '7',
     type: 'optimization',
     title: 'Alarm Threshold Optimized',
-    message: 'SSR-05 alarm thresholds have been automatically adjusted based on recent patterns',
+    message: 'PS2000 alarm thresholds have been automatically adjusted based on recent patterns',
     location: 'Central Area',
     timestamp: '2025-10-20 07:30',
     severity: 'info',

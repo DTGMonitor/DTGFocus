@@ -40,7 +40,7 @@ const mockSensorData: SensorData[] = [
     hourlyChecks: [true, true, true, true, true, true, true, true, true, true, true, true],
   },
   {
-    ssr: 'SSR-04',
+    ssr: 'IBIS01',
     siteName: 'South Bench',
     riskLevel: 'Medium',
     status: 'Link Down',
@@ -48,7 +48,7 @@ const mockSensorData: SensorData[] = [
     hourlyChecks: [true, true, true, true, false, false, false, false, false, false, false, false],
   },
   {
-    ssr: 'SSR-05',
+    ssr: 'PS2000',
     siteName: 'Central Area',
     riskLevel: 'Medium',
     status: 'Operational',
@@ -93,15 +93,15 @@ function RadarMonitoring() {
           <p className="text-[var(--dtg-gray-700)] text-sm">Real-time sensor verification - {new Date().toLocaleDateString()}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)] hover:bg-[#333333] hover:text-[var(--dtg-text-primary)]">
+          <Button variant="outline" size="sm">
             <RefreshCw className="w-4 h-4 mr-2" />
             Reset
           </Button>
-          <Button size="sm" className="bg-[#f97316] text-[var(--dtg-text-primary)] hover:bg-[#ea580c]">
+          <Button size="sm" variant="orange">
             <Mail className="w-4 h-4 mr-2" />
             Email PDF
           </Button>
-          <Button size="sm" className="bg-[#14b8a6] text-[var(--dtg-text-primary)] hover:bg-[#0d9488] shadow-lg shadow-teal-500/30">
+          <Button size="sm" variant="brand">
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>

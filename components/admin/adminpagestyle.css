@@ -9,7 +9,7 @@
   font-family: Inter, sans-serif;
   display: flex;
   flex-direction: column;
-  padding: 10px;
+  padding: 0 10;
 }
 
 /* Equivalent CSS for the inner <div> */

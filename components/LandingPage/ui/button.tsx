@@ -13,7 +13,7 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 ...",
         outline:
-          "border-1 border-teal-500 text-emerald-500 hover:bg-teal-600/30",
+          "bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)] hover:bg-[#333333] hover:text-[var(--dtg-text-primary)]",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
@@ -22,7 +22,9 @@ const buttonVariants = cva(
 
         // * ADD THIS NEW VARIANT:
         brand:
-          "bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
+          "bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white",
+        orange:
+          "bg-[#f97316] text-[var(--dtg-text-primary)] hover:bg-[#ea580c]"
       },
 
       size: {
