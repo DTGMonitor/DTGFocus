@@ -518,7 +518,7 @@ export default function HomePage() {
       )}
       {/* Logo Section */}
       <div className="sticky-header">
-        <LogoSection Subtitle="Home" />
+        <LogoSection  />
       </div>
       <div className="flex space-y-6 bg-[var(--dtg-bg-primary)]">
 
