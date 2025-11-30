@@ -10,6 +10,17 @@ export const insarMenuItems = [
   { label: "WATER BODY", path: "/tools/:client/WB_insar", icon: "FaArrowUpFromGroundWater" },
 ];
 
+export const homeMenuItems = [
+  { label: 'Dashboard', icon: "FaHome", path: `/tools/:client/device` },
+  { label: 'Sensor Network', icon: "LuNetwork", path: `/tools/:client/home` },
+  { label: 'Risk Management', icon: "MdOutlineShield" },
+  { label: 'AI Analytics', icon: "LuBrain" },
+  { label: 'Reports', icon: "FaChartBar" },
+  { label: 'Operations', icon: "LuUsers" },
+  { label: 'Maintenance', icon: "LuWrench" },
+
+];
+
 export const adminMenuItems = [
   { label: "RADAR MONITORING", path: "/admin/Radar/RadarMonitoring", icon: "LuClock4" },
   { label: "NOTIFICATIONS", path: "/admin/Radar/Notifications", icon: "FaRegBell" },

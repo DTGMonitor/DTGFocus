@@ -2,7 +2,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import HomePage from "@/components/Home/HomePage"; // rename to your actual component
+import DevicePage from "@/components/DevicePage"; // rename to your actual component
 
 export default function ClientHome() {
   const { user, loading } = useAuth();
@@ -16,5 +16,5 @@ export default function ClientHome() {
 
   if (loading) return <div>Loading session...</div>;
 
-  return <HomePage />;
+  return <DevicePage />;
 }

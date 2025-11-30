@@ -110,7 +110,7 @@ function LogoSection({ Subtitle = [] }) {
                         >
                             {userSite.site?.logo_path ? (
                                 <img
-                                    src={userSite.site?.logo_path || "/logo/CompanyLogo/LogoOnly/user.png"}
+                                    src= "/logo/CompanyLogo/LogoOnly/user.png"
                                     alt="Logo"
                                     style={{
                                         width: "24px",
