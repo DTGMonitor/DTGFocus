@@ -3,7 +3,6 @@ import { FaArrowRight, FaRegBell, FaSyncAlt } from "react-icons/fa";
 import { ImWarning } from "react-icons/im";
 import { PiPresentationChartBold } from "react-icons/pi";
 import { supabase } from "@/lib/supabaseClient";
-import RadarDetail from "./RadarDetail";
 
 function countLevel2StatusesFromParamTree(paramTree) {
   const counts = { Acceptable: 0, "Sub-Optimal": 0, Critical: 0 };

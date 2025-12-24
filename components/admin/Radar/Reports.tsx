@@ -12,6 +12,7 @@ import { AlarmReportPreview } from '../../reports/AlarmReportPreview';
 import { DataQualityReportPreview } from '../../reports/DataQualityReportPreview';
 import { AvailabilityReportPreview } from '../../reports/AvailabilityReportPreview';
 import { SafetyReportPreview } from '../../reports/SafetyReportPreview';
+import AdminUpload from "@/components/admin/Reports/AdminUpload";
 
 interface Report {
   id: string;
@@ -72,6 +73,7 @@ const recentReports: Report[] = [
 ];
 
 function Reports() {
+  const [showReportUpload, setReportUpload] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [reportType, setReportType] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -113,13 +115,22 @@ function Reports() {
           <h1 className="text-2xl text-[var(--dtg-text-primary)]">Report Management</h1>
           <p className="text-[var(--dtg-gray-500)] text-sm mt-1">Generate, view, and export system reports</p>
         </div>
-        <Button
-          onClick={() => setShowCreateModal(true)}
-          variant="brand"
-        >
-          <FileBarChart className="w-4 h-4" />
-          Create New Report
-        </Button>
+        <div className="flex items-center space-x-6">
+          <Button
+            onClick={() => setShowCreateModal(true)}
+            variant="brand"
+          >
+            <FileBarChart className="w-4 h-4" />
+            Create New Report
+          </Button>
+          <Button
+            onClick={() => { setReportUpload((a => !a)) }}
+            variant="orange"
+          >
+            <FileBarChart className="w-4 h-4" />
+            Upload Report
+          </Button>
+        </div>
       </div>
 
       {/* Quick Stats */}
@@ -160,7 +171,8 @@ function Reports() {
           <div className="text-sm text-[var(--dtg-gray-500)] mt-1">96% completion rate</div>
         </div>
       </div>
-
+      {showReportUpload &&
+        <AdminUpload onClose={() => setReportUpload(false)} />}
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <button
@@ -197,7 +209,7 @@ function Reports() {
 
         <button
           onClick={() => setViewingReport('availability')}
-                    className="group rounded-lg p-6 text-left transition-all border bg-gradient-to-br
+          className="group rounded-lg p-6 text-left transition-all border bg-gradient-to-br
     
     from-[var(--green-from)] 
     to-[var(--green-to)] 
@@ -213,7 +225,7 @@ function Reports() {
 
         <button
           onClick={() => setViewingReport('safety')}
-                    className="group rounded-lg p-6 text-left transition-all border bg-gradient-to-br
+          className="group rounded-lg p-6 text-left transition-all border bg-gradient-to-br
     
     from-[var(--yellow-from)] 
     to-[var(--yellow-to)] 
