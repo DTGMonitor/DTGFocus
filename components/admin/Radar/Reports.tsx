@@ -3,16 +3,14 @@ import {
   FileBarChart, Download, FileText, Calendar, Clock, CheckCircle,
   AlertTriangle, TrendingUp, Eye, Share2, Filter, Search
 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
-import { Badge } from "@/components/LandingPage/ui/badge";
 import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
 import { ReportTemplate } from "@/components/reports/ReportTemplate";
 import { AlarmReportPreview } from '../../reports/AlarmReportPreview';
 import { DataQualityReportPreview } from '../../reports/DataQualityReportPreview';
 import { AvailabilityReportPreview } from '../../reports/AvailabilityReportPreview';
 import { SafetyReportPreview } from '../../reports/SafetyReportPreview';
 import AdminUpload from "@/components/admin/Reports/AdminUpload";
+import ReportList from "@/components/admin/Reports/ReportList";
 
 interface Report {
   id: string;
@@ -74,39 +72,8 @@ const recentReports: Report[] = [
 
 function Reports() {
   const [showReportUpload, setReportUpload] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [reportType, setReportType] = useState('all');
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [viewingReport, setViewingReport] = useState<'alarm' | 'data-quality' | 'availability' | 'safety' | null>(null);
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'alarm': return 'bg-red-500/10 text-red-500 border-red-500/20';
-      case 'data-quality': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-      case 'availability': return 'bg-green-500/10 text-green-500 border-green-500/20';
-      case 'safety': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
-      default: return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Completed</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/20">Pending</Badge>;
-      case 'draft':
-        return <Badge className="bg-gray-500/10 text-gray-500 border-gray-500/20">Draft</Badge>;
-      default:
-        return null;
-    }
-  };
-
-  const filteredReports = recentReports.filter(report => {
-    const matchesSearch = report.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = reportType === 'all' || report.type === reportType;
-    return matchesSearch && matchesType;
-  });
-
+ 
   return (
     <div className="p-6 space-y-6 bg-[var(--dtg-bg-primary)] min-h-full">
       {/* Header */}
@@ -117,7 +84,6 @@ function Reports() {
         </div>
         <div className="flex items-center space-x-6">
           <Button
-            onClick={() => setShowCreateModal(true)}
             variant="brand"
           >
             <FileBarChart className="w-4 h-4" />
@@ -128,7 +94,7 @@ function Reports() {
             variant="orange"
           >
             <FileBarChart className="w-4 h-4" />
-            Upload Report
+            Upload Files
           </Button>
         </div>
       </div>
@@ -240,96 +206,7 @@ function Reports() {
         </button>
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search reports..."
-            className="pl-10 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]"
-          />
-        </div>
-        <Select value={reportType} onValueChange={setReportType}>
-          <SelectTrigger className="w-48 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="alarm">Alarm Reports</SelectItem>
-            <SelectItem value="data-quality">Data Quality</SelectItem>
-            <SelectItem value="availability">Availability</SelectItem>
-            <SelectItem value="safety">Safety Reports</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Reports List */}
-      <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg overflow-hidden">
-        <div className="p-4 border-b border-[var(--dtg-border-medium)]">
-          <h3 className="text-lg text-[var(--dtg-text-primary)]">Recent Reports</h3>
-        </div>
-        <div className="divide-y divide-[#3a3a3a]">
-          {filteredReports.map((report) => (
-            <div key={report.id} className="p-4 hover:bg-[var(--dtg-bg-primary)] transition-colors">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <FileText className="w-5 h-5 text-[#14b8a6]" />
-                    <h4 className="text-[var(--dtg-text-primary)]">{report.title}</h4>
-                    <span className={`text-xs px-2 py-1 rounded border ${getTypeColor(report.type)}`}>
-                      {report.type.replace('-', ' ').toUpperCase()}
-                    </span>
-                    {getStatusBadge(report.status)}
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-[var(--dtg-gray-500)] ml-8">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      <span>{report.date}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span>Generated by: {report.generatedBy}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span>Size: {report.size}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.status === 'completed' && (
-                    <>
-                      <button
-                        onClick={() => {
-                          if (report.type === 'alarm') setViewingReport('alarm');
-                          else if (report.type === 'data-quality') setViewingReport('data-quality');
-                          else if (report.type === 'availability') setViewingReport('availability');
-                          else if (report.type === 'safety') setViewingReport('safety');
-                        }}
-                        className="p-2 hover:bg-[var(--dtg-bg-card)] rounded-lg transition-all"
-                        title="View Report"
-                      >
-                        <Eye className="w-4 h-4 text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]" />
-                      </button>
-                      <button className="p-2 hover:bg-[var(--dtg-bg-card)] rounded-lg transition-all" title="Download Report">
-                        <Download className="w-4 h-4 text-[var(--dtg-gray-500)] hover:text-[#14b8a6]" />
-                      </button>
-                      <button className="p-2 hover:bg-[var(--dtg-bg-card)] rounded-lg transition-all" title="Share Report">
-                        <Share2 className="w-4 h-4 text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]" />
-                      </button>
-                    </>
-                  )}
-                  {report.status === 'draft' && (
-                    <Button variant="brand">
-                      Continue Editing
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ReportList/>
 
       {/* Report Templates */}
       <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">

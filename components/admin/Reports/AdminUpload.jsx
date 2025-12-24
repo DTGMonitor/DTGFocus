@@ -6,11 +6,10 @@ import { useRouter } from 'next/navigation';
 import { supabase } from "@/lib/supabaseClient";
 import { useUserSite } from "../../Reusable/useUserSite";
 import { createReportRecord } from '../../../src/app/actions/reportActions';
-import { Upload, Loader, AlertCircle, X } from 'lucide-react';
+import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
 
-const AdminUpload = ({ onClose }) => {  // Add onClose prop
+const AdminUpload = ({ onClose }) => {
     const { user, userSite, loading: authLoading } = useUserSite();
-
     const router = useRouter();
     const [uploading, setUploading] = useState(false);
     const [clientsList, setClientsList] = useState([]);
@@ -19,17 +18,9 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
     const userRole = userSite?.role;
     const displayName = userSite?.displayname || user?.email;
 
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        type: 'insar',
-        status: 'Completed',
-        generatedBy: '',
-        clientId: ''
-    });
-
-    const [file, setFile] = useState(null);
+    const [files, setFiles] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
+    const [selectedClientId, setSelectedClientId] = useState('');
 
     // Handle ESC key press
     useEffect(() => {
@@ -38,7 +29,6 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                 onClose();
             }
         };
-
         document.addEventListener('keydown', handleEscape);
         return () => document.removeEventListener('keydown', handleEscape);
     }, [onClose]);
@@ -50,13 +40,6 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
             document.body.style.overflow = 'unset';
         };
     }, []);
-
-    // Set Display Name when loaded
-    useEffect(() => {
-        if (displayName) {
-            setFormData(prev => ({ ...prev, generatedBy: displayName }));
-        }
-    }, [displayName]);
 
     // Fetch List of Clients for the Dropdown
     useEffect(() => {
@@ -81,6 +64,260 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
         }
     }, [user]);
 
+    // Parse filename and auto-fill metadata
+    const parseFileMetadata = (file) => {
+        const filename = file.name;
+        const extension = filename.split('.').pop().toLowerCase();
+        const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+        // Parse date from filename format: "YYYY-MM_..." (e.g., "2025-08_...", "2026-01_...")
+        const parseDate = (filename) => {
+            const dateMatch = filename.match(/^(\d{4})-(\d{2})/);
+            if (dateMatch) {
+                const year = dateMatch[1];
+                const month = dateMatch[2];
+
+                // Get the last day of the month
+                const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+
+                // Return date in YYYY-MM-DD format (last day of the month)
+                return `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
+            }
+            return null;
+        };
+
+        const imgdate = parseDate(filename);
+
+        // Check if it's a monthly report PDF
+        const monthlyReportRegex = /.*_Monthly_Report_.*\.pdf$/i;
+        if (monthlyReportRegex.test(filename)) {
+            return {
+                file: file,
+                recordType: 'reports',
+                bucket: 'Reports',
+                metadata: {
+                    title: 'Monthly Deformation Report',
+                    description: 'InSAR ground displacement monitoring',
+                    type: 'insar',
+                    status: 'Completed',
+                    generatedby: 'Catalyst',
+                    category: 'deformation',
+                    size: `${sizeInMB} MB`,
+                    filename: filename
+                }
+            };
+        }
+
+        // Check if it's an image with MNDWI, False Color, or True Color
+        const imageKeywords = [
+            { keyword: 'MNDWI', subcategory: 'MNDWI' },
+            { keyword: 'False Color', subcategory: 'False Color' },
+            { keyword: 'True Color', subcategory: 'True Color' }
+        ];
+
+        const matchedKeyword = imageKeywords.find(item => filename.includes(item.keyword));
+        const isSpecialImage = extension === 'png' && matchedKeyword;
+
+        if (isSpecialImage) {
+            const metadata = {
+                type: 'insar',
+                category: 'waterbody',
+                subcategory: matchedKeyword.subcategory,
+                size: `${sizeInMB} MB`,
+                filename: filename,
+                uploadedby: displayName || '',
+                date: imgdate,
+            }
+
+            if (matchedKeyword.subcategory === 'MNDWI') {
+                metadata.tsf7 = null,
+                    metadata.tsf8 = null,
+                    metadata.rainfall = null
+            }
+
+            return {
+                file: file,
+                recordType: 'client_images',
+                bucket: 'Insar',
+                metadata: metadata
+            };
+        }
+
+        // Default case - treat as report
+        return {
+            file: file,
+            recordType: 'reports',
+            bucket: 'Reports',
+            metadata: {
+                title: '',
+                description: '',
+                type: 'insar',
+                status: 'Completed',
+                generatedby: displayName || '',
+                category: '',
+                size: `${sizeInMB} MB`,
+                filename: filename
+            }
+        };
+    };
+
+    const handleFileChange = (e) => {
+        const selectedFiles = Array.from(e.target.files);
+        addFiles(selectedFiles);
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const droppedFiles = Array.from(e.dataTransfer.files);
+        addFiles(droppedFiles);
+    };
+
+    const addFiles = (newFiles) => {
+        const parsedFiles = newFiles.map(file => parseFileMetadata(file));
+        setFiles(prev => [...prev, ...parsedFiles]);
+    };
+
+    const removeFile = (index) => {
+        setFiles(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const updateFileMetadata = (index, field, value) => {
+        setFiles(prev => prev.map((item, i) => {
+            if (i === index) {
+                return {
+                    ...item,
+                    metadata: {
+                        ...item.metadata,
+                        [field]: value
+                    }
+                };
+            }
+            return item;
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!selectedClientId) {
+            alert('Please select a Client/Site.');
+            return;
+        }
+
+        if (files.length === 0) {
+            alert('Please select at least one file.');
+            return;
+        }
+
+        setUploading(true);
+
+        try {
+            const results = [];
+
+            for (const fileItem of files) {
+                try {
+                    // Determine bucket based on recordType and type
+                    let bucket = fileItem.bucket;
+                    if (fileItem.recordType === 'client_images') {
+                        bucket = fileItem.metadata.type === 'radar' ? 'Radar' : 'Insar';
+                    }
+
+                    // Generate unique filename
+                    const fileName = `${selectedClientId}/${fileItem.file.name}`;
+
+                    // Upload to storage
+                    const { error: uploadError } = await supabase.storage
+                        .from(bucket)
+                        .upload(fileName, fileItem.file, {
+                            cacheControl: '3600',
+                            upsert: false
+                        });
+
+                    if (uploadError) throw uploadError;
+
+                    // Insert record based on type
+                    if (fileItem.recordType === 'reports') {
+                        const reportPayload = {
+                            title: fileItem.metadata.title,
+                            filename: fileName,
+                            description: fileItem.metadata.description,
+                            type: fileItem.metadata.type,
+                            status: fileItem.metadata.status,
+                            date: new Date().toISOString().split('T')[0],
+                            generatedby: fileItem.metadata.generatedby,
+                            size: fileItem.metadata.size,
+                            category: fileItem.metadata.category,
+                            client_id: selectedClientId
+                        };
+
+                        const result = await createReportRecord(reportPayload);
+                        if (!result.success) throw new Error(result.error);
+                    } else if (fileItem.recordType === 'client_images') {
+                        // Insert into client_images table
+                        const { error: dbError } = await supabase
+                            .from('client_images')
+                            .insert({
+                                client_id: selectedClientId,
+                                image_url: fileName,
+                                type: fileItem.metadata.type,
+                                category: fileItem.metadata.category,
+                                uploaded_at: new Date().toISOString(),
+                                uploadedby: fileItem.metadata.uploadedby,
+                                size: fileItem.metadata.size,
+                                date: fileItem.metadata.date,
+                                subcategory: fileItem.metadata.subcategory || null,
+                                rainfall: fileItem.metadata.rainfall,  // Make sure these are included
+                                tsf7: fileItem.metadata.tsf7,
+                                tsf8: fileItem.metadata.tsf8,
+                            });
+
+                        if (dbError) throw dbError;
+                    }
+
+                    results.push({ success: true, filename: fileItem.file.name });
+                } catch (error) {
+                    console.error(`Error uploading ${fileItem.file.name}:`, error);
+                    results.push({ success: false, filename: fileItem.file.name, error: error.message });
+                }
+            }
+
+            // Show results
+            const successCount = results.filter(r => r.success).length;
+            const failCount = results.filter(r => !r.success).length;
+
+            if (failCount === 0) {
+                alert(`Successfully uploaded ${successCount} file(s)!`);
+            } else {
+                alert(`Uploaded ${successCount} file(s). Failed: ${failCount}\n\nFailed files:\n${results.filter(r => !r.success).map(r => `- ${r.filename}: ${r.error}`).join('\n')}`);
+            }
+
+            // Reset form
+            setFiles([]);
+            setSelectedClientId('');
+            router.refresh();
+
+            if (failCount === 0) {
+                onClose();
+            }
+
+        } catch (error) {
+            console.error('Error uploading:', error);
+            alert('Error uploading files: ' + error.message);
+        } finally {
+            setUploading(false);
+        }
+    };
+
     // Loading State
     if (authLoading || loadingClients) {
         return (
@@ -99,9 +336,9 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                     onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-2.5 items-center text-yellow-500">
                         <AlertCircle size={20} />
-                        <p className="m-0">You don't have permission to upload reports. Contact your administrator.</p>
+                        <p className="m-0">You don't have permission to upload files. Contact your administrator.</p>
                     </div>
-                    <button 
+                    <button
                         onClick={onClose}
                         className="mt-4 px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-500 rounded-md w-full transition-colors"
                     >
@@ -112,141 +349,21 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
         );
     }
 
-    const handleFileChange = (e) => {
-        const selectedFile = e.target.files[0];
-        validateAndSetFile(selectedFile);
-    };
-
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        setIsDragging(false);
-    };
-
-    const handleDrop = (e) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const droppedFile = e.dataTransfer.files[0];
-        validateAndSetFile(droppedFile);
-    };
-
-    const validateAndSetFile = (selectedFile) => {
-        if (selectedFile && selectedFile.type === 'application/pdf') {
-            setFile(selectedFile);
-            const sizeInMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
-            setFormData(prev => ({ ...prev, size: `${sizeInMB} MB` }));
-        } else {
-            alert('Please select a PDF file');
-        }
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-
-        if (!formData.clientId) {
-            alert('Please select a Client/Site.');
-            return;
-        }
-
-        if (!file) {
-            alert('Please select a file.');
-            return;
-        }
-
-        setUploading(true);
-
-        try {
-            const getUniqueFilename = async (clientId, originalName) => {
-                const baseName = originalName.replace(/\.[^/.]+$/, "");
-                const ext = originalName.split('.').pop();
-                let fileName = `${clientId}/${originalName}`;
-                let counter = 1;
-
-                const { data } = await supabase.storage
-                    .from('reports')
-                    .list(clientId, {
-                        search: originalName
-                    });
-
-                while (data && data.some(f => f.name === originalName)) {
-                    fileName = `${clientId}/${baseName}_${counter}.${ext}`;
-                    counter++;
-                }
-
-                return fileName;
-            };
-
-            const fileName = await getUniqueFilename(formData.clientId, file.name);
-
-            const { error: uploadError } = await supabase.storage
-                .from('Reports')
-                .upload(fileName, file, {
-                    cacheControl: '3600',
-                    upsert: false
-                });
-
-            if (uploadError) throw uploadError;
-
-            const reportPayload = {
-                title: formData.title,
-                filename: fileName,
-                description: formData.description,
-                type: formData.type,
-                status: formData.status,
-                date: new Date().toISOString().split('T')[0],
-                generatedby: formData.generatedBy,
-                size: formData.size,
-                category: formData.type,
-                client_id: formData.clientId
-            };
-
-            const result = await createReportRecord(reportPayload);
-
-            if (!result.success) throw new Error(result.error);
-
-            alert('Report uploaded successfully!');
-
-            setFormData({
-                title: '',
-                description: '',
-                type: 'insar',
-                status: 'Completed',
-                generatedBy: displayName || '',
-                clientId: ''
-            });
-            setFile(null);
-            e.target.reset();
-
-            router.refresh();
-            onClose(); // Close modal after successful upload
-
-        } catch (error) {
-            console.error('Error uploading:', error);
-            alert('Error uploading report: ' + error.message);
-        } finally {
-            setUploading(false);
-        }
-    };
-
     const inputClasses = "w-full p-2.5 bg-[var(--dtg-bg-secondary)] border border-[var(--dtg-border-medium)] rounded-[5px] text-[var(--dtg-text-primary)] text-sm outline-none focus:border-teal-500 transition-colors";
 
     return (
-        <div 
+        <div
             className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5"
-            onClick={onClose} // Close when clicking outside
+            onClick={onClose}
         >
-            <div 
-                className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5 shadow-2xl"
-                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+            <div
+                className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 gap-2.5 md:gap-0">
                     <h2 className="text-[var(--dtg-text-primary)] m-0 flex items-center gap-2.5 text-lg">
                         <Upload size={24} />
-                        Upload New Report
+                        Upload Files
                     </h2>
                     <button
                         onClick={onClose}
@@ -263,8 +380,8 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                         <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Client / Site *</label>
                         <select
                             required
-                            value={formData.clientId}
-                            onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                            value={selectedClientId}
+                            onChange={(e) => setSelectedClientId(e.target.value)}
                             className={`${inputClasses} cursor-pointer`}
                         >
                             <option value="">Select a Client</option>
@@ -276,74 +393,9 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                         </select>
                     </div>
 
-                    <div className="mb-4">
-                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Title *</label>
-                        <input
-                            type="text"
-                            required
-                            value={formData.title}
-                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                            placeholder="e.g., Monthly Deformation Analysis"
-                            className={inputClasses}
-                        />
-                    </div>
-
-                    <div className="mb-4">
-                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Description</label>
-                        <textarea
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            placeholder="Brief description of the report"
-                            rows={3}
-                            className={`${inputClasses} resize-y font-inherit`}
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Type *</label>
-                            <select
-                                required
-                                value={formData.type}
-                                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                                className={`${inputClasses} cursor-pointer`}
-                            >
-                                <option value="insar">InSAR</option>
-                                <option value="radar">Radar</option>
-                                <option value="prism">PRISM</option>
-                                <option value="vwp">VWP</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Status *</label>
-                            <select
-                                required
-                                value={formData.status}
-                                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                className={`${inputClasses} cursor-pointer`}
-                            >
-                                <option value="Completed">Completed</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Draft">Draft</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="mb-4">
-                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Generated By *</label>
-                        <input
-                            type="text"
-                            required
-                            value={formData.generatedBy}
-                            onChange={(e) => setFormData({ ...formData, generatedBy: e.target.value })}
-                            placeholder="Your name"
-                            className={inputClasses}
-                        />
-                    </div>
-
+                    {/* File Upload Area */}
                     <div className="mb-5">
-                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">PDF File *</label>
+                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-sm">Files *</label>
                         <div
                             className={`
                                 relative border-2 border-dashed rounded-[5px] p-5 text-center bg-[var(--dtg-bg-secondary)] cursor-pointer transition-colors duration-300
@@ -355,22 +407,179 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                         >
                             <input
                                 type="file"
-                                accept=".pdf"
-                                required
+                                multiple
                                 onChange={handleFileChange}
                                 className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
                             />
                             <Upload size={32} className="text-[var(--dtg-gray-400)] mb-2.5 mx-auto" />
                             <p className="text-[var(--dtg-gray-400)] m-0 text-sm">
-                                {file ? file.name : "Click or drag PDF file here"}
+                                Click or drag files here
                             </p>
-                            {file && (
-                                <p className="text-teal-500 text-xs mt-2.5 m-0">
-                                    ✓ {formData.size}
-                                </p>
-                            )}
+                            <p className="text-[var(--dtg-gray-500)] text-xs mt-1">
+                                Supports all file types • Multiple files allowed
+                            </p>
                         </div>
                     </div>
+
+                    {/* Files List */}
+                    {files.length > 0 && (
+                        <div className="mb-5 space-y-3">
+                            <h3 className="text-[var(--dtg-text-primary)] text-sm font-semibold mb-2">
+                                Files to Upload ({files.length})
+                            </h3>
+                            {files.map((fileItem, index) => (
+                                <div key={index} className="bg-[var(--dtg-bg-secondary)] border border-[var(--dtg-border-medium)] rounded-lg p-4">
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div className="flex items-center gap-2 flex-1">
+                                            {fileItem.recordType === 'reports' ? (
+                                                <FileText size={20} className="text-teal-500 flex-shrink-0" />
+                                            ) : (
+                                                <ImageIcon size={20} className="text-blue-500 flex-shrink-0" />
+                                            )}
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[var(--dtg-text-primary)] text-sm font-medium truncate">
+                                                    {fileItem.file.name}
+                                                </p>
+                                                <p className="text-[var(--dtg-gray-500)] text-xs">
+                                                    {fileItem.metadata.size} • {fileItem.recordType === 'reports' ? 'Report' : 'Image'} • {fileItem.bucket}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeFile(index)}
+                                            className="text-[var(--dtg-gray-400)] hover:text-red-500 transition-colors p-1"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+
+                                    {/* Metadata fields for reports */}
+                                    {fileItem.recordType === 'reports' && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Title</label>
+                                                <input
+                                                    type="text"
+                                                    value={fileItem.metadata.title}
+                                                    onChange={(e) => updateFileMetadata(index, 'title', e.target.value)}
+                                                    className={`${inputClasses} text-xs`}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Generated By</label>
+                                                <input
+                                                    type="text"
+                                                    value={fileItem.metadata.generatedby}
+                                                    onChange={(e) => updateFileMetadata(index, 'generatedby', e.target.value)}
+                                                    className={`${inputClasses} text-xs`}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Type</label>
+                                                <select
+                                                    value={fileItem.metadata.type}
+                                                    onChange={(e) => updateFileMetadata(index, 'type', e.target.value)}
+                                                    className={`${inputClasses} text-xs cursor-pointer`}
+                                                >
+                                                    <option value="insar">InSAR</option>
+                                                    <option value="radar">Radar</option>
+                                                    <option value="prism">PRISM</option>
+                                                    <option value="vwp">VWP</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Status</label>
+                                                <select
+                                                    value={fileItem.metadata.status}
+                                                    onChange={(e) => updateFileMetadata(index, 'status', e.target.value)}
+                                                    className={`${inputClasses} text-xs cursor-pointer`}
+                                                >
+                                                    <option value="Completed">Completed</option>
+                                                    <option value="Pending">Pending</option>
+                                                    <option value="Draft">Draft</option>
+                                                </select>
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Description</label>
+                                                <textarea
+                                                    value={fileItem.metadata.description}
+                                                    onChange={(e) => updateFileMetadata(index, 'description', e.target.value)}
+                                                    rows={2}
+                                                    className={`${inputClasses} text-xs resize-y font-inherit`}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Metadata fields for images */}
+                                    {fileItem.recordType === 'client_images' && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Type</label>
+                                                <select
+                                                    value={fileItem.metadata.type}
+                                                    onChange={(e) => updateFileMetadata(index, 'type', e.target.value)}
+                                                    className={`${inputClasses} text-xs cursor-pointer`}
+                                                >
+                                                    <option value="insar">InSAR</option>
+                                                    <option value="radar">Radar</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Category</label>
+                                                <input
+                                                    type="text"
+                                                    value={fileItem.metadata.category}
+                                                    onChange={(e) => updateFileMetadata(index, 'category', e.target.value)}
+                                                    className={`${inputClasses} text-xs`}
+                                                />
+                                            </div>
+
+                                            {/* Additional fields for MNDWI subcategory */}
+                                            {fileItem.metadata.subcategory === 'MNDWI' && (
+                                                <>
+                                                    <div>
+                                                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Rainfall (mm) *</label>
+                                                        <input
+                                                            required
+                                                            type="number"
+                                                            value={fileItem.metadata.rainfall || ''}
+                                                            onChange={(e) => updateFileMetadata(index, 'rainfall', e.target.value)}
+                                                            className={`${inputClasses} text-xs`}
+                                                            placeholder="Enter rainfall"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Water Surface Area - TSF7 (km2)*</label>
+                                                        <input
+                                                            required
+                                                            type="number"
+                                                            value={fileItem.metadata.tsf7 || ''}
+                                                            onChange={(e) => updateFileMetadata(index, 'tsf7', e.target.value)}
+                                                            className={`${inputClasses} text-xs`}
+                                                            placeholder="Enter Number"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Water Surface Area - TSF8 (km2)*</label>
+                                                        <input
+                                                            required
+                                                            type="number"
+                                                            value={fileItem.metadata.tsf8 || ''}
+                                                            onChange={(e) => updateFileMetadata(index, 'tsf8', e.target.value)}
+                                                            className={`${inputClasses} text-xs`}
+                                                            placeholder="Enter Number"
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="flex gap-3">
                         <button
@@ -382,10 +591,10 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                         </button>
                         <button
                             type="submit"
-                            disabled={uploading}
+                            disabled={uploading || files.length === 0}
                             className={`
                                 flex-1 p-3 text-white rounded-[5px] text-sm font-bold flex items-center justify-center gap-2.5 transition-colors duration-200
-                                ${uploading
+                                ${uploading || files.length === 0
                                     ? 'bg-[#525252] cursor-not-allowed'
                                     : 'bg-teal-500 hover:bg-teal-600 cursor-pointer'
                                 }
@@ -394,12 +603,12 @@ const AdminUpload = ({ onClose }) => {  // Add onClose prop
                             {uploading ? (
                                 <>
                                     <Loader size={16} className="animate-spin" />
-                                    Uploading...
+                                    Uploading {files.length} file(s)...
                                 </>
                             ) : (
                                 <>
                                     <Upload size={16} />
-                                    Upload Report
+                                    Upload {files.length > 0 ? `${files.length} file(s)` : 'Files'}
                                 </>
                             )}
                         </button>
