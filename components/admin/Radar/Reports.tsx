@@ -11,6 +11,7 @@ import { AvailabilityReportPreview } from '../../reports/AvailabilityReportPrevi
 import { SafetyReportPreview } from '../../reports/SafetyReportPreview';
 import AdminUpload from "@/components/admin/Reports/AdminUpload";
 import ReportList from "@/components/admin/Reports/ReportList";
+import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 
 interface Report {
   id: string;
@@ -72,8 +73,9 @@ const recentReports: Report[] = [
 
 function Reports() {
   const [showReportUpload, setReportUpload] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [viewingReport, setViewingReport] = useState<'alarm' | 'data-quality' | 'availability' | 'safety' | null>(null);
- 
+
   return (
     <div className="p-6 space-y-6 bg-[var(--dtg-bg-primary)] min-h-full">
       {/* Header */}
@@ -84,6 +86,7 @@ function Reports() {
         </div>
         <div className="flex items-center space-x-6">
           <Button
+            onClick={() => { setShowReportModal((a => !a)) }}
             variant="brand"
           >
             <FileBarChart className="w-4 h-4" />
@@ -139,6 +142,9 @@ function Reports() {
       </div>
       {showReportUpload &&
         <AdminUpload onClose={() => setReportUpload(false)} />}
+
+      {showReportModal &&
+        <ReportTemplateModal onClose={() => setShowReportModal(false)} />}
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <button
@@ -206,7 +212,7 @@ function Reports() {
         </button>
       </div>
 
-      <ReportList/>
+      <ReportList />
 
       {/* Report Templates */}
       <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">
