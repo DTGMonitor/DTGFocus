@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
-  FileBarChart, Download, FileText, Calendar, Clock, CheckCircle,
-  AlertTriangle, TrendingUp, Eye, Share2, Filter, Search
+  FileBarChart, FileText, Calendar, Clock, CheckCircle,
+  AlertTriangle, TrendingUp, RefreshCw
 } from 'lucide-react';
 import { Button } from "@/components/LandingPage/ui/button";
 import { ReportTemplate } from "@/components/reports/ReportTemplate";
@@ -75,6 +75,63 @@ function Reports() {
   const [showReportUpload, setReportUpload] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [viewingReport, setViewingReport] = useState<'alarm' | 'data-quality' | 'availability' | 'safety' | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [thisMonthCount, setThisMonthCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [lastMonthCount, setLastMonthCount] = useState(0);
+  const thisMonth = (new Date()).getMonth();
+  const thisYear = (new Date()).getFullYear();
+
+  //PASSING DATA
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const handleRefresh = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleReportLoaded = (reports: any[]) => {
+    setTotalCount(reports.length);
+    console.log(reports);
+    const thisMonthReports = reports.filter(report => {
+      const reportDate = new Date(report.date);
+      return reportDate.getMonth() === thisMonth &&
+        reportDate.getFullYear() === thisYear
+    }
+    );
+
+    const lastMonthReports = reports.filter(report => {
+      const reportDate = new Date(report.date);
+      if (thisMonth === 1) return
+      reportDate.getMonth() === thisMonth - 1 &&
+        reportDate.getFullYear() === thisYear - 1;
+      return reportDate.getMonth() === thisMonth - 1 &&
+        reportDate.getFullYear() === thisYear
+    }
+    );
+
+    const pendingReports = reports.filter(report =>
+      report.status.toLowerCase() === 'pending'
+    );
+    const completedReports = reports.filter(report =>
+      report.status.toLowerCase() === 'completed'
+    );
+
+    setThisMonthCount(thisMonthReports.length);
+    setPendingCount(pendingReports.length);
+    setCompletedCount(completedReports.length);
+    setLastMonthCount(lastMonthReports.length);
+  };
+
+  const percentageCompleted = completedCount / totalCount * 100;
+  const reportIncrement = thisMonthCount - lastMonthCount;
+  const getIncrementDisplay = (inc: number) => {
+    if (inc > 0) return {text:`+${inc}`, color: 'text-green-500'};
+    if (inc < 0) return {text:`${inc}`, color: 'text-orange-500'};
+     return {text:'0', color: 'text-[var(--dtg-gray-500)]'};
+  };
+  const reportIncDisplay = getIncrementDisplay(reportIncrement);
+
 
   return (
     <div className="p-6 space-y-6 bg-[var(--dtg-bg-primary)] min-h-full">
@@ -85,6 +142,13 @@ function Reports() {
           <p className="text-[var(--dtg-gray-500)] text-sm mt-1">Generate, view, and export system reports</p>
         </div>
         <div className="flex items-center space-x-6">
+          <Button
+            onClick={handleRefresh}
+            variant="brand"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh All
+          </Button>
           <Button
             onClick={() => { setShowReportModal((a => !a)) }}
             variant="brand"
@@ -109,7 +173,7 @@ function Reports() {
             <span className="text-[var(--dtg-gray-500)] text-sm">Total Reports</span>
             <FileText className="w-5 h-5 text-[#14b8a6]" />
           </div>
-          <div className="text-3xl text-[var(--dtg-text-primary)]">127</div>
+          <div className="text-3xl text-[var(--dtg-text-primary)]">{totalCount}</div>
           <div className="text-sm text-[var(--dtg-gray-500)] mt-1">Last 90 days</div>
         </div>
 
@@ -118,8 +182,8 @@ function Reports() {
             <span className="text-[var(--dtg-gray-500)] text-sm">This Month</span>
             <TrendingUp className="w-5 h-5 text-[#f97316]" />
           </div>
-          <div className="text-3xl text-[var(--dtg-text-primary)]">23</div>
-          <div className="text-sm text-green-500 mt-1">+8 vs last month</div>
+          <div className="text-3xl text-[var(--dtg-text-primary)]">{thisMonthCount}</div>
+          <div className={`text-sm ${reportIncDisplay.color} mt-1`}>{reportIncDisplay.text} vs last month</div>
         </div>
 
         <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5">
@@ -127,7 +191,7 @@ function Reports() {
             <span className="text-[var(--dtg-gray-500)] text-sm">Pending Review</span>
             <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
           </div>
-          <div className="text-3xl text-[var(--dtg-text-primary)]">5</div>
+          <div className="text-3xl text-[var(--dtg-text-primary)]">{pendingCount}</div>
           <div className="text-sm text-[var(--dtg-gray-500)] mt-1">Requires attention</div>
         </div>
 
@@ -136,8 +200,8 @@ function Reports() {
             <span className="text-[var(--dtg-gray-500)] text-sm">Completed</span>
             <CheckCircle className="w-5 h-5 text-[#10b981]" />
           </div>
-          <div className="text-3xl text-[var(--dtg-text-primary)]">122</div>
-          <div className="text-sm text-[var(--dtg-gray-500)] mt-1">96% completion rate</div>
+          <div className="text-3xl text-[var(--dtg-text-primary)]">{completedCount}</div>
+          <div className="text-sm text-[var(--dtg-gray-500)] mt-1">{percentageCompleted}% completion rate</div>
         </div>
       </div>
       {showReportUpload &&
@@ -212,7 +276,7 @@ function Reports() {
         </button>
       </div>
 
-      <ReportList />
+      <ReportList refreshTrigger={refreshTrigger} reportData={handleReportLoaded} />
 
       {/* Report Templates */}
       <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">

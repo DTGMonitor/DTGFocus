@@ -9,7 +9,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
 import { Input } from "@/components/LandingPage/ui/input";
 
-const ReportsList = () => {
+const ReportsList = ({refreshTrigger,reportData}) => {
     const { userSite, loading: siteLoading } = useUserSite();
 
     const clientId = userSite?.site?.id;
@@ -28,7 +28,7 @@ const ReportsList = () => {
         if (clientId || userRole === 'admin') {
             fetchReports(clientId);
         }
-    }, [clientId, userRole]);
+    }, [clientId, userRole, refreshTrigger]);
 
     const fetchReports = async (id) => {
         try {
@@ -50,8 +50,11 @@ const ReportsList = () => {
 
             if (error) throw error;
 
-            console.log("Reports Found:", data);
             setReports(data || []);
+
+            if (reportData) {
+                reportData(data || [])
+            }
         } catch (error) {
             console.error('Error Fetching Reports:', error);
         } finally {
@@ -101,6 +104,7 @@ const ReportsList = () => {
             alert('Could not generate preview: ' + error.message);
         }
     };
+    
 
     const filteredReports = reports.filter(report => {
         const matchesSearch = report.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||

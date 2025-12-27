@@ -78,8 +78,13 @@ const AdminUpload = ({ onClose }) => {
 
                 // Get the last day of the month
                 const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+                const formatDate = (dateObj) => dateObj.toLocaleDateString('en-CA');
+                const dayThisMonth = formatDate(new Date());
+                const thisMonth = new Date().getMonth()+1;
 
-                // Return date in YYYY-MM-DD format (last day of the month)
+                if (parseInt(month) === thisMonth)
+                    return dayThisMonth;
+
                 return `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
             }
             return null;
