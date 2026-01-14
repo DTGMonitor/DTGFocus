@@ -34,7 +34,6 @@ const ReportsList = ({refreshTrigger,reportData}) => {
         try {
             setLoading(true);
 
-            console.log(`Fetching reports. Role: ${userRole}, ClientID: ${id}`);
 
             let query = supabase
                 .from('reports')

@@ -19,7 +19,6 @@ function splitRadarName(radar) {
 
 function DeformationHeatmap({ heatmapUrl, radar }) {
   const [open, setOpen] = React.useState(false);
-
   return (
     <>
       <div
@@ -223,7 +222,6 @@ const DefCard = ({ def }) => {
     if (lower.includes("failure")) return "rgba(192,0,0,0.2)";
     return "rgba(71,212,90,0.2)";
   };
-
 
   return (
     <div

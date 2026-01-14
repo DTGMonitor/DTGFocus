@@ -33,18 +33,53 @@ export const legendData = {
 
 export const getRiskColor = (level: string) => {
   switch (level) {
-    case 'High': return 'bg-red-500/20 text-red-400 border-red-500/30';
-    case 'Medium': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-    case 'Low': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    case 'TARP 4': case 'Critical': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'TARP 3': case 'Sub-Optimal': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+    case 'TARP 2': case 'Acceptable': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    case 'TARP 1': case 'Optimal': return 'bg-green-500/20 text-green-400 border-green-500/30';
     default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
   }
 };
 
+export const getAlarmStatusColors = (level: number) => {
+  switch (level) {
+    case 5: return "bg-blue-500";
+    case 4: return "bg-purple-500";
+    case 3: return "bg-yellow-500";
+    case 2: return "bg-orange-500";
+    case 1: return "bg-red-500";
+    default: return 'bg-gray-500'
+  }
+};
+
+export const getStatusDotColors = (level: string) => {
+  switch (level) {
+    case "TARP 1": return "bg-green-500";
+    case "TARP 2": return "bg-yellow-500";
+    case "TARP 3": return "bg-orange-500";
+    case "TARP 4": return "bg-red-500";
+    default: return 'bg-gray-500'
+  }
+};
+
+export const getCardColors = (val = "") => {
+  const lower = val.toLowerCase();
+  if (lower.includes("regressive")) return "bg-green-500/20";
+  if (lower.includes("linear long-term")) return "bg-yellow-500/20";
+  if (lower.includes("linear")) return "bg-orange-500/20";
+  if (lower.includes("progressive")) return "bg-red-500/20";
+  if (lower.includes("rapid movement")) return "bg-red-700/20";
+  if (lower.includes("detachment")) return "bg-red-700/20";
+  if (lower.includes("failure")) return "bg-red-700/20";
+  return "bg-green-500/20";
+};
+
 export const getStatusColor = (status: string) => {
   switch (status) {
-    case 'Operational': return 'bg-green-500/20 text-green-400 border-green-500/30';
-    case 'Warning': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+    case 'Live': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    case 'Intermittent': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'Link Down': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'Lost Connection': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
   }
 };
@@ -95,5 +130,50 @@ export const getSeverityConfig = (severity: string) => {
       return { color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500', borderLeft: 'border-l-blue-500' };
     default:
       return { color: 'text-gray-400', bg: 'bg-gray-500/20', border: 'border-gray-500', borderLeft: 'border-l-gray-500' };
+  }
+};
+
+export const getOverallColor = (status: string, quality: string, risk: string) => {
+  const normalisedStatus = status?.toLowerCase();
+  const normalisedQuality = quality?.toLowerCase();
+  const normalisedRisk = risk?.toLowerCase();
+
+  if (normalisedStatus === 'lost connection') {
+    return {
+      bg: 'gray-500',
+      bgGradient: 'from-gray-500/10 to-gray-100/10'
+    }
+  }
+
+  if (normalisedQuality === 'critical' || normalisedRisk === 'tarp 4') {
+    return {
+      bg: 'red-500',
+      bgGradient: 'from-red-500/10 to-red-100/10'
+    }
+  }
+
+  if (normalisedQuality === 'sub-optimal' || normalisedRisk === 'tarp 3') {
+    return {
+      bg: 'orange-500',
+      bgGradient: 'from-orange-500/10 to-orange-100/10'
+    }
+  }
+
+  if (normalisedQuality === 'acceptable' || normalisedRisk === 'tarp 2') {
+    return {
+      bg: 'yellow-500',
+      bgGradient: 'from-yellow-500/10 to-yellow-100/10'
+    }
+  }
+
+  if (normalisedQuality === 'optimal' || normalisedRisk === 'tarp 1') {
+    return {
+      bg: 'green-500',
+      bgGradient: 'from-green-500/10 to-green-100/10'
+    }
+  }
+  return {
+    bg: 'gray-500',
+    bgGradient: 'from-gray-500/10 to-gray-100/10'
   }
 };

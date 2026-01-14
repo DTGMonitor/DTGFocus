@@ -25,6 +25,7 @@ export function useUserSite() {
                 .select(`
           role,
           displayname,
+          user_id,
           site:clients (
             id,
             site_name,
