@@ -26,8 +26,16 @@ interface RadarWallFolder {
     id: number;
     type: string;
     name: string;
-  };
+  }[] | any;
+};
+
+// 1. Add this interface above your component or with your other interfaces
+interface UserSiteData {
+  user_id: string;
+  // Add other properties if you know them, e.g., site_name: string;
 }
+
+
 
 const shifts = {
   DS: { label: 'Day Shift (07-18)', hours: ['07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18'], indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
@@ -39,7 +47,7 @@ function RadarMonitoring() {
   const [liveViewList, setLiveViewList] = useState<RadarWallFolder[]>([]);
   const [loadingLiveViewList, setLoadingLiveViewList] = useState(false);
   const [viewSensorDetail, setViewSensorDetail] = useState(false);
-  const [selectedSensor, setSelectedSensor] = useState(null);
+  const [selectedSensor, setSelectedSensor] = useState<RadarWallFolder | null>(null);
   const [selectedShift, setSelectedShift] = useState<'DS' | 'NS' | 'C'>(() => {
     const currentHour = new Date().getHours()
 
@@ -51,7 +59,7 @@ function RadarMonitoring() {
   );
 
   const [selectedStation, setSelectedStation] = useState("1");
-  const { userSite, loading: siteLoading } = useUserSite();
+  const { userSite, loading: siteLoading } = useUserSite() as { userSite: UserSiteData | null, loading: boolean };
   const userID = userSite?.user_id;
 
   const isCheckboxDisabled = (hourIndex: number) => {
@@ -282,9 +290,9 @@ function RadarMonitoring() {
   }, [selectedStation]);
 
   // ---- Handle Explore ----
-  const handleExplore = (wallFolderID) => {
+  const handleExplore = (wallFolderID: number) => {
     const wallFolderIDData = liveViewList.find((r) => r.wallfolder_id === wallFolderID);
-    setSelectedSensor(wallFolderIDData);
+    setSelectedSensor(wallFolderIDData || null);
     setViewSensorDetail(true)
   };
 
