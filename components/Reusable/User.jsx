@@ -199,25 +199,3 @@ export default function UserDropdown({
 
     );
 }
-
-/* --- Helpers --- */
-
-// Quick shade helper (very rough) to lighten/darken hex.
-// factor >1 lightens, <1 darkens.
-function shade(hex, factor = 1) {
-    const h = hex.replace("#", "");
-    if (h.length !== 6) return hex;
-    const num = parseInt(h, 16);
-    let r = ((num >> 16) & 0xff) * factor;
-    let g = ((num >> 8) & 0xff) * factor;
-    let b = (num & 0xff) * factor;
-    r = Math.min(255, Math.max(0, Math.round(r)));
-    g = Math.min(255, Math.max(0, Math.round(g)));
-    b = Math.min(255, Math.max(0, Math.round(b)));
-    return (
-        "#" +
-        [r, g, b]
-            .map((v) => v.toString(16).padStart(2, "0"))
-            .join("")
-    );
-}

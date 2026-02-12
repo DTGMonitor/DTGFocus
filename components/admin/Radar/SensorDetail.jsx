@@ -1,310 +1,1586 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { getCardColors, getStatusDotColors, getStatusColor, getRiskColor, getAlarmStatusColors, getOverallColor } from "@/config/statusConfig";
+import { getStatusColor, getRiskColor, getOverallColor } from "@/config/statusConfig";
 import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
 import {
-    X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert, Search
+    X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert,
+    Wrench, Check, Plus
 } from 'lucide-react';
 import { LocalTime } from "@/components/Reusable/Formatting";
-import { QualityTable } from "./DqpTable";
+import { QualityTable } from "./Dqp/DqpTable";
+import { ActionRequiredModal } from "./Dqp/ActionRequiredModal";
+import FeedbackModal from "./Dqp/FeedbackModal";
+import { Spinner, PageLoader } from "@/components/Reusable/Spinner";
+import DeformationList from "./Deformation/DeformationList";
+import AlarmList from "./Alarm/AlarmList";
+import { motion, AnimatePresence } from 'framer-motion';
+import { toUTC, fromUTC } from "@/utils/timezoneUtils";
+import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
+import toast, { Toaster } from 'react-hot-toast';
+import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 
+// Helper to compare TARP levels
+const getRiskPriority = (tarpString) => {
+    if (!tarpString) return 0;
+
+    const cleanTarp = tarpString.toUpperCase();
+
+    // Check specific strings
+    if (cleanTarp === 'TARP 4') return 4;
+    if (cleanTarp === 'TARP 3') return 3;
+    if (cleanTarp === 'TARP 2') return 2;
+    if (cleanTarp === 'TARP 1') return 1;
+
+    return 0; // "Normal" or no active TARP
+};
+
+const openOutlookDraft = (
+    subject,
+    body,
+    toGroup,
+    ccGroup
+) => {
+    const safeSubject = encodeURIComponent(subject);
+    const safeBody = encodeURIComponent(body);
+
+    const safeTo = encodeURIComponent(toGroup);
+    const safeCc = encodeURIComponent(ccGroup);
+
+    // Construct Link
+    let mailtoLink = `mailto:${safeTo}?subject=${safeSubject}&body=${safeBody}`;
+
+    if (safeCc) {
+        mailtoLink += `&cc=${safeCc}`;
+    }
+
+    window.location.href = mailtoLink;
+};
+
+const validateCompleteness = (dataList) => {
+    // 1. Define the ID for Alarms (from your CSV, Alarms is ID 6)
+    const ALARMS_PARENT_ID = 6;
+
+    // 2. Filter for invalid items
+    const missingItems = dataList.filter(item => {
+        const parentId = item.parameter?.parent_id;
+        if (parentId !== ALARMS_PARENT_ID && item.value === 'N/A') {
+            return true;
+        }
+        return false;
+    });
+
+    // 3. Handle the result
+    if (missingItems.length > 0) {
+        console.warn("Validation Failed: The following parameters are missing values:", missingItems);
+        return false;
+    }
+
+    console.log("Validation Passed: All required fields are filled.");
+    // setFormError(null);
+    return true;
+};
 
 const SensorDetail = ({
     sensor,
-    onClose
+    onClose,
+    onRefresh,
+    shift,
+    userSite,
+    timezone,
+    onUpdateComplete
 }) => {
+    const [isLoading, setIsLoading] = useState(false);
+    const userID = userSite?.user_id;
+    const userName = userSite?.displayname;
+    const [activeView, setActiveView] = useState('default');
+
+    // --- Data States ---
     const [deformationList, setDeformationList] = useState([]);
-    const [alarmRegionList, setAlarmRegionList] = useState([]);
     const [dqpList, setDqpList] = useState([]);
-    const [searchAlarmRegion, setSearchAlarmRegion] = useState('');
+
+    // --- Search States ---
     const [searchDeformation, setSearchDeformation] = useState('');
+
+    // --- Wrench/Folder Management States ---
+    const [showWrenchMenu, setShowWrenchMenu] = useState(false);
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+
+    // WallFolder for inputs
+    const wallFolderData = sensor.wallfolder?.find(wf => wf.id === sensor.wallfolder_id);
+    const [currentFolderName, setCurrentFolderName] = useState(wallFolderData?.name || "NA");
+    const [renameInput, setRenameInput] = useState(wallFolderData?.name || "");
+    const [newFolderInput, setNewFolderInput] = useState("");
+    const [newAreaInput, setNewAreaInput] = useState("");
+
     const now = new Date();
+    const menuRef = useRef(null);
+    const [crosscheckers, setCrosscheckers] = useState([]);
+    const [selectedCrosschecker, setSelectedCrosschecker] = useState('');
+
+    // --- Downtime States ---
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [targetStatus, setTargetStatus] = useState('');
+    const [localStatus, setLocalStatus] = useState(sensor.status);
+    const [localRisk, setLocalRisk] = useState(sensor.risk);
+    const [localQuality, setLocalQuality] = useState(sensor.quality);
+    const [localScore, setLocalScore] = useState(sensor.normalised_score);
+    const [loading, setLoading] = useState(false);
+    // NEW: Track if we are editing an existing downtime record
+    const [activeDowntimeId, setActiveDowntimeId] = useState(null);
+
+    // DQP
+    const [isDQPModalOpen, setIsDQPModalOpen] = useState(false);
+    const [pendingUpdate, setPendingUpdate] = useState(null);
+    const [sharedRegions, setSharedRegions] = useState([]);
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [feedbackModalData, setFeedbackModalData] = useState([]);
+    const [pendingOptimalUpdate, setPendingOptimalUpdate] = useState(null); // To resume the update after modal closes
+
+    // Report
+    const [showReportModal, setShowReportModal] = useState(false);
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const { data, error } = await supabase
-                    .from('def_records')
-                    .select('created_at, location,precursor, def_type, tarp_level, isactive, start, reported_by')
-                    .eq('wallfolder_id', sensor.wallfolder_id)
-                    .eq('isactive', "Yes")
-                    .order('created_at', { ascending: false });
+        setLocalStatus(sensor.status);
+        setLocalRisk(sensor.risk);
+        setLocalQuality(sensor.quality);
+        setLocalScore(sensor.normalised_score);
+    }, [sensor.status, sensor.risk, sensor.quality, sensor.normalised_score]);
 
-                if (error) throw error;
-                setDeformationList(data || [])
-            } catch (error) {
-                console.error('error fetching deformation list', error)
+    // Form State
+    const [formData, setFormData] = useState({
+        Type: targetStatus,
+        reason: 'Radar System Issue',
+        action: 'Check Fuel',
+        notes: '',
+        from: '',
+        to: '',
+        notificationTime: '',
+        siteEngineer: '',
+        crosscheckedBy: '',
+    });
+
+    // --- 1. Fetching Data Effects ---
+    const fetchDeformationRecords = useCallback(async () => {
+        if (!sensor?.wallfolder_id) return;
+        try {
+            const { data, error } = await supabase
+                .from('def_records')
+                .select('id, created_at, location, precursor, def_type, tarp_level, isactive, start, detected_by,alarm,crosschecked_by, notification_time, site_engineer, properties')
+                .eq('wallfolder_id', sensor.wallfolder_id)
+                .eq('isactive', "Yes")
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            setDeformationList(data || []);
+
+            // [NEW] Calculate Highest Risk from Active Records
+            if (data && data.length > 0) {
+                let maxPriority = 0;
+                let maxRiskLabel = 'TARP 1'; // Default if data exists but isn't TARP 1-4
+
+                data.forEach(record => {
+                    const priority = getRiskPriority(record.tarp_level);
+                    if (priority > maxPriority) {
+                        maxPriority = priority;
+                        maxRiskLabel = record.tarp_level; // e.g., "TARP 3"
+                    }
+                });
+
+                // Only set if we found a valid TARP level, otherwise keep it safe
+                setLocalRisk(maxPriority > 0 ? maxRiskLabel : 'TARP 1');
+            } else {
+                // No active records = Normal/Safe state
+                setLocalRisk('TARP 1');
             }
+
+        } catch (error) {
+            console.error('error fetching deformation list', error);
         }
-        fetchData()
-    }, [sensor.wallfolder_id]
-    );
+    }, [sensor.wallfolder_id]);
+
+    // Add this state to hold the parameter definitions
+    const [parameterMap, setParameterMap] = useState({});
+
+    // 1. Fetch the definitions (Map)
+    const fetchParameters = useCallback(async () => {
+        const { data, error } = await supabase
+            .from('parameters')
+            .select('id, name, parent_id, level, weight');
+
+        if (data) {
+            // Create a lookup object: { 9: { name: 'Data Availability', parentId: 2 }, ... }
+            const map = {};
+            data.forEach(p => map[p.id] = p);
+            setParameterMap(map);
+        }
+    }, []);
+
+    // 2. Fetch the values (Data) - Simplified Query
+    const fetchDataQuality = useCallback(async () => {
+        if (!sensor?.dqp_record_id) return;
+
+        // We don't need the complex join anymore, just the local parameter_id
+        const { data, error } = await supabase
+            .from('dqp_values')
+            .select(`
+            value,
+            value_numeric,
+            notes,
+            parameter_id,
+            image:client_images(image_url),
+            appendix,
+            caption
+        `)
+            .eq('dqp_record_id', sensor.dqp_record_id)
+            .order('parameter_id', { ascending: true });
+
+        // inside fetchDataQuality
+        if (error) {
+            console.error('error fetching dqp', error);
+        } else {
+            const mergedData = data.map(item => {
+                const paramDef = parameterMap[item.parameter_id];
+                return {
+                    ...item,
+                    // FORCE N/A: If value is null, undefined, or empty string, force it to "N/A"
+                    value: item.value || "N/A",
+                    parameter: {
+                        ...paramDef,
+                        parent: paramDef?.parent_id ? parameterMap[paramDef.parent_id] : null
+                    }
+                };
+            });
+            setDqpList(mergedData);
+
+            // Trigger validation immediately after setting data
+            validateCompleteness(mergedData);
+        }
+    }, [sensor.dqp_record_id, parameterMap]); // Dependency on parameterMap is key!
+
+    // 3. Load them in order
+    useEffect(() => {
+        fetchParameters().then(() => {
+            // Trigger values fetch only after map is ready
+        });
+    }, []);
 
     useEffect(() => {
-        const fetchData = async () => {
+        let isMounted = true;
+        const loadAll = async () => {
+            setIsLoading(true);
+            await Promise.all([
+                fetchDeformationRecords(),
+                fetchDataQuality()
+            ]);
+            if (isMounted) setIsLoading(false);
+        };
+        loadAll();
+        return () => { isMounted = false; };
+    }, [fetchDeformationRecords, fetchDataQuality]);
+
+    // Crosschecker
+    useEffect(() => {
+        const fetchUsers = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('alarm_regions')
-                    .select('name, isactive, alarmtype, priority ')
+                const targetNames = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
+                const { data, error } = await supabase.rpc('get_safe_crosscheckers', { target_names: targetNames });
+                if (error) throw error;
+                if (data) setCrosscheckers(data);
+            } catch (err) {
+                console.error("Error fetching crosscheckers:", err);
+            }
+        };
+        fetchUsers();
+    }, []);
+
+    // --- 2. Action Handlers for Wrench ---
+
+    const handleSaveRename = async () => {
+        if (!renameInput || renameInput === currentFolderName) {
+            setIsRenaming(false);
+            return;
+        }
+        const { error } = await supabase
+            .from('radar_wall_folders')
+            .update({ name: renameInput })
+            .eq('id', sensor.wallfolder_id);
+
+        if (!error) {
+            setCurrentFolderName(renameInput);
+            setIsRenaming(false);
+        } else {
+            toast.error("Error renaming folder");
+        }
+    };
+
+    const handleCreateFolder = async () => {
+        if (!newFolderInput || !newAreaInput) {
+            toast.error("Please enter both Name and Area");
+            return;
+        }
+        const { data, error } = await supabase
+            .rpc('create_wall_folder_with_defaults', {
+                _radar_id: sensor.id,
+                _name: newFolderInput,
+                _area: newAreaInput
+            });
+
+        if (!error) {
+            toast.success(`Folder "${newFolderInput}" created successfully!`);
+            setNewFolderInput("");
+            setNewAreaInput("");
+            setIsCreating(false);
+            setShowWrenchMenu(false);
+            if (onRefresh) await onRefresh();
+        } else {
+            console.error(error);
+            toast.error("Error creating folder. Check console.");
+        }
+    };
+
+    // --- REFACTORED STATUS CHANGE LOGIC ---
+
+    const formatForInput = (isoString) => {
+        if (!isoString) return '';
+        return new Date(isoString).toISOString().slice(0, 16);
+    };
+
+    const handleStatusChange = async (e) => {
+        const newStatus = e.target.value;
+        const currentStatus = sensor.status;
+        setTargetStatus(newStatus);
+
+        // Default: Assume new entry
+        setActiveDowntimeId(null);
+        const currentTime = new Date().toISOString().slice(0, 16);
+        let initialForm = {
+            Type: targetStatus,
+            reason: 'Radar System Issue',
+            action: 'Check Fuel',
+            notes: '',
+            from: fromUTC(currentTime),
+            to: '',
+            notificationTime: '',
+            siteEngineer: '',
+            crosscheckedBy: '',
+        };
+
+        // IF switching FROM a non-Live status, we fetch the existing open record
+        if (currentStatus !== 'Live') {
+            try {
+                const { data: activeRecord, error } = await supabase
+                    .from('downtime_records')
+                    .select('*')
                     .eq('wallfolder', sensor.wallfolder_id)
-                    .neq('isactive', "Inactive")
-                    .order('priority', { ascending: true });
+                    .is('to', null) // Check where 'to' is null (active)
+                    .order('from', { ascending: false })
+                    .limit(1)
+                    .single();
 
-                if (error) throw error;
-                setAlarmRegionList(data || [])
-            } catch (error) {
-                console.error('error fetching alarm region list', error)
+                if (activeRecord && !error) {
+                    setActiveDowntimeId(activeRecord.id); // capture ID for update
+                    initialForm = {
+                        Type: targetStatus,
+                        reason: activeRecord.reason || 'Radar System Issue',
+                        action: activeRecord.action || 'Check Fuel',
+                        notes: activeRecord.notes || '',
+                        from: formatForInput(activeRecord.from), // Fill existing start time
+                        to: newStatus === 'Live' ? currentTime : '', // Pre-fill end time if going Live
+                        notificationTime: formatForInput(activeRecord.notification_time),
+                        siteEngineer: activeRecord.site_engineer || '',
+                        crosscheckedBy: activeRecord.crosschecked_by || ''
+                    };
+                    if (activeRecord.crosschecked_by) setSelectedCrosschecker(activeRecord.crosschecked_by);
+                }
+            } catch (err) {
+                console.error("Error fetching active downtime:", err);
             }
         }
-        fetchData()
-    }, [sensor.wallfolder_id]
-    );
 
-    useEffect(() => {
-        const fetchData = async () => {
+        setFormData(initialForm);
+        setIsModalOpen(true);
+    };
+
+    const handleSubmit = async () => {
+        setLoading(true);
+        try {
+            // --- A. Logic for DQP Values ---
+            let snapshot = null;
+
+            // Get the latest DQP Record ID for this Wallfolder
+            const { data: dqpRecord, error: dqpError } = await supabase
+                .from('dqp_records')
+                .select('id')
+                .eq('wall_folder_id', sensor.wallfolder_id)
+                .order('created_time', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (dqpError && dqpError.code !== 'PGRST116') throw dqpError;
+
+            if (dqpRecord) {
+                const targetParamIds = [1, 2, 9];
+                // If going TO Link Down (and we are creating a NEW entry or updating to it)
+                if (targetStatus === 'Link Down') {
+                    // Fetch current values
+                    const { data: currentValues } = await supabase
+                        .from('dqp_values')
+                        .select('*')
+                        .eq('dqp_record_id', dqpRecord.id)
+                        .in('parameter_id', targetParamIds);
+
+                    // Only take a snapshot if one doesn't exist (creating new) 
+                    // or if explicitly overwriting (logic depends on your preference, usually on creation)
+                    if (!activeDowntimeId) {
+                        snapshot = currentValues;
+                    }
+
+                    const cleanReason = formData.reason.toLowerCase();
+
+                    await supabase
+                        .from('dqp_values')
+                        .update({ value: 'Critical', notes: `Link down due to ${cleanReason}` })
+                        .eq('dqp_record_id', dqpRecord.id)
+                        .in('parameter_id', targetParamIds);
+
+                } else if (targetStatus === 'Live') {
+                    // RESTORE VALUES
+                    // If we have an active ID, we fetch that specific record's snapshot.
+                    // If not (fallback), we search for the last Link Down record.
+
+                    let recordToRestoreFrom = null;
+
+                    if (activeDowntimeId) {
+                        const { data } = await supabase
+                            .from('downtime_records')
+                            .select('snapshot')
+                            .eq('id', activeDowntimeId)
+                            .single();
+                        recordToRestoreFrom = data;
+                    } else {
+                        // Fallback logic (your original logic)
+                        const { data } = await supabase
+                            .from('downtime_records')
+                            .select('snapshot')
+                            .eq('wallfolder', sensor.wallfolder_id)
+                            .eq('type', 'Link Down')
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .single();
+                        recordToRestoreFrom = data;
+                    }
+
+                    if (recordToRestoreFrom?.snapshot) {
+                        const restorePromises = recordToRestoreFrom.snapshot.map(item =>
+                            supabase
+                                .from('dqp_values')
+                                .update({ value: item.value, notes: item.notes, image: item.image, appendix: item.appendix, caption: item.caption })
+                                .eq('id', item.id)
+                        );
+                        await Promise.all(restorePromises);
+                    }
+                }
+            }
+
+            // --- B. Submit or Update Downtime Record ---
+
+            const utcFrom = formData.from ? toUTC(formData.from, timezone) : null;
+            const utcTo = formData.to ? toUTC(formData.to, timezone) : null;
+            const utcNotify = formData.notificationTime ? toUTC(formData.notificationTime, timezone) : null;
+            const submissionTime = new Date().toISOString();
+
+            // --- B. Submit Logic ---
+
+            // Scenario 1: Switching from one Down status to another (e.g., Lost -> Link Down)
+            if (activeDowntimeId && targetStatus !== 'Live' && targetStatus !== localStatus) {
+
+                // Step 1: Close the OLD record (using the new 'from' time as the old 'to' time)
+                const { error: closeError } = await supabase
+                    .from('downtime_records')
+                    .update({ to: utcFrom }) // The old failure ends when the new one starts
+                    .eq('id', activeDowntimeId);
+
+                if (closeError) throw closeError;
+
+                // Step 2: Insert the NEW record
+                const { error: insertError } = await supabase
+                    .from('downtime_records')
+                    .insert([{
+                        wallfolder: sensor.wallfolder_id,
+                        type: targetStatus, // New Status
+                        reason: formData.reason,
+                        action: formData.action,
+                        notes: formData.notes,
+                        from: utcFrom, // Starts at the user selected time
+                        to: null, // Still active
+                        detected_by: userID,
+                        crosschecked_by: selectedCrosschecker || null,
+                        notification_time: utcNotify,
+                        site_engineer: formData.siteEngineer,
+                        submission: submissionTime,
+                        // snapshot: snapshot // Include snapshot if your logic generated one
+                    }]);
+
+                if (insertError) throw insertError;
+
+            }
+            // Scenario 2: Going Live (Closing an active record)
+            else if (targetStatus === 'Live' && activeDowntimeId) {
+                const { error: updateError } = await supabase
+                    .from('downtime_records')
+                    .update({
+                        to: utcTo || submissionTime // Ensure we have a closing time
+                    })
+                    .eq('id', activeDowntimeId);
+
+                if (updateError) throw updateError;
+            }
+            // Scenario 3: Editing an existing record (No status change) or Creating brand new from Live
+            else {
+                // Prepare standard payload
+                const payload = {
+                    wallfolder: sensor.wallfolder_id,
+                    type: targetStatus,
+                    reason: formData.reason,
+                    action: formData.action,
+                    notes: formData.notes,
+                    from: utcFrom,
+                    to: targetStatus === 'Live' ? (utcTo || submissionTime) : null,
+                    detected_by: userID,
+                    crosschecked_by: selectedCrosschecker || null,
+                    notification_time: targetStatus === 'Live' ? null : utcNotify,
+                    site_engineer: targetStatus === 'Live' ? null : formData.siteEngineer,
+                };
+
+                // Add snapshot if it exists (from your DQP logic)
+                if (typeof snapshot !== 'undefined' && snapshot) {
+                    payload.snapshot = snapshot;
+                }
+
+                if (activeDowntimeId) {
+                    // Update existing (Edit mode)
+                    const { error: updateError } = await supabase
+                        .from('downtime_records')
+                        .update(payload)
+                        .eq('id', activeDowntimeId);
+                    if (updateError) throw updateError;
+                } else {
+                    // Insert new (Coming from Live)
+                    const { error: insertError } = await supabase
+                        .from('downtime_records')
+                        .insert([{ ...payload, submission: submissionTime }]);
+                    if (insertError) throw insertError;
+                }
+            }
+
+            // --- C. Update Radar Wall Folders ---
+            const { error: wallError } = await supabase
+                .from('radar_wall_folders')
+                .update({ type: targetStatus })
+                .eq('id', sensor.wallfolder_id);
+
+            if (wallError) throw wallError;
+
+            // --- D. INSERT WORK LOG (New) ---
             try {
-                const { data, error } = await supabase
-                    .from('dqp_values')
-                    .select('value,parameter:parameters!inner(id,name),notes')
-                    .eq('dqp_record_id', sensor.dqp_record_id)
-                    .order('parameter_id', { ascending: true })
 
-                if (error) throw error;
-                setDqpList(data || [])
+                // 2. Prepare Log Payload
+                const workLogPayload = {
+                    created_at: new Date().toISOString(),
+                    subject: `${targetStatus === 'Live' ? 1 : 3}`, // Fixed ID as requested
+                    wallfolder: sensor.wallfolder_id,
+                    location: sensor.area,
+                    category: `${targetStatus === 'Live' ? 'restored' : 'downtime'}`,
+                    action: `${targetStatus === 'Live' ? 'No action required' : formData.action}`, // Added 'Batch Insert' as the action name
+                    notes: `${targetStatus === 'Live' ? 'Connection restored' : targetStatus} record have been submitted`,
+                    submitted_by: userID
+                };
+
+                // 3. Insert Log (Non-blocking: if log fails, we still consider the import a success)
+                const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+                if (logError) console.error("Work Log Insert Failed:", logError);
+
+            } catch (logErr) {
+                console.warn("Failed to create work log, but alarms were saved.", logErr);
+            }
+
+            // [NEW] Update UI Immediately
+            await fetchDataQuality();
+            setLocalStatus(targetStatus);
+
+            const { data: parentRecord, error: parentError } = await supabase
+                .from('latest_radar_wall_folders')
+                .select('quality, normalised_score')
+                .eq('wallfolder_id', sensor.wallfolder_id)
+                .single();
+
+            if (!parentError && parentRecord) {
+                setLocalQuality(parentRecord.quality);
+                setLocalScore(parentRecord.normalised_score);
+            } else {
+                // Fallback to optimistic update if fetch fails
+                if (targetStatus === 'Link Down') { setLocalQuality('Critical'); }
+                if (targetStatus === 'Live') { setLocalQuality('Optimal'); }
+            }
+
+            toast.success('Status updated successfully');
+            setIsModalOpen(false);
+            if (onUpdateComplete) onUpdateComplete();
+
+            openOutlookDraft(emailSubject, emailBody, siteName, "DTG Engineers");
+
+        } catch (error) {
+            console.error('Error updating status:', error);
+            toast.error('Failed to update status. Check console.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const checkAndFetchFeedbackItems = async (item, newValue) => {
+        try {
+            // Ensure we have regions to check against
+            if (!sharedRegions || sharedRegions.length === 0) return false;
+
+            const regionIds = sharedRegions.map(r => r.id);
+
+            // Fetch 'Awaiting Feedback' items linked to the current regions
+            const { data, error } = await supabase
+                .from('alarm_improvement')
+                .select(`
+                *,
+                alarm_records!inner (
+                    alarm_region
+                )
+            `)
+                .eq('improvement_status', 'Awaiting Feedback')
+                // This 'in' filter combined with the !inner join ensures we only get 
+                // improvements related to the current wall folder's regions
+                .in('alarm_records.alarm_region', regionIds);
+
+            if (error) {
+                console.error("Error checking feedback items:", error);
+                return false; // Fail safe: proceed with update if DB errors
+            }
+
+            if (data && data.length > 0) {
+                // FOUND RECORDS: Open the specific Feedback Modal
+                setFeedbackModalData(data);
+                setPendingOptimalUpdate({ item, newValue }); // Save intent to update later
+                setIsFeedbackModalOpen(true);
+                return true; // We interrupted the flow
+            }
+
+            return false; // No records found, proceed as normal
+        } catch (err) {
+            console.error("Unexpected error in feedback check:", err);
+            return false;
+        }
+    };
+
+    const handleFeedbackSubmit = async (itemData) => {
+        const itemIds = Object.keys(itemData);
+
+        // 1. Process the individual ticket updates
+        if (itemIds.length > 0) {
+            try {
+                // Create an array of update promises so they run concurrently
+                const updatePromises = itemIds.map(id => {
+                    const { status, site_engineer } = itemData[id];
+                    return supabase // Using your browser client here
+                        .from('alarm_improvement')
+                        .update({
+                            improvement_status: status,
+                            site_action: new Date().toISOString(),
+                            site_engineer: status === 'Modified' ? site_engineer : ""
+                        })
+                        .eq('id', id);
+                });
+
+                // Wait for all updates to finish
+                const results = await Promise.all(updatePromises);
+
+                // Check if any of the individual updates threw an error
+                const failures = results.filter(result => result.error);
+                if (failures.length > 0) {
+                    console.error("Supabase Update Errors:", failures.map(f => f.error));
+                    throw new Error(`Failed to update ${failures.length} tickets. Check console for details.`);
+                }
+
             } catch (error) {
-                console.error('error fetching dqp list', error)
+                console.error("Failed to update feedback items:", error);
+                toast.error("Failed to update feedback tickets. Update paused.");
+                return; // Halt the DQP update if the database update fails
             }
         }
-        fetchData()
-    }, [sensor.dqp_record_id]
-    );
 
-    const wallFolder = sensor.wallfolder?.find(
-        wf => wf.id === sensor.wallfolder_id
-    );
+        // 2. Resume the original DQP update to 'Optimal'
+        if (pendingOptimalUpdate) {
+            const { item, newValue } = pendingOptimalUpdate;
+            const weight = item.parameter?.weight || item.parameters?.weight || 1;
+            const newNumeric = calculateNumericScore(newValue, weight);
 
-    const filteredAlarmRegions = alarmRegionList.filter(ar => {
-        const matchesSearch = ar.name?.toLowerCase().includes(searchAlarmRegion.toLowerCase())
-        return matchesSearch
-    }
-    );
+            await executeDirectUpdate(item, 'value', newValue, newNumeric);
+        }
 
-    const filteredDeformation = deformationList.filter(d => {
-        const matchesLocation = d.location?.toLowerCase().includes(searchDeformation.toLowerCase());
-        const matchesType = d.def_type?.toLowerCase().includes(searchDeformation.toLowerCase());
-        const matchesTarp = d.tarp_level?.toLowerCase().includes(searchDeformation.toLowerCase());
-        const matchesUser = d.reported_by?.toLowerCase().includes(searchDeformation.toLowerCase());
-        return matchesLocation || matchesTarp || matchesType || matchesUser
-    }
-    );
+        // --- D. INSERT WORK LOG (New) ---
+        try {
 
-    const overallColConfig = getOverallColor(sensor.status, sensor.quality, sensor.risk);
-    // 1. Define which parameters go into the FIRST table (Data Quality)
-    const primaryParams = [9, 11, 14, 6, 25];
-    const staticParams = [10, 12, 13, 15, 16, 17, 18, 19, 22, 27, 28];
+            // 2. Prepare Log Payload
+            const workLogPayload = {
+                created_at: new Date().toISOString(),
+                subject: 1, // Fixed ID as requested
+                wallfolder: sensor.wallfolder_id,
+                location: sensor.area,
+                category: `dqp`,
+                action: `No action required`, // Added 'Batch Insert' as the action name
+                notes: `Alarm improvement record have been updated`,
+                submitted_by: userID
+            };
 
-    // 2. Filter the data
-    const dataQualityData = dqpList.filter(item =>
-        primaryParams.includes(item.parameter?.id)
-    );
+            // 3. Insert Log (Non-blocking: if log fails, we still consider the import a success)
+            const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+            if (logError) console.error("Work Log Insert Failed:", logError);
 
-    // 3. Put everything else into the SECOND table (System Quality)
-    const systemQualityData = dqpList.filter(item =>
-        staticParams.includes(item.parameter?.id)
-    );
+        } catch (logErr) {
+            console.warn("Failed to create work log, but alarms were saved.", logErr);
+        }
+
+        // 3. Clean up the state
+        setIsFeedbackModalOpen(false);
+        setPendingOptimalUpdate(null);
+        setFeedbackModalData([]);
+    };
+
+    const handleFeedbackCancel = () => {
+        // Just close the modal and wipe the pending intent
+        setIsFeedbackModalOpen(false);
+        setPendingOptimalUpdate(null);
+        setFeedbackModalData([]);
+    };
+
+    const calculateNumericScore = (status, weight = 1) => {
+        switch (status) {
+            case 'Optimal':
+            case 'N/A': return 1 * weight;
+            case 'Acceptable': return 0.5 * weight;
+            case 'Sub-Optimal': return 0.25 * weight;
+            case 'Critical': return -1 * weight;
+            default: return 0;
+        }
+    };
+
+    const handleStatusRequest = async (item, field, newValue) => {
+        // 1. If updating NOTES, just do it.
+        if (field === 'notes') {
+            executeDirectUpdate(item, field, newValue);
+            return;
+        }
+
+        // --- [NEW] EXCEPTION FOR PARAMETERS 20 & 21 ---
+        const isAlarmParam = item.parameter?.id === 20 || item.parameter?.id === 21 || item.parameter_id === 20 || item.parameter_id === 21;
+        const isTurningOptimal = newValue === 'Optimal';
+        // Check if "Previous Value" was NOT Optimal and NOT N/A (meaning it was likely Action Req/Improvement Req)
+        const wasNotOptimal = item.value !== 'Optimal' && item.value !== 'N/A';
+
+        if (isAlarmParam && isTurningOptimal && wasNotOptimal) {
+            // We need to check for pending improvements before allowing this update
+            const hasPendingFeedback = await checkAndFetchFeedbackItems(item, newValue);
+
+            if (hasPendingFeedback) {
+                // Stop here. The modal opening logic is handled inside the helper function.
+                return;
+            }
+            // If false, we fall through to the standard logic below
+        }
+        // ----------------------------------------------
+
+        // --- [NEW] EXCEPTION FOR PARAMETERS 22-26 (Weather Recovery) ---
+        const paramId = item.parameter?.id || item.parameter_id;
+        const isWeatherParam = paramId >= 22 && paramId <= 26;
+
+        if (isWeatherParam && isTurningOptimal && wasNotOptimal) {
+            const notesLower = (item.notes || '').toLowerCase();
+            const hasWeatherNotes = notesLower.includes('weather') || notesLower.includes('atmospheric') || notesLower.includes('rainfall');
+
+            if (hasWeatherNotes) {
+                const cleanSensorName = `${sensor.radar_number} - ${sensor.site_name}`;
+                const emailSiteName = `"${sensor.site_name} [All]"` || "Unknown Site";
+
+                const subject = `Service Operating Normally on ${cleanSensorName}`;
+                const body = `Dear All,\n\nPlease be advised that the data quality on ${cleanSensorName} is now reliable for monitoring.\n\nWe will continue to monitor the system and will notify you if any new risks are detected.\n\n\nKind regards,\n${userName}`;
+
+                openOutlookDraft(subject, body, emailSiteName, "DTG Engineers");
+            }
+        }
+        // ---------------------------------------------------------------
+
+        // 2. If setting status to Optimal/N/A (Standard Path), skip modal, calculate score.
+        if (newValue === 'Optimal' || newValue === 'N/A') {
+            const weight = item.parameter?.weight || item.parameters?.weight || 1;
+            const newNumeric = calculateNumericScore(newValue, weight);
+
+            executeDirectUpdate(item, 'value', newValue, newNumeric);
+            return;
+        }
+
+        // 3. Otherwise (Setting to Improvement Required/Action Required), open the DQP modal
+        setPendingUpdate({ item, field, newValue });
+        setIsDQPModalOpen(true);
+    };
+
+    const executeDirectUpdate = async (item, field, newValue, newNumericValue = null) => {
+        const oldList = [...dqpList];
+
+        // 1. Optimistic Update
+        const updatedList = dqpList.map(row =>
+            row.parameter_id === item.parameter_id
+                ? {
+                    ...row,
+                    [field]: newValue,
+                    // Only update numeric if it was passed (i.e. we are updating status, not notes)
+                    ...(newNumericValue !== null && { value_numeric: newNumericValue }),
+                    ...(field === 'value' && { notes: null, image: null, appendix: null, caption: null })
+                }
+                : row
+        );
+        setDqpList(updatedList);
+
+        try {
+            // 2. Send to Supabase
+            const additionalPayload = field === 'value' ? { notes: null, image: null, appendix: null, caption: null } : {};
+            await updateSupabaseDqp(item, field, newValue, additionalPayload);
+
+            // [NEW] Work Log for Direct Updates
+            if (field === 'value') {
+                const workLogPayload = {
+                    created_at: new Date().toISOString(),
+                    subject: 1,
+                    wallfolder: sensor.wallfolder_id,
+                    location: sensor.area,
+                    category: 'dqp',
+                    action: 'No action required',
+                    notes: `${item.parameter?.name || 'Parameter'} has been updated to ${newValue}`,
+                    submitted_by: userID
+                };
+                const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+                if (logError) console.error("Work Log Insert Failed:", logError);
+            }
+
+            toast.success("Saved!");
+        } catch (error) {
+            console.error("Update failed", error);
+            setDqpList(oldList); // Revert on failure
+        }
+    };
+
+    // 2. Create the "Courier" function
+    // This function will be called by the Child
+    // Inside DqpPage.jsx
+    const handleRegionsLoaded = useCallback((regionsFromChild) => {
+        // Optional: Standardize the keys if the RPC names are different
+        const formattedRegions = regionsFromChild.map(r => ({
+            id: r.alarm_region_id,   // Adjust based on your actual RPC column name
+            name: r.name,
+            type: r.alarmtype
+        }));
+
+        setSharedRegions(formattedRegions);
+    }, []);
+
+    // 3. Modal Submission Handler (The complex one)
+    const handleModalSubmit = async (formData, item, targetStatus) => {
+        setIsDQPModalOpen(false); // Close immediately
+        const oldList = [...dqpList];
+
+        // Calculate score
+        const weight = item.parameter?.weight || item.parameters?.weight || 1;
+        const newNumeric = calculateNumericScore(targetStatus, weight);
+
+        // 1. Optimistic Update
+        const updatedList = dqpList.map(row =>
+            row.parameter_id === item.parameter_id
+                ? { ...row, value: targetStatus, value_numeric: newNumeric, notes: formData.notes }
+                : row
+        );
+        setDqpList(updatedList);
+        try {
+            const isAlarmItem = item.parameter?.id === 20 || item.parameter?.id === 21;
+            const rowsToInsert = [];
+
+            if (isAlarmItem) {
+                // Common data for all rows
+                const basePayload = {
+                    recommendation_submission: new Date().toISOString(),
+                    improvement_status: "Awaiting Feedback",
+                    type: formData.subject,
+                    issue: formData.issue,
+                    action: formData.action,
+                    alarm_mask: formData.alarmMask || null, // Only relevant for ID 21
+                };
+
+                // --- BRANCH A: ALARM ITEMS (Multi-row logic) ---
+                if (formData.alarmRegions.length > 0) {
+
+                    // Run queries in PARALLEL for speed
+                    const lookupPromises = formData.alarmRegions.map(async (regionId) => {
+                        const { data } = await supabase
+                            .from('alarm_records')
+                            .select('id')
+                            .eq('alarm_region', regionId) // Check THIS specific region
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+                        // Return the ID if found, otherwise null
+                        return data ? data.id : null;
+                    });
+
+                    // Wait for all checks to fini
+                    const foundRecordIds = await Promise.all(lookupPromises);
+                    // Build insert rows only for the ones that were found
+                    foundRecordIds.forEach((recordId) => {
+                        if (recordId) {
+                            rowsToInsert.push({
+                                ...basePayload,
+                                alarm_record: recordId, // Link to the specific record found
+                            });
+                        }
+                    });
+                    if (rowsToInsert.length === 0) {
+                        console.warn("Selected regions have no matching alarm_records. Skipping insert as requested.");
+                    }
+                }
+            }
+
+            // 2. Perform Batch Insert (if we have rows)
+            if (rowsToInsert.length > 0) {
+                const { error: insertError } = await supabase
+                    .from('alarm_improvement')
+                    .insert(rowsToInsert); // Supabase accepts an array for batch insert
+                if (insertError) throw insertError;
+            }
+
+            // --- NEW: Handle File Uploads ---
+            let uploadedImageId = null;
+            if (formData.files && formData.files.length > 0) {
+                const clientId = sensor.site_id || userSite?.site?.id;
+                const bucket = 'Radar';
+
+                for (const file of formData.files) {
+                    const fileName = `${clientId}/${new Date().toISOString().split('T')[0]}_${file.name}`;
+
+                    const { error: uploadError } = await supabase.storage
+                        .from(bucket)
+                        .upload(fileName, file, {
+                            cacheControl: '3600',
+                            upsert: false
+                        });
+
+                    if (uploadError) {
+                        console.error("Upload failed:", uploadError);
+                        continue;
+                    }
+
+                    const { data: imgData, error: dbError } = await supabase
+                        .from('client_images')
+                        .insert({
+                            client_id: clientId,
+                            image_url: fileName,
+                            type: 'radar',
+                            category: 'dqp',
+                            uploaded_at: new Date().toISOString(),
+                            uploadedby: userName,
+                            size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+                            date: new Date().toISOString().split('T')[0],
+                            subcategory: item.parameter?.name || null,
+                        })
+                        .select('id')
+                        .single();
+
+                    if (!dbError && imgData) {
+                        uploadedImageId = imgData.id;
+                    }
+                }
+            }
+
+            // 3. FINAL STEP: Update the DQP table with Status AND Score
+            // We reuse the same supabase helper to ensure consistency
+            const additionalPayload = { notes: formData.notes };
+            if (uploadedImageId) {
+                additionalPayload.image = uploadedImageId;
+            }
+            if (formData.appendix) {
+                additionalPayload.appendix = formData.appendix;
+            }
+            if (formData.caption) {
+                additionalPayload.caption = formData.caption;
+            }
+
+            await updateSupabaseDqp(item, 'value', targetStatus, additionalPayload);
+
+            // [NEW] Work Log for Modal Updates
+            const isRelocation = formData.subject === 'DSRA Relocation';
+            const logSubject = isRelocation ? 1 : 2;
+            const logAction = logSubject === 2 ? formData.action : null;
+            const dqpEmailPrefix = isRelocation ? "NOTIFICATION ONLY" : "ACTION REQUIRED";
+            const dqpEmailSubject = `[${dqpEmailPrefix}] ${formData.subject} on ${cleanSensor}`;
+            const dqpEmailBody = generateEmailBodyDQP(formData, cleanSensor, userName, crosscheckerName, sharedRegions);
+
+            const workLogPayload = {
+                created_at: new Date().toISOString(),
+                subject: logSubject,
+                wallfolder: sensor.wallfolder_id,
+                location: sensor.area,
+                category: 'dqp',
+                action: logAction,
+                notes: `${item.parameter?.name || 'Parameter'} has been updated to ${targetStatus}`,
+                submitted_by: userID
+            };
+            const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+            if (logError) console.error("Work Log Insert Failed:", logError);
+
+            toast.success("Success! Improvement record saved and DQP updated.");
+            openOutlookDraft(dqpEmailSubject, dqpEmailBody, siteName, "DTG Engineers");
+
+        } catch (error) {
+            console.error("Submission failed", error);
+            setDqpList(oldList);
+            toast.error("Failed to save improvement record.");
+        }
+
+    };
+
+    // Helper to keep code DRY
+    const updateSupabaseDqp = async (item, field, value, additionalPayload = {}) => {
+        // 1. Prepare the payload
+        const payload = { [field]: value };
+
+        // Merge additional payload if provided (e.g. notes)
+        if (additionalPayload && typeof additionalPayload === 'object') {
+            Object.assign(payload, additionalPayload);
+        }
+
+        // 2. If changing the STATUS ('value'), we MUST recalculate the numeric score
+        if (field === 'value') {
+            const score = calculateNumericScore(value);
+            // Ensure we have a weight (default to 0 if missing to prevent NaN)
+            const weight = parseFloat(item.parameter?.weight || item.parameters?.weight || 0);
+
+            // Apply your formula: Score * Weight
+            payload.value_numeric = score * weight;
+        }
+
+        // 3. Send update to Supabase
+        // This updates the CHILD (Level 2). The Postgres Trigger will handle the rest.
+        const { error } = await supabase
+            .from('dqp_values')
+            .update(payload)
+            .eq('dqp_record_id', sensor.dqp_record_id)
+            .eq('parameter_id', item.parameter_id);
+
+        if (error) {
+            console.error("Error updating DQP:", error);
+            throw error;
+        }
+
+        // 4. Wait for the Trigger (The "Hack")
+        // Triggers are fast, but not instant. 200ms is usually safe, 
+        // but if your server is under load, you might need 500ms.
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // 5. Fetch fresh data (UI Refresh)
+        await fetchDataQuality();
+
+        // 6. Fetch updated Parent Record (Score & Quality)
+        const { data: parentRecord, error: parentError } = await supabase
+            .from('latest_radar_wall_folders')
+            .select('quality, normalised_score')
+            .eq('wallfolder_id', sensor.wallfolder_id)
+            .single();
+
+        if (!parentError && parentRecord) {
+            setLocalQuality(parentRecord.quality);
+            setLocalScore(parentRecord.normalised_score);
+        }
+    };
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setShowWrenchMenu(false);
+                setIsCreating(false);
+            };
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [menuRef]);
+
+
+    // --- 3. Filtering Logic ---
+    const filteredDeformation = useMemo(() => {
+        return deformationList.filter(d => {
+            const lowerSearch = searchDeformation.toLowerCase();
+            return (
+                d.location?.toLowerCase().includes(lowerSearch) ||
+                d.def_type?.toLowerCase().includes(lowerSearch) ||
+                d.tarp_level?.toLowerCase().includes(lowerSearch) ||
+                d.reported_by?.toLowerCase().includes(lowerSearch)
+            );
+        })
+    }, [deformationList, searchDeformation]);
+
+    const overallColConfig = getOverallColor(localStatus, localQuality, localRisk);
+
+    // --- Email ---
+    const siteName = `"${sensor.site_name} [All]"` || "Unknown Site";
+    const cleanSensor = `${sensor.radar_number} - ${sensor.site_name}`;
+    const crosscheckerName = selectedCrosschecker ? `& ${selectedCrosschecker.full_name}` : "";
+    const logDetails = getWorkLogDetails(targetStatus, formData.notificationTime);
+    const emailSubject = `[${logDetails.subject}] ${targetStatus !== "Live" ? targetStatus : ""} on ${cleanSensor}`;
+    const emailBody = generateEmailBodyOthers(formData, targetStatus, cleanSensor, userName, crosscheckerName);
 
 
     return (
-        <div
-            className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5"
+        <div className="fixed inset-0 bg-[var(--dtg-bg-primary)]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={onClose}
         >
-            <div className="fixed inset-0 bg-[var(--dtg-bg-primary)]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="bg-[var(--dtg-bg-primary)] rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col border border-[var(--dtg-border-medium)]">
-                    {/* Header */}
-                    <div className={`bg-gradient-to-r ${overallColConfig.bgGradient} border-b border-[var(--dtg-border-medium)] p-6`}>
-                        <div className="flex items-start justify-between mb-4">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div
-                                        className={`w-2 h-12 rounded-full bg-${overallColConfig.bg}`}
-                                    />
-                                    <div>
-                                        <h1 className="text-3xl text-[var(--dtg-text-primary)]">{sensor.radar_number} - {sensor.area}, {sensor.site_name}</h1>
-                                        <p className="text-[var(--dtg-gray-500)] text-sm mt-1">{wallFolder?.name || "NA"}</p>
+            <Toaster position="top-center" reverseOrder={false} />
+            <div className="bg-[var(--dtg-bg-primary)] rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col border border-[var(--dtg-border-medium)]"
+                onClick={(e) => e.stopPropagation()}>
+
+                {/* --- HEADER SECTION --- */}
+                <div className={`bg-gradient-to-r ${overallColConfig.bgGradient} border-b border-[var(--dtg-border-medium)] p-6`}>
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className={`w-2 h-12 rounded-full bg-${overallColConfig.bg}`} />
+
+                                {/* Title and WallFolder Logic */}
+                                <div>
+                                    <h1 className="text-3xl text-[var(--dtg-text-primary)] font-bold">
+                                        {sensor.radar_number} - {sensor.area}, {sensor.site_name}
+                                    </h1>
+
+                                    <div className="flex gap-2 items-center mt-1 relative">
+
+                                        {/* INLINE EDIT MODE */}
+                                        {isRenaming ? (
+                                            <div className="flex items-center gap-2 bg-white/10 p-1 rounded">
+                                                <input
+                                                    autoFocus
+                                                    className="bg-transparent border-b border-white text-sm text-[var(--dtg-text-primary)] outline-none w-48"
+                                                    value={renameInput}
+                                                    onChange={(e) => setRenameInput(e.target.value)}
+                                                />
+                                                <button onClick={handleSaveRename} className="p-1 hover:bg-green-500/20 rounded text-green-400">
+                                                    <Check size={14} />
+                                                </button>
+                                                <button onClick={() => setIsRenaming(false)} className="p-1 hover:bg-red-500/20 rounded text-red-400">
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            // NORMAL VIEW
+                                            <p className="text-[var(--dtg-gray-500)] text-sm">
+                                                {currentFolderName}
+                                            </p>
+                                        )}
+
+                                        {/* WRENCH ICON & POPOVER */}
+                                        <div className="relative" ref={menuRef}>
+                                            <Wrench
+                                                className={`w-4 h-4 cursor-pointer transition-colors ${showWrenchMenu ? 'text-[var(--dtg-brand-orange)]' : 'text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]'}`}
+                                                onClick={() => setShowWrenchMenu(!showWrenchMenu)}
+                                            />
+
+                                            {/* THE POPOVER MENU */}
+                                            {showWrenchMenu && (
+                                                <div className="absolute top-6 left-0 w-64 bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] shadow-xl rounded-lg z-50 p-2 flex flex-col gap-1">
+
+                                                    {!isCreating ? (
+                                                        // DEFAULT MENU
+                                                        <>
+                                                            <button
+                                                                onClick={() => { setIsRenaming(true); setShowWrenchMenu(false); }}
+                                                                className="flex items-center gap-2 text-left px-3 py-2 hover:bg-[var(--dtg-bg-primary)] rounded text-sm text-[var(--dtg-text-primary)]"
+                                                            >
+                                                                <span>Rename Current</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setIsCreating(true)}
+                                                                className="flex items-center gap-2 text-left px-3 py-2 hover:bg-[var(--dtg-bg-primary)] rounded text-sm text-[var(--dtg-text-primary)]"
+                                                            >
+                                                                <Plus size={14} />
+                                                                <span>Add New Wallfolder</span>
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        // ADD NEW FOLDER FORM
+                                                        <div className="p-2 bg-[var(--dtg-bg-primary)]/50 rounded animate-in fade-in zoom-in-95 duration-200">
+                                                            {/* FOLDER NAME INPUT */}
+                                                            <div className="mb-2">
+                                                                <label className="text-xs font-semibold text-[var(--dtg-gray-500)] mb-1 block">
+                                                                    New Folder Name
+                                                                </label>
+                                                                <input
+                                                                    className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded p-1.5 text-sm text-[var(--dtg-text-primary)] outline-none focus:border-[var(--dtg-brand-orange)]"
+                                                                    placeholder="e.g. Stage 8 East"
+                                                                    value={newFolderInput}
+                                                                    onChange={(e) => setNewFolderInput(e.target.value)}
+                                                                    autoFocus
+                                                                />
+                                                            </div>
+
+                                                            {/* AREA INPUT (NEW) */}
+                                                            <div className="mb-3">
+                                                                <label className="text-xs font-semibold text-[var(--dtg-gray-500)] mb-1 block">
+                                                                    Area
+                                                                </label>
+                                                                <input
+                                                                    className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded p-1.5 text-sm text-[var(--dtg-text-primary)] outline-none focus:border-[var(--dtg-brand-orange)]"
+                                                                    placeholder="e.g. Open Pit"
+                                                                    value={newAreaInput}
+                                                                    onChange={(e) => setNewAreaInput(e.target.value)}
+                                                                />
+                                                            </div>
+                                                            <div className="flex justify-end gap-2">
+                                                                <button
+                                                                    onClick={() => setIsCreating(false)}
+                                                                    className="text-xs text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
+                                                                >
+                                                                    Back
+                                                                </button>
+                                                                <Button
+                                                                    onClick={handleCreateFolder}
+                                                                    variant="brand"
+                                                                    size="sm"
+                                                                    className="h-7 text-xs"
+                                                                >
+                                                                    Create
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            <button
-                                onClick={onClose}
-                                className="p-2 hover:bg-white/10 rounded-lg transition-all"
-                            >
-                                <X className="w-6 h-6 text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]" />
-                            </button>
                         </div>
-
-                        {/* Report Metadata */}
-                        <div className="grid grid-cols-4 gap-4">
-                            <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
-                                <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
-                                    <Calendar className="w-4 h-4" />
-                                    <span>Latest Check</span>
-                                </div>
-                                <p className="text-[var(--dtg-text-primary)] text-sm py-1.5"><LocalTime utcTime={sensor.created_time} format="full" /></p>
-                            </div>
-                            <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
-                                <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
-                                    <ListChecks className="w-4 h-4" />
-                                    <span>Data Quality</span>
-                                </div>
-                                <p className={`text-${getRiskColor(sensor.quality)} text-sm py-1.5`}>{sensor.quality}</p>
-                            </div>
-                            <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
-                                <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
-                                    <Wifi className="w-4 h-4" />
-                                    <span>Status</span>
-                                </div>
-                                <select
-                                    value={sensor.status}
-                                    className={`py-1.5 text-sm text-${getStatusColor(sensor.status)} bg-[var(--dtg-bg-card)] outline-none border-none w-full`}
-                                >
-                                    <option value="Live" className="text-[var(--dtg-text-primary)]">Live</option>
-                                    <option value="Link Down" className="text-[var(--dtg-text-primary)]">Link Down</option>
-                                    <option value="Lost Connection" className="text-[var(--dtg-text-primary)]">Lost Connection</option>
-                                    <option value="Intermittent Link Down" className="text-[var(--dtg-text-primary)]">Intermittent</option>
-                                </select>
-                            </div>
-                            <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
-                                <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
-                                    <TriangleAlert className="w-4 h-4" />
-                                    <span>Risk</span>
-                                </div>
-                                <p className={`text-${getRiskColor(sensor.risk)} text-sm py-1.5`}>{sensor.risk}</p>
-                            </div>
-                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-all"
+                        >
+                            <X className="w-6 h-6 text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]" />
+                        </button>
                     </div>
 
-                    {/* Report Content */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-[var(--dtg-bg-primary)]">
-                        <div className="max-w-5xl mx-auto space-y-6">
-                            <div className="flex gap-6">
-                                <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
-                                    <div className="flex w-full justify-between border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
-                                        <h2 className="text-xl">Deformation</h2>
-                                        <Button variant='orange'>+ New Record</Button>
-                                    </div>
-                                    {deformationList.length > 0 ?
-                                        <>
-                                            <div className="flex-1 relative">
-                                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
-                                                <Input
-                                                    value={searchAlarmRegion}
-                                                    onChange={(e) => setSearchDeformation(e.target.value)}
-                                                    placeholder="Search alarm regions..."
-                                                    className="pl-10 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]"
-                                                />
-                                            </div>
-                                            {filteredDeformation.map((item, index) => (
-                                                <div key={index} className={`flex flex-col gap-1 border rounded-lg p-3 ${getCardColors(item.def_type)}`}>
-                                                    <div className="flex gap-3 items-center text-sm">
-                                                        <span className={`w-4 h-4 rounded-xl ${getStatusDotColors(item.tarp_level)}`}></span>
-                                                        <p><strong>{item.tarp_level}</strong> | {item.def_type} - {item.location}</p>
-                                                    </div>
+                    {/* Report Metadata */}
+                    <div className="grid grid-cols-4 gap-4">
+                        <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
+                            <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
+                                <Calendar className="w-4 h-4" />
+                                <span>Latest Check</span>
+                            </div>
+                            <p className="text-[var(--dtg-text-primary)] text-sm py-1.5"><LocalTime utcTime={sensor.created_time} format="full" /></p>
+                        </div>
+                        <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
+                            <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
+                                <ListChecks className="w-4 h-4" />
+                                <span>Data Quality</span>
+                            </div>
+                            <div className="flex justify-between align-baseline">
+                                <p className={`text-${getRiskColor(localQuality)} text-sm py-1.5`}>{localQuality}</p> {/* Assuming localQuality is a string like "Optimal" */}
+                                <p className={`text-${getRiskColor(localQuality)} text-sm py-1.5`}>{(localScore * 100)?.toFixed(2)}%</p>
+                            </div>
+                        </div>
+                        <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
+                            <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
+                                <Wifi className="w-4 h-4" />
+                                <span>Status</span>
+                            </div>
+                            {/* --- The Trigger Dropdown --- */}
+                            <select
+                                value={localStatus}
+                                onChange={handleStatusChange}
+                                className={`py-1.5 text-sm text-${getStatusColor(localStatus)} bg-[var(--dtg-bg-card)] outline-none border-none w-full cursor-pointer`}
+                            >
+                                <option value="Live" className="text-[var(--dtg-text-primary)]">Live</option>
+                                <option value="Link Down" className="text-[var(--dtg-text-primary)]">Link Down</option>
+                                <option value="Lost Connection" className="text-[var(--dtg-text-primary)]">Lost Connection</option>
+                            </select>
 
-                                                    <div className="flex items-center gap-5 font-light text-xs text-[var(--dtg-text-secondary)]">
-                                                        <div className="flex items-center gap-1">
-                                                            <Calendar size={12} />
-                                                            <span>{new Date(item.created_at).toLocaleString()}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <span>Reported by: {item.reported_by}</span>
-                                                        </div>
-                                                    </div>
+                            {/* --- The Modal --- */}
+                            {isModalOpen && (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                                    <div className="bg-[var(--dtg-bg-card)] p-6 rounded-lg w-[500px] border border-gray-700 shadow-xl text-[var(--dtg-text-primary)]">
+                                        <h2 className="text-xl font-bold mb-4 border-b border-gray-600 pb-2">
+                                            {activeDowntimeId ? 'Update Status to: ' : 'Change Status to: '}
+                                            <span className={`text-${getStatusColor(targetStatus)}`}>{targetStatus}</span>
+                                        </h2>
+
+                                        <div className="space-y-3">
+
+                                            {/* Reason & Action (Row) */}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs text-gray-400">Reason</label>
+                                                    <select
+                                                        className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm"
+                                                        value={formData.reason}
+                                                        onChange={e => setFormData({ ...formData, reason: e.target.value })}
+                                                    >
+                                                        {['Radar System Issue', 'Maintenance', 'Relocation', 'Connection', 'PMP Issue'].map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
                                                 </div>
-                                            ))}
-                                        </>
-                                        : "No deformation recorded on this radar."}
-                                </div>
-
-                                <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
-                                    <div className="flex w-full justify-between border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
-                                        <h2 className="text-xl">Alarm</h2>
-                                        <Button variant='orange'>+ New Region</Button>
-                                    </div>
-                                    {alarmRegionList.length > 0 ?
-                                        <>
-                                            <div className="flex-1 relative">
-                                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
-                                                <Input
-                                                    value={searchAlarmRegion}
-                                                    onChange={(e) => setSearchAlarmRegion(e.target.value)}
-                                                    placeholder="Search alarm regions..."
-                                                    className="pl-10 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]"
-                                                />
+                                                <div>
+                                                    <label className="block text-xs text-gray-400">Action</label>
+                                                    <select
+                                                        className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm"
+                                                        value={formData.action}
+                                                        onChange={e => setFormData({ ...formData, action: e.target.value })}
+                                                    >
+                                                        {['Check Fuel', 'Check Connection', 'Site Action', 'Reboot PMP', 'Other'].map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
+                                                </div>
                                             </div>
-                                            <div className="max-h-[20vh] overflow-y-auto flex flex-col gap-2">
-                                                {filteredAlarmRegions.map((item, index) => (
-                                                    <div key={index} className={`border rounded-lg p-2`}>
-                                                        <div className="flex gap-3 items-center">
-                                                            <span className={`w-2 h-2 rounded-xl ${getAlarmStatusColors(item.priority)}`}>
-                                                            </span>
-                                                            <p className="text-sm"><strong>{item.name}</strong> | {item.isactive}</p>
+
+                                            {/* CONDITIONAL FIELDS: Only if NOT Live */}
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                {/* From Time */}
+                                                {targetStatus !== 'Live' && (
+                                                    <>
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400">From</label>
+                                                            <input
+                                                                type="datetime-local"
+                                                                className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm text-white"
+                                                                value={formData.from}
+                                                                onChange={e => setFormData({ ...formData, from: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </>
+                                                )}
+                                                {/* To Time */}
+                                                {targetStatus === 'Live' && (
+                                                    <>
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400">To (Est)</label>
+                                                            <input
+                                                                type="datetime-local"
+                                                                className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm text-white"
+                                                                value={formData.to}
+                                                                onChange={e => setFormData({ ...formData, to: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            {targetStatus !== 'Live' && (
+                                                <>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400">Notification Time</label>
+                                                            <input
+                                                                type="datetime-local"
+                                                                className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm text-white"
+                                                                value={formData.notificationTime}
+                                                                onChange={e => setFormData({ ...formData, notificationTime: e.target.value })}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs text-gray-400">Site Engineer</label>
+                                                            <input
+                                                                type="text"
+                                                                className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm"
+                                                                value={formData.siteEngineer}
+                                                                onChange={e => setFormData({ ...formData, siteEngineer: e.target.value })}
+                                                            />
                                                         </div>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        </>
-                                        : "No alarm region set on this radar."
-                                    }
+                                                </>
+                                            )}
+
+
+                                            {/* Notes */}
+                                            {targetStatus !== 'Live' && (
+                                                <>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Notes</label>
+                                                        <textarea
+                                                            className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm h-20"
+                                                            value={formData.notes}
+                                                            onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                                                        />
+                                                    </div>
+
+                                                    {/* Crosschecked By (Static) */}
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Crosschecked By</label>
+                                                        <select
+                                                            value={selectedCrosschecker}
+                                                            onChange={(e) => setSelectedCrosschecker(e.target.value)}
+                                                            className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                                                        >
+                                                            <option value="">-- Select User --</option>
+                                                            {crosscheckers.map((user) => (
+                                                                <option key={user.id} value={user.id}>{user.full_name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        {/* Buttons */}
+                                        <div className="flex justify-end gap-3 mt-6">
+                                            <button
+                                                onClick={() => setIsModalOpen(false)}
+                                                className="px-4 py-2 text-sm text-gray-300 hover:text-white"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={handleSubmit}
+                                                disabled={loading}
+                                                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded shadow-md disabled:opacity-50"
+                                            >
+                                                {loading ? 'Processing...' : (activeDowntimeId ? 'Update' : 'Submit')}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
+                            )}
+                        </div>
+                        <div className="bg-[var(--dtg-bg-card)]/50 rounded-lg p-3 border border-[var(--dtg-border-medium)]">
+                            <div className="flex items-center gap-2 text-[var(--dtg-gray-500)] text-sm mb-1">
+                                <TriangleAlert className="w-4 h-4" />
+                                <span>Risk</span>
+                            </div>
+                            <p className={`text-${getRiskColor(localRisk)} text-sm py-1.5`}>{localRisk}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* --- CONTENT BODY --- */}
+                <div className="flex-1 overflow-y-auto p-6 bg-[var(--dtg-bg-primary)]">
+                    {isLoading ? <PageLoader /> : (
+                        <div className="max-w-5xl mx-auto space-y-6">
+
+                            <div className="flex gap-6 overflow-hidden">
+                                <AnimatePresence mode="popLayout">
+                                    {/* DEFORMATION SECTION */}
+                                    {(activeView === 'default' || activeView === 'deformation') && (
+                                        <motion.div
+                                            key="deformation-panel"
+                                            layout
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            transition={{
+                                                type: "spring",
+                                                stiffness: 300,
+                                                damping: 30,
+                                                opacity: { duration: 0.2 }
+                                            }}
+                                            className="flex-1"
+                                        >
+                                            <DeformationList
+                                                sensor={sensor}
+                                                search={searchDeformation}
+                                                rawList={deformationList}
+                                                filtered={filteredDeformation}
+                                                onSearchChange={(e) => setSearchDeformation(e.target.value)}
+                                                crosscheckers={crosscheckers}
+                                                userSite={userSite}
+                                                isExpanded={activeView === 'deformation'}
+                                                onNewRecordClick={() => setActiveView('deformation')}
+                                                onClose={() => setActiveView('default')}
+                                                onSuccess={() =>
+                                                    fetchDeformationRecords()
+                                                }
+                                            />
+                                        </motion.div>
+                                    )}
+
+                                    {/* ALARM SECTION */}
+                                    {(activeView === 'default' || activeView === 'alarm') && (
+                                        <motion.div
+                                            key="alarm-panel"
+                                            layout
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            transition={{
+                                                type: "spring",
+                                                stiffness: 300,
+                                                damping: 30,
+                                                opacity: { duration: 0.2 }
+                                            }}
+                                            className="flex-1"
+                                        >
+                                            <AlarmList
+                                                sensor={sensor}
+                                                shift={shift}
+                                                timezone={timezone}
+                                                userID={userID}
+                                                crosscheckers={crosscheckers}
+                                                isExpanded={activeView === 'alarm'}
+                                                onBatchInsertClick={() => setActiveView('alarm')}
+                                                onClose={() => setActiveView('default')}
+                                                onRegionsLoaded={handleRegionsLoaded}
+                                            />
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
 
+                            {/* DQP TABLES */}
                             <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
                                 <h2 className="text-xl font-medium border-b border-[var(--dtg-border-medium)] mb-4 pb-2">Data Quality</h2>
-                                <QualityTable data={dataQualityData} />
-                            </div>
-                            <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
-                                <h2 className="text-xl font-medium border-b border-[var(--dtg-border-medium)] mb-4 pb-2">System Quality</h2>
-                                <QualityTable data={systemQualityData} />
-                            </div>
-                        </div>
-
-                    </div>
-
-                    {/* Footer Actions */}
-                    <div className="border-t border-[var(--dtg-border-medium)] p-4 bg-[var(--dtg-bg-card)]/50">
-                        <div className="flex items-center justify-between">
-                            <div className="text-sm text-[var(--dtg-gray-500)]">
-                                <span>Document ID: <LocalTime utcTime={now} format="telfer_report"/> Daily Report of {sensor.radar_number} - {sensor.site_name}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <Button
-                                    variant="outline">
-                                    <Printer className="w-4 h-4 mr-2" />
-                                    Print
-                                </Button>
-                                <Button
-                                    variant="outline">
-                                    <Mail className="w-4 h-4 mr-2" />
-                                    Email
-                                </Button>
-                                <Button
-                                    variant="brand"
-                                >
-                                    <Download className="w-4 h-4 mr-2" />
-                                    Download PDF
-                                </Button>
+                                <QualityTable data={dqpList} onUpdate={handleStatusRequest} />
+                                {/* The Modal */}
+                                <ActionRequiredModal
+                                    isOpen={isDQPModalOpen}
+                                    onClose={() => setIsDQPModalOpen(false)}
+                                    onSubmit={handleModalSubmit}
+                                    item={pendingUpdate?.item}
+                                    targetStatus={pendingUpdate?.newValue}
+                                    alarmRegions={sharedRegions} // Pass the list fetched in AlarmList
+                                />
+                                <FeedbackModal
+                                    isOpen={isFeedbackModalOpen}
+                                    onClose={handleFeedbackCancel}
+                                    data={feedbackModalData}
+                                    onSubmit={handleFeedbackSubmit}
+                                    regions={sharedRegions}
+                                />
                             </div>
                         </div>
+                    )}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="border-t border-[var(--dtg-border-medium)] p-4 bg-[var(--dtg-bg-card)]/50">
+                    <div className="flex items-center justify-between">
+                        <div className="text-sm text-[var(--dtg-gray-500)]">
+                            <span>Document ID: <LocalTime utcTime={now} format="telfer_report" /> Daily Report of {sensor.radar_number} - {sensor.site_name}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <Button variant="brand" onClick={() => setShowReportModal(true)}><Download className="w-4 h-4 mr-2" /> Generate PDF</Button>
+                        </div>
+                        {showReportModal &&
+                            <ReportTemplateModal onClose={() => setShowReportModal(false)} data={dqpList} sensor={sensor}/>}
                     </div>
                 </div>
             </div>
         </div >
     )
-
 }
 
 export default SensorDetail;

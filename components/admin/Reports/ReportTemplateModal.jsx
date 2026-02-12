@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { X, FileText, Calendar, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from "../../Reusable/useUserSite";
-import { InsarTemplate } from '@/components/admin/Reports/ReportTemplates';
-
+import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
+import { RadarTemplate } from '@/components/admin/Reports/RadarReportTemplates';
 // Report configuration
 const REPORT_CONFIG = {
     Insar: {
@@ -14,16 +14,23 @@ const REPORT_CONFIG = {
         title: 'Monthly Insar Water Body Report',
         description: 'InSAR hydrological - water body monitoring'
     },
+    Radar: {
+        table: 'client_images',
+        bucket: 'Radar',
+        template: 'RadarTemplate',
+        title: 'Daily Radar Deformation Report',
+        description: 'Radar deformation monitoring'
+    }
 };
 
 
 const ReportTemplateRenderer = ({ reportType, data, reportInfo }) => {
     const config = REPORT_CONFIG[reportType];
-    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : <div>Template not found</div>;
+    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} reportInfo={reportInfo} />:<div>Template not found</div>;
 };
 
 // --- 2. THE MODAL COMPONENT ---
-export default function ReportGeneratorModal({ onClose }) {
+export default function ReportGeneratorModal({ onClose, data, sensor }) {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
     const [generatedReport, setGeneratedReport] = useState(null);
@@ -70,9 +77,9 @@ export default function ReportGeneratorModal({ onClose }) {
 
     const [formData, setFormData] = useState({
         clientID: '',
-        reportType: 'Insar',
-        category: 'Water Body',
-        frequency: 'monthly',
+        reportType: 'Radar',
+        category: 'Data Quality',
+        frequency: '',
         startDate: formatDate(startDateObj), // "2024-12-26"
         endDate: formatDate(today),          // "2025-12-26"
     });
@@ -83,19 +90,22 @@ export default function ReportGeneratorModal({ onClose }) {
     const completeSiteName = `${siteName}, ${location}`
 
     const frequencies = [
-        { value: 'daily', label: 'Daily' },
-        { value: 'weekly', label: 'Weekly' },
-        { value: 'monthly', label: 'Monthly' }
+        { value: 'daily', label: 'Daily', alt: '24h' },
+        { value: 'weekly', label: 'Weekly',alt: '7d' },
+        { value: 'monthly', label: 'Monthly',alt: '30d' }
     ];
 
     const reportTypes = Object.keys(REPORT_CONFIG);
-    const categories = ['Water Body'];
+    const categories = ['Water Body','Deformation','Data Quality', 'Comprehensive'];
 
     //filename
     const rawDate = formData.endDate || new Date().toISOString().split('T')[0];
     const compactDate = rawDate.replaceAll('-', '').slice(2);
-    const freqLabel = frequencies.find(f => f.value === formData.frequency).label || 'Unknown';
-    const fileName = `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
+    const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
+    const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
+    const fileName = formData.category === 'Data Quality' ?
+        `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${siteName}.pdf`
+        :`${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
         const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
@@ -302,6 +312,23 @@ export default function ReportGeneratorModal({ onClose }) {
 
             if (uploadError) throw uploadError;
 
+            try {
+                const workLogPayload = {
+                    created_at: new Date().toISOString(),
+                    subject: 1,
+                    location: siteName,
+                    category: formData.category.toLowerCase(),
+                    action: 'No action required',
+                    notes: `${title} has been generated`,
+                    submitted_by: user?.id
+                };
+
+                const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+                if (logError) console.error("Work Log Insert Failed:", logError);
+            } catch (logErr) {
+                console.warn("Failed to create work log.", logErr);
+            }
+
             setMessage('Report generated successfully!');
         } catch (error) {
             console.error('Error:', error);
@@ -464,7 +491,7 @@ export default function ReportGeneratorModal({ onClose }) {
                                 <div className="grid grid-cols-3 gap-3">
                                     {frequencies.map(freq => (
                                         <button key={freq.value} type="button" onClick={() => handleInputChange('frequency', freq.value)} className={`px-4 py-2 rounded-lg border-2 transition-colors ${formData.frequency === freq.value ? 'border-[var(--dtg-primary-teal-dark)] bg-teal text-[var(--dtg-primary-teal-dark)]' : 'border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] hover:border-gray-400'}`} disabled={loading}>
-                                            {freq.label}
+                                            {freq.label || 'Unknown'}
                                         </button>
                                     ))}
                                 </div>

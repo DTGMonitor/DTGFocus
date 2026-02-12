@@ -1,0 +1,661 @@
+import { useState, useEffect } from 'react';
+import { supabase } from "@/lib/supabaseClient"; // Check your path
+import { X, Loader2, Save } from 'lucide-react';
+import { Button } from "@/components/LandingPage/ui/button"; // Check your path
+import { Input } from "@/components/LandingPage/ui/input"; // Check your path
+import { toUTC } from "@/utils/timezoneUtils"; // Check your path
+import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
+
+interface UserProfile {
+    id: string;
+    full_name: string;
+}
+
+interface AddDeformationFormProps {
+    sensor: any;
+    userID: string;
+    userName: string;
+    clientTimezone: string;
+    wallfolder: string;
+    crosscheckers: UserProfile[];
+    onClose: () => void;
+    onSuccess?: () => void;
+}
+
+const openOutlookDraft = (
+    subject: string,
+    body: string,
+    toGroup: string,   // e.g. "Site A Team"
+    ccGroup: string    // e.g. "DTG-Engineers"
+) => {
+    const safeSubject = encodeURIComponent(subject);
+    const safeBody = encodeURIComponent(body);
+
+    // We don't encode the group names because they might contain spaces 
+    // that Outlook handles better as raw text, but encoding is safer for URLs.
+    // If "DTG-Engineers" has no spaces, encodeURIComponent is fine.
+    const safeTo = encodeURIComponent(toGroup);
+    const safeCc = encodeURIComponent(ccGroup);
+
+    // Construct Link
+    let mailtoLink = `mailto:${safeTo}?subject=${safeSubject}&body=${safeBody}`;
+
+    if (safeCc) {
+        mailtoLink += `&cc=${safeCc}`;
+    }
+
+    window.location.href = mailtoLink;
+};
+
+const AddDeformationForm = ({
+    sensor,
+    userID,
+    userName,
+    clientTimezone,
+    crosscheckers,
+    onClose,
+    onSuccess
+}: AddDeformationFormProps) => {
+    const [isLoading, setIsLoading] = useState(false);
+
+    // 1. Unified Form State
+    const [formData, setFormData] = useState({
+        Type: "", // This drives the dynamic fields
+        WallFolderID: sensor.wallfolder_id,
+        Location: "",
+        Start: "",
+        Notes: "",
+        DetectedBy: userID,
+        CrosscheckedBy: "",
+        SiteEngineer: "",
+        NotificationTime: "",
+        NotificationBy: "",
+        SurfaceArea: "",
+        Vmax1: "",
+        Vmax2: ""
+        // ... dynamic fields will be added here loosely
+    });
+
+    // Helper to render the 3-column "Velocity Group" row
+    // Place this outside or inside your component
+    type FieldKey = keyof typeof FIELD_DEFINITIONS;
+
+    const renderVelocityRow = (
+        velKey: FieldKey,      // Primary velocity (Vmax or AverageVelocity)
+        vcpKey: FieldKey,      // VCP
+        unitKey: FieldKey,     // Unit
+        vminKey?: FieldKey     // OPTIONAL: Vmin (only for Progressive/Linear Acc)
+    ) => {
+        const def = FIELD_DEFINITIONS[velKey];
+        const vcpDef = FIELD_DEFINITIONS[vcpKey];
+        const unitDef = FIELD_DEFINITIONS[unitKey];
+        const vminDef = vminKey ? FIELD_DEFINITIONS[vminKey] : null;
+
+        // Helper to safely access formData
+        const getFormValue = (key: string) => (formData as any)[key];
+
+        const rawVcpValue = getFormValue(vcpKey);
+        const vcpValue = Number(rawVcpValue);
+
+        // Logic: If VCP exists, check if < 1440 for mm/h, else mm/d
+        const calculatedUnit = rawVcpValue ? (vcpValue < 1440 ? "mm/h" : "mm/d") : "-";
+
+        // Determine grid columns: 4 if Vmin exists, otherwise 3
+        const gridCols = vminKey ? "grid-cols-4" : "grid-cols-3";
+
+        return (
+            <div key={velKey} className="col-span-2 bg-zinc-900/50">
+                <div className={`grid ${gridCols} gap-4`}>
+
+                    {/* 3. VCP Input */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {vcpDef?.label || "VCP"}
+                        </label>
+                        <Input
+                            type="number"
+                            step="60"
+                            value={rawVcpValue || ''}
+                            onChange={(e) => handleChange(vcpKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+                    {/* 1. Vmin Input (Only rendered if vminKey is provided) */}
+                    {vminKey && (
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                {vminDef?.label || "Vmin"}
+                            </label>
+                            <Input
+                                type="number"
+                                step="0.1"
+                                value={getFormValue(vminKey) || ''}
+                                onChange={(e) => handleChange(vminKey, e.target.value)}
+                                className="bg-card"
+                            />
+                        </div>
+                    )}
+
+                    {/* 2. Velocity Input (Vmax or Average) */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {def?.label || velKey}
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.1"
+                            value={getFormValue(velKey) || ''}
+                            onChange={(e) => handleChange(velKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+                    {/* 4. Unit Display */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {unitDef?.label || "Unit"}
+                        </label>
+                        <div className="h-9 flex items-center px-3 rounded-md border border-zinc-700 bg-zinc-800 text-gray-300 text-sm font-mono">
+                            {calculatedUnit}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    useEffect(() => {
+        // Helper to safely parse and calculate 1/v
+        const calculateInverse = (val: string | number | undefined): string => {
+            if (!val) return "";
+            const num = Number(val);
+            if (isNaN(num) || num === 0) return "";
+            // Returns 4 decimal places (e.g. 0.0452)
+            return (1 / num).toFixed(4);
+        };
+
+        setFormData((prev: any) => { // Using 'any' for prev to allow dynamic key access
+            const updates: Record<string, string> = {};
+            let hasChanges = false;
+
+            // Check Vmax1 -> InverseVelocity1
+            if (prev.Vmax1) {
+                const newInv1 = calculateInverse(prev.Vmax1);
+                if (prev.InverseVelocity1 !== newInv1) {
+                    updates.InverseVelocity1 = newInv1;
+                    hasChanges = true;
+                }
+            }
+
+            // Check Vmax2 -> InverseVelocity2
+            if (prev.Vmax2) {
+                const newInv2 = calculateInverse(prev.Vmax2);
+                if (prev.InverseVelocity2 !== newInv2) {
+                    updates.InverseVelocity2 = newInv2;
+                    hasChanges = true;
+                }
+            }
+
+            return hasChanges ? { ...prev, ...updates } : prev;
+        });
+    }, [formData.Vmax1, formData.Vmax2]);
+
+    const renderInverseRow = (invKey: FieldKey, vcpKey: FieldKey, unitKey: FieldKey, resultKey: FieldKey) => {
+        const invDef = FIELD_DEFINITIONS[invKey];
+        const vcpDef = FIELD_DEFINITIONS[vcpKey];
+        const unitDef = FIELD_DEFINITIONS[unitKey];
+        const resultDef = FIELD_DEFINITIONS[resultKey];
+
+        // Helper to safely access formData with string keys
+        const getFormValue = (key: string): string | number => (formData as any)[key];
+
+        const rawVcpValue = getFormValue(vcpKey);
+        const vcpValue = Number(rawVcpValue);
+        const resultValue = getFormValue(resultKey);
+
+        // INVERSE UNIT LOGIC:
+        // If VCP < 1440 (daily minutes), unit is h/mm (hours per mm)
+        // Otherwise, unit is d/mm (days per mm)
+        const calculatedUnit = rawVcpValue
+            ? (vcpValue < 1440 ? "h/mm" : "d/mm")
+            : "-";
+
+        return (
+            <div key={invKey} className="col-span-2 bg-zinc-900/30">
+                <div className="grid grid-cols-4 gap-4">
+
+                    {/* Inverse Velocity Input */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {invDef?.label || "Inv. Velocity"}
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            // Value is derived, but allows manual override if needed (e.g. in Forecast mode)
+                            value={getFormValue(invKey) || ''}
+                            onChange={(e) => handleChange(invKey, e.target.value)}
+                            className="bg-card text-blue-300 border-blue-900/50 focus:border-blue-500"
+                        />
+                    </div>
+
+                    {/* VCP Input (Shared) */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {vcpDef?.label || "VCP"}
+                        </label>
+                        <Input
+                            type="number"
+                            step="60"
+                            value={rawVcpValue || ''}
+                            onChange={(e) => handleChange(vcpKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+                    {/* Inverted Unit Display */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {unitDef?.label || "Unit (Inv)"}
+                        </label>
+                        <div className="h-9 flex items-center px-3 rounded-md border border-zinc-700 bg-zinc-800 text-blue-300 text-sm font-mono">
+                            {calculatedUnit}
+                        </div>
+                    </div>
+
+                    {/* Forecast Input (Shared) */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {resultDef?.label || "Forecast Result"}
+                        </label>
+                        <Input
+                            type="datetime-local"
+                            value={resultValue || ''}
+                            onChange={(e) => handleChange(resultKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // Add this helper function alongside your others
+    const renderUnifiedVelocityRow = (
+        velKey: FieldKey,
+        invKey: FieldKey,
+        vcpKey: FieldKey,
+        unitKey: FieldKey
+    ) => {
+        // 1. Get Definitions
+        const velDef = FIELD_DEFINITIONS[velKey];
+        const invDef = FIELD_DEFINITIONS[invKey];
+        const vcpDef = FIELD_DEFINITIONS[vcpKey];
+
+        // 2. Get Values
+        const getFormValue = (key: string): string | number => (formData as any)[key];
+        const rawVcpValue = getFormValue(vcpKey);
+        const vcpValue = Number(rawVcpValue);
+
+        // 3. Calculate Units
+        // Standard: < 1440 ? mm/h : mm/d
+        const stdUnit = rawVcpValue ? (vcpValue < 1440 ? "mm/h" : "mm/d") : "-";
+        // Inverse:  < 1440 ? h/mm : d/mm
+        const invUnit = rawVcpValue ? (vcpValue < 1440 ? "h/mm" : "d/mm") : "-";
+
+        return (
+            <div key={velKey} className="col-span-1 bg-zinc-900/50">
+                {/* 4-Column Grid for Maximum Efficiency */}
+                <div className="grid grid-cols-3 gap-4">
+
+                    {/* 3. VCP Input */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {vcpDef?.label || "VCP"}
+                        </label>
+                        <Input
+                            type="number"
+                            step="60"
+                            value={rawVcpValue || ''}
+                            onChange={(e) => handleChange(vcpKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+                    {/* 1. Velocity Input */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {velDef?.label || velKey} ({stdUnit})
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.1"
+                            value={getFormValue(velKey) || ''}
+                            onChange={(e) => handleChange(velKey, e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+                    {/* 2. Inverse Velocity Input (Next to Referenced Velocity) */}
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            {invDef?.label || "Inv. Velocity"} ({invUnit})
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={getFormValue(invKey) || ''}
+                            onChange={(e) => handleChange(invKey, e.target.value)}
+                            className="bg-card text-blue-300 border-blue-900/30"
+                        />
+                    </div>
+
+                </div>
+            </div>
+        );
+    };
+
+    // --- Handle Input Change ---
+    const handleChange = (key: string, value: any) => {
+        setFormData(prev => ({ ...prev, [key]: value }));
+    };
+
+    // --- Submit Handler ---
+    const handleSubmit = async () => {
+        setIsLoading(true);
+        try {
+            // 1. Separate Fixed Columns from JSONB Properties
+            const fixedColumns = {
+                def_type: formData.Type,
+                created_at: new Date().toISOString(),
+                wallfolder_id: formData.WallFolderID ? parseInt(formData.WallFolderID) : null,
+                location: formData.Location,
+                isactive: "Yes",
+                tarp_level: currentConfig.tarp,
+                start: formData.Start ? toUTC(formData.Start, clientTimezone) : null, // Assuming toUTC handles string
+                notes: formData.Notes,
+                detected_by: formData.DetectedBy,
+                crosschecked_by: formData.CrosscheckedBy || null,
+                notification_time: formData.NotificationTime ? toUTC(formData.NotificationTime, clientTimezone) : null,
+                site_engineer: formData.SiteEngineer
+            };
+
+            // 2. Gather Dynamic Properties into a JSON object
+            // 2. Gather Dynamic Properties into a JSON object
+            const conditionalFields = currentConfig.fields; // Get fields from your new config
+            const properties: Record<string, any> = {};
+
+            conditionalFields.forEach(fieldKey => {
+                // Fix 1: Type Assertion. 
+                // We tell TS: "Trust me, this key exists on formData"
+                const rawValue = (formData as any)[fieldKey];
+                const def = FIELD_DEFINITIONS[fieldKey];
+
+                // Fix 2: Handle Empty Values cleanly
+                // If it's empty, save as NULL, not as "" string.
+                if (rawValue === "" || rawValue === undefined || rawValue === null) {
+                    properties[fieldKey] = null;
+                    return; // Skip the rest for this field
+                }
+
+                // Fix 3: Safer Number Conversion
+                if (def.type === 'number') {
+                    const numValue = parseFloat(rawValue);
+                    // If the user typed "abc", numValue is NaN. We shouldn't save NaN.
+                    properties[fieldKey] = isNaN(numValue) ? null : numValue;
+                } else {
+                    // Text, Dates, etc.
+                    properties[fieldKey] = rawValue;
+                }
+            });
+
+            // 3. Send to Supabase (Option 1: JSONB approach)
+            const { error } = await supabase
+                .from('def_records') // Your table name
+                .insert([{
+                    ...fixedColumns,
+                    properties: properties // All the conditional stuff goes here
+                }]);
+
+            if (error) throw error;
+            // --- D. INSERT WORK LOG (New) ---
+            try {
+
+                // 2. Prepare Log Payload
+                const workLogPayload = {
+                    created_at: new Date().toISOString(),
+                    subject: logDetails.id, // Fixed ID as requested
+                    wallfolder: sensor.wallfolder_id,
+                    location: formData.Location,
+                    category: 'deformation',
+                    action: 'As per site TARP', // Added 'Batch Insert' as the action name
+                    notes: `${formData.Type} have been submitted`,
+                    submitted_by: userID
+                };
+
+                // 3. Insert Log (Non-blocking: if log fails, we still consider the import a success)
+                const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+                if (logError) console.error("Work Log Insert Failed:", logError);
+
+            } catch (logErr) {
+                console.warn("Failed to create work log, but alarms were saved.", logErr);
+            }
+
+            if (onSuccess) onSuccess(); {
+                openOutlookDraft(emailSubject, emailBody, siteName, "DTG Engineers");
+            }
+
+        } catch (err: any) {
+            console.error(err);
+            alert("Error: " + err.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Calculate which fields to show based on current Type
+    const currentConfig = getConfigForType(formData.Type);
+    const cleanSensor = `${sensor.radar_number} - ${sensor.site_name}`;
+    const siteName = `"${sensor.site_name} [All]"` || "Unknown Site";
+    const selectedCrosschecker = crosscheckers.find(u => u.id === formData.CrosscheckedBy);
+    const crosscheckerName = selectedCrosschecker ? `& ${selectedCrosschecker.full_name}` : "";
+    const logDetails = getWorkLogDetails(currentConfig.tarp, formData.NotificationTime);
+    const emailSubject = generateEmailSubject(logDetails.subject, currentConfig.tarp, formData.Type, cleanSensor)
+    const emailBody = generateEmailBody(formData, cleanSensor, logDetails.subject, userName, crosscheckerName);
+    const visibleDynamicFields = currentConfig.fields;
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="flex justify-between items-center p-4 border-b">
+                <h2 className="text-lg font-bold">New Deformation Record</h2>
+                <button onClick={onClose}><X size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
+                {/* SECTION 1: MANDATORY (Yellow Columns) */}
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-1">
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Type *</label>
+                        <select
+                            className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                            value={formData.Type}
+                            onChange={(e) => handleChange("Type", e.target.value)}
+                        >
+                            <option value="">-- Select Type --</option>
+                            {Object.keys(TYPE_MATRIX).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Common Fixed Fields */}
+                    <SimpleField label="Time of Event/Trend Start Time" type="datetime-local" value={formData.Start} onChange={(v: any) => handleChange("Start", v)} />
+                    <SimpleField label="Location" value={formData.Location} onChange={(v: any) => handleChange("Location", v)} />
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            Surface Area (m2)
+                        </label>
+                        <Input
+                            type="number"
+                            step="0.1"
+                            value={formData.SurfaceArea}
+                            onChange={(e) => handleChange("SurfaceArea", e.target.value)}
+                            className="bg-card"
+                        />
+                    </div>
+
+
+                    <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Notes</label>
+                        <textarea
+                            className="w-full border rounded p-2 text-sm bg-transparent"
+                            rows={2}
+                            value={formData.Notes}
+                            onChange={(e) => handleChange("Notes", e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                {/* SECTION 2: DYNAMIC FIELDS */}
+                {formData.Type && visibleDynamicFields.length > 0 && (
+                    <div className="border-t pt-4">
+                        <h3 className="text-sm font-bold text-blue-500 mb-3 uppercase tracking-wider">
+                            {formData.Type} Parameters
+                        </h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            {visibleDynamicFields.map((fieldKey) => {
+                                // --- SKIP LIST ---
+                                // 1. Skip secondary fields (VCP, Unit)
+                                if (['VCP1', 'Unit1', 'VCP2', 'Unit2', 'VCP', 'Vmax'].includes(fieldKey)) {
+                                    return null;
+                                }
+
+                                // 2. Skip Inverse fields IF they are already being handled by a Vmax group
+                                //    (This prevents them from appearing twice in Failure mode)
+                                const hasVmax1 = visibleDynamicFields.includes('Vmax1');
+                                const hasVmax2 = visibleDynamicFields.includes('Vmax2');
+
+                                if (fieldKey === 'InverseVelocity1' && hasVmax1) return null;
+                                if (fieldKey === 'InverseVelocity2' && hasVmax2) return null;
+
+
+                                // --- RENDER BLOCKS ---
+
+                                // A. UNIFIED GROUPS (Failure Mode: Vmax + Inv + VCP)
+                                if (fieldKey === 'Vmax1') {
+                                    return renderUnifiedVelocityRow('Vmax1', 'InverseVelocity1', 'VCP1', 'Unit1');
+                                }
+                                if (fieldKey === 'Vmax2') {
+                                    return renderUnifiedVelocityRow('Vmax2', 'InverseVelocity2', 'VCP2', 'Unit2');
+                                }
+
+                                // B. PROGRESSIVE / LINEAR (Vmin + Vmax + VCP)
+                                if (fieldKey === 'Vmin') {
+                                    return renderVelocityRow('Vmax', 'VCP', 'Unit1', 'Vmin');
+                                }
+
+                                // C. LINEAR (Average + VCP)
+                                if (fieldKey === 'AverageVelocity') {
+                                    return renderVelocityRow('AverageVelocity', 'VCP', 'Unit1');
+                                }
+
+                                // D. STANDALONE INVERSE (Forecast Mode: Inv + VCP only)
+                                //    (This runs only if Vmax1/Vmax2 were NOT found, thanks to the skip list above)
+                                if (fieldKey === 'InverseVelocity1') {
+                                    return renderInverseRow('InverseVelocity1', 'VCP1', 'Unit1', 'ForecastResult1');
+                                }
+                                if (fieldKey === 'InverseVelocity2') {
+                                    return renderInverseRow('InverseVelocity2', 'VCP2', 'Unit2', 'ForecastResult2');
+                                }
+
+                                // --- STANDARD FIELDS ---
+                                const def = FIELD_DEFINITIONS[fieldKey as FieldKey];
+                                return (
+                                    <div key={fieldKey}>
+                                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                            {def?.label || fieldKey}
+                                        </label>
+                                        <Input
+                                            type={def?.type || "text"}
+                                            step={(def as any)?.step || "any"}
+                                            value={formData[fieldKey as keyof typeof formData] || ''}
+                                            onChange={(e) => handleChange(fieldKey, e.target.value)}
+                                            className="bg-card"
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* SECTION 3: PEOPLE (Fixed) */}
+                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Crosschecked By</label>
+                        <select
+                            className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                            value={formData.CrosscheckedBy}
+                            onChange={(e) => handleChange("CrosscheckedBy", e.target.value)}
+                        >
+                            <option value="">-- Select --</option>
+                            {crosscheckers.map((u: any) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                        </select>
+                    </div>
+                    {/* NOTIFICATION SECTION (Conditional) */}
+                    {(formData.Type === "Progressive" || formData.Type === "Linear Accelerating" || formData.Type === "Linear") && (
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="text-xs text-zinc-400 mb-1 block">Notification By</label>
+                                <select
+                                    value={formData.NotificationBy || ""}
+                                    onChange={(e) => handleChange("NotificationBy", e.target.value)}
+                                    className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                                >
+                                    <option value="">-- Select --</option>
+                                    <option value="Phone Call">Phone Call</option>
+                                    <option value="TeamViewer">Team Viewer</option>
+                                    <option value="WhatsApp">WhatsApp</option>
+                                </select>
+
+                            </div>
+                            <SimpleField label="Notification Time" type="datetime-local" value={formData.NotificationTime} onChange={(v: any) => handleChange("NotificationTime", v)} />
+                            <SimpleField label="Site Engineer" value={formData.SiteEngineer} onChange={(v: any) => handleChange("SiteEngineer", v)} />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t flex justify-end gap-2">
+                <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button onClick={handleSubmit} disabled={isLoading || !formData.Type}>
+                    {isLoading ? <Loader2 className="animate-spin" /> : <><Save size={16} className="mr-2" /> Save Record</>}
+                </Button>
+            </div>
+        </div>
+    );
+};
+
+// Simple helper component to reduce clutter
+const SimpleField = ({ label, type = "text", value, onChange }: any) => (
+    <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+        <Input
+            type={type}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="bg-card w-full"
+            // This allows clicking the text/input body to open the calendar
+            onClick={(e) => {
+                if (type === 'datetime-local' || type === 'date') {
+                    // @ts-ignore
+                    e.target.showPicker && e.target.showPicker();
+                }
+            }}
+        />
+    </div>
+);
+
+export default AddDeformationForm;

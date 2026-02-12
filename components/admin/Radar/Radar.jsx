@@ -20,9 +20,6 @@ const getComponentKeyFromPath = (path) => {
 
 const components = {
     RadarMonitoring: <RadarMonitoring/>,
-    AlarmSummary: <AlarmSummary />,
-    Availability: <Availability />,
-    DataQuality: <DataQuality />,
     Notifications: <Notifications />,
     Reports: <Reports />
 };

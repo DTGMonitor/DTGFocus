@@ -80,7 +80,7 @@ const AdminUpload = ({ onClose }) => {
                 const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
                 const formatDate = (dateObj) => dateObj.toLocaleDateString('en-CA');
                 const dayThisMonth = formatDate(new Date());
-                const thisMonth = new Date().getMonth()+1;
+                const thisMonth = new Date().getMonth() + 1;
 
                 if (parseInt(month) === thisMonth)
                     return dayThisMonth;
@@ -94,13 +94,14 @@ const AdminUpload = ({ onClose }) => {
 
         // Check if it's a monthly report PDF
         const monthlyReportRegex = /.*_Monthly_Report_.*\.pdf$/i;
-        if (monthlyReportRegex.test(filename)) {
+        const bulletinRegex = /.*_InSAR_Bulletin.*\.pdf$/i;
+        if (monthlyReportRegex.test(filename) || bulletinRegex.test(filename)) {
             return {
                 file: file,
                 recordType: 'reports',
                 bucket: 'Reports',
                 metadata: {
-                    title: 'Monthly Deformation Report',
+                    title: bulletinRegex.test(filename) ? 'Bulletin' : 'Monthly Deformation Report',
                     description: 'InSAR ground displacement monitoring',
                     type: 'insar',
                     status: 'Completed',
@@ -228,6 +229,8 @@ const AdminUpload = ({ onClose }) => {
 
         try {
             const results = [];
+            const uploadedFiles = [];
+            const client = clientsList.find(c => String(c.id) === String(selectedClientId));
 
             for (const fileItem of files) {
                 try {
@@ -289,10 +292,44 @@ const AdminUpload = ({ onClose }) => {
                         if (dbError) throw dbError;
                     }
 
+                    uploadedFiles.push(fileItem);
                     results.push({ success: true, filename: fileItem.file.name });
                 } catch (error) {
                     console.error(`Error uploading ${fileItem.file.name}:`, error);
                     results.push({ success: false, filename: fileItem.file.name, error: error.message });
+                }
+            }
+
+            if (uploadedFiles.length > 0) {
+                const uploadsByCategory = uploadedFiles.reduce((acc, item) => {
+                    const cat = item.metadata.category || 'Uncategorized';
+                    if (!acc[cat]) acc[cat] = [];
+                    acc[cat].push(item.file.name);
+                    return acc;
+                }, {});
+
+                for (const [category, filenames] of Object.entries(uploadsByCategory)) {
+                    try {
+                        const notes = filenames.length === 1
+                            ? `${filenames[0]} has been uploaded`
+                            : `${filenames.length} files uploaded: ${filenames.join(', ')}`;
+
+                        const workLogPayload = {
+                            created_at: new Date().toISOString(),
+                            subject: 1,
+                            location: client?.site_name || 'Unknown',
+                            category: category,
+                            action: 'No action required',
+                            type: 'insar',
+                            notes: notes,
+                            submitted_by: user?.id
+                        };
+
+                        const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
+                        if (logError) console.error("Work Log Insert Failed:", logError);
+                    } catch (logErr) {
+                        console.warn("Failed to create work log.", logErr);
+                    }
                 }
             }
 

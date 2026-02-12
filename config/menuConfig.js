@@ -24,9 +24,9 @@ export const homeMenuItems = [
 export const adminMenuItems = [
   { label: "RADAR MONITORING", path: "/admin/Radar/RadarMonitoring", icon: "LuClock4" },
   { label: "NOTIFICATIONS", path: "/admin/Radar/Notifications", icon: "FaRegBell" },
-  { label: "ALARM SUMMARY", path: "/admin/Radar/AlarmSummary", icon: "PiWarning" },
-  { label: "DATA QUALITY", path: "/admin/Radar/DataQuality", icon: "PiPulse" },
-  { label: "AVAILABILITY", path: "/admin/Radar/Availability", icon: "FiTrendingUp" },
+  //{ label: "ALARM SUMMARY", path: "/admin/Radar/AlarmSummary", icon: "PiWarning" },
+  //{ label: "DATA QUALITY", path: "/admin/Radar/DataQuality", icon: "PiPulse" },
+  //{ label: "AVAILABILITY", path: "/admin/Radar/Availability", icon: "FiTrendingUp" },
   { label: "REPORTS", path: "/admin/Radar/Reports", icon: "HiOutlineDocumentChartBar" }
 ];
 

@@ -41,6 +41,16 @@ export const getRiskColor = (level: string) => {
   }
 };
 
+export const getRiskColorSolid = (level: string) => {
+  switch (level) {
+    case 'TARP 4': case 'Critical': return 'bg-red-500/40 border-red-500';
+    case 'TARP 3': case 'Sub-Optimal': return 'bg-orange-500/40 border-orange-500';
+    case 'TARP 2': case 'Acceptable': return 'bg-yellow-500/40 border-yellow-500';
+    case 'TARP 1': case 'Optimal': return 'bg-green-500/40 border-green-500';
+    default: return 'bg-gray-500/40 border-gray-500';
+  }
+};
+
 export const getAlarmStatusColors = (level: number) => {
   switch (level) {
     case 5: return "bg-blue-500";
@@ -58,14 +68,15 @@ export const getStatusDotColors = (level: string) => {
     case "TARP 2": return "bg-yellow-500";
     case "TARP 3": return "bg-orange-500";
     case "TARP 4": return "bg-red-500";
-    default: return 'bg-gray-500'
+    default: return 'bg-red-500'
   }
 };
 
 export const getCardColors = (val = "") => {
   const lower = val.toLowerCase();
-  if (lower.includes("regressive")) return "bg-green-500/20";
+  if (lower.includes("regressive")) return "bg-yellow-500/20";
   if (lower.includes("linear long-term")) return "bg-yellow-500/20";
+  if (lower.includes("linear accelerating")) return "bg-red-500/20";
   if (lower.includes("linear")) return "bg-orange-500/20";
   if (lower.includes("progressive")) return "bg-red-500/20";
   if (lower.includes("rapid movement")) return "bg-red-700/20";
@@ -98,7 +109,11 @@ export const getQualityStatus = (score: number) => {
 
 import {
   AlertTriangle, Bell, WifiOff, CheckCircle, Settings, TrendingUp,
-  Filter, Search, Clock, MapPin, User, X, ChevronDown, Activity, Zap
+  Radar,
+  Satellite,
+  Pyramid,
+  TrainFrontTunnel,
+  SquareDashedBottomCode
 } from 'lucide-react';
 
 export const getTypeConfig = (type: string) => {
@@ -111,10 +126,25 @@ export const getTypeConfig = (type: string) => {
       return { icon: WifiOff, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' };
     case 'restored':
       return { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30' };
-    case 'optimization':
+    case 'dqp':
       return { icon: Settings, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/30' };
-    case 'system':
-      return { icon: Activity, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30' };
+    default:
+      return { icon: Bell, color: 'text-gray-400', bg: 'bg-gray-500/10', border: 'border-gray-500/30' };
+  }
+};
+
+export const getCatConfig = (type: string) => {
+  switch (type) {
+    case 'radar':
+      return { icon: Radar, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30' };
+    case 'insar':
+      return { icon: Satellite, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30' };
+    case 'prism':
+      return { icon: Pyramid, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' };
+    case 'emesent':
+      return { icon: TrainFrontTunnel, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30' };
+    case 'dashboard':
+      return { icon: SquareDashedBottomCode, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/30' };
     default:
       return { icon: Bell, color: 'text-gray-400', bg: 'bg-gray-500/10', border: 'border-gray-500/30' };
   }
@@ -124,10 +154,12 @@ export const getSeverityConfig = (severity: string) => {
   switch (severity) {
     case 'critical':
       return { color: 'text-red-400', bg: 'bg-red-500/20', border: 'border-red-500', borderLeft: 'border-l-red-500' };
-    case 'warning':
+    case 'moderate risk':
       return { color: 'text-yellow-400', bg: 'bg-yellow-500/20', border: 'border-yellow-500', borderLeft: 'border-l-yellow-500' };
-    case 'info':
+    case 'notification only':
       return { color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500', borderLeft: 'border-l-blue-500' };
+    case 'update':
+      return { color: 'text-green-400', bg: 'bg-green-500/20', border: 'border-green-500', borderLeft: 'border-l-green-500' };
     default:
       return { color: 'text-gray-400', bg: 'bg-gray-500/20', border: 'border-gray-500', borderLeft: 'border-l-gray-500' };
   }

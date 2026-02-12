@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { getRiskColor, getStatusColor, getQualityColor } from "@/config/statusConfig";
-import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Mail, Download, RefreshCw, TrendingUp, Zap } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader } from 'lucide-react';
 import { Checkbox } from "@/components/LandingPage/ui/checkbox";
 import { Button } from "@/components/LandingPage/ui/button";
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from '@/components/Reusable/useUserSite';
 import SensorDetail from '@/components/admin/Radar/SensorDetail';
 import { LocalTime } from "@/components/Reusable/Formatting";
+import { HandoverTemplate } from "@/components/admin/Reports/HandoverTemplates";
+
 
 interface RadarWallFolder {
   id: number;
@@ -27,24 +29,34 @@ interface RadarWallFolder {
     type: string;
     name: string;
   }[] | any;
+  timezone: string;
+  total_score: number;
+  normalised_score: number;
 };
 
 // 1. Add this interface above your component or with your other interfaces
 interface UserSiteData {
   user_id: string;
+  displayname: string;
   // Add other properties if you know them, e.g., site_name: string;
-}
+};
 
-
+interface ShiftStats {
+  events: number;
+  alarms: number;
+};
 
 const shifts = {
   DS: { label: 'Day Shift (07-18)', hours: ['07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18'], indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
   NS: { label: 'Night Shift (19-06)', hours: ['19', '20', '21', '22', '23', '00', '01', '02', '03', '04', '05', '06'], indices: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6] },
-  C: { label: 'Contractor (11-22)', hours: ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'], indices: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] }
+  C: { label: 'Cross Shift (11-22)', hours: ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'], indices: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] }
 };
+
+
 
 function RadarMonitoring() {
   const [liveViewList, setLiveViewList] = useState<RadarWallFolder[]>([]);
+  const [stats, setStats] = useState<ShiftStats>({ events: 0, alarms: 0 });
   const [loadingLiveViewList, setLoadingLiveViewList] = useState(false);
   const [viewSensorDetail, setViewSensorDetail] = useState(false);
   const [selectedSensor, setSelectedSensor] = useState<RadarWallFolder | null>(null);
@@ -61,6 +73,8 @@ function RadarMonitoring() {
   const [selectedStation, setSelectedStation] = useState("1");
   const { userSite, loading: siteLoading } = useUserSite() as { userSite: UserSiteData | null, loading: boolean };
   const userID = userSite?.user_id;
+
+  const [showPreview, setShowPreview] = useState(false);
 
   const isCheckboxDisabled = (hourIndex: number) => {
     const now = new Date();
@@ -263,31 +277,49 @@ function RadarMonitoring() {
     );
   };
 
+  const fetchLiveView = useCallback(async () => {
+    if (!selectedStation) return;
+    try {
+      setLoadingLiveViewList(true);
+      const { data, error } = await supabase
+        .from('latest_radar_wall_folders')
+        .select('id, radar_number, site_id, station, site_name, wallfolder_id, wallfolder:radar_wall_folders!inner(id, type, name), dqp_record_id, type, area, risk, status, quality, hourlychecks, created_time, timezone, total_score, normalised_score')
+        .neq('type', 'Archive')
+        .eq('station', selectedStation)
+        .order('id');
+
+      if (error) throw error;
+
+
+      setLiveViewList((data as RadarWallFolder[]) || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoadingLiveViewList(false);
+    }
+    ;
+  }, [selectedStation]);
 
   useEffect(() => {
-    const fetchLiveView = async () => {
-      try {
-        setLoadingLiveViewList(true);
-        const { data, error } = await supabase
-          .from('latest_radar_wall_folders')
-          .select('id, radar_number, station, site_name, wallfolder_id, wallfolder:radar_wall_folders!inner(id, type, name), dqp_record_id, type, area, risk, status, quality, hourlychecks, created_time')
-          .eq('type', 'Live')
-          .eq('station', selectedStation)
-          .order('id');
+    fetchLiveView()
+  },
+    [fetchLiveView]);
 
-        if (error) throw error;
+  // In Parent Component
 
-        console.log('Fetched data:', data);
-        setLiveViewList((data as RadarWallFolder[]) || []);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoadingLiveViewList(false);
+  // Add this Effect to auto-update the popup when the background list refreshes
+  useEffect(() => {
+    if (selectedSensor && liveViewList.length > 0) {
+      // Find the updated version of the currently selected sensor
+      const updatedVersion = liveViewList.find(s => s.id === selectedSensor.id);
+
+      // If we found it, and it looks different (e.g. different wallfolder), update the state!
+      if (updatedVersion && updatedVersion.wallfolder_id !== selectedSensor.wallfolder_id) {
+        console.log("Syncing selected sensor with new data...");
+        setSelectedSensor(updatedVersion);
       }
-    };
-
-    fetchLiveView();
-  }, [selectedStation]);
+    }
+  }, [liveViewList, selectedSensor]);
 
   // ---- Handle Explore ----
   const handleExplore = (wallFolderID: number) => {
@@ -297,15 +329,47 @@ function RadarMonitoring() {
   };
 
   const currentShift = shifts[selectedShift];
-
-  const totalAlarms = 2;
-  const totalEvents = 5;
   const onlineDevices = liveViewList.filter(s => s.status !== 'Link Down').length;
   const totalDevices = liveViewList.length;
   const latestUpdate = new Date(Math.max(...liveViewList.map(s => new Date(s.created_time).getTime())));
   const qualityOrder = ['Critical', 'Sub-Optimal', 'Acceptable', 'Optimal'];
+
+
+  const fetchStats = useCallback(async () => {
+
+    // 2. Call the RPC
+    const { data, error } = await supabase
+      .rpc('get_my_shift_counts', {
+        _user_timezone: 'Asia/Jakarta',
+        _shift: selectedShift
+      });
+
+    if (error) {
+      console.error('Error fetching shift stats:', error);
+    } else {
+      // RPC returns JSON, so we cast it to our interface
+      setStats(data as ShiftStats);
+    }
+  }, [selectedShift]);
+
+  useEffect(() => {
+    fetchLiveView(); fetchStats()
+  },
+    [fetchLiveView, fetchStats]);
+
+  const totalAlarms = stats.alarms;
+  const totalEvents = stats.events;
+  if (loadingLiveViewList) {
+    return (
+      <div className="flex justify-center items-center p-10 text-[var(--dtg-gray-400)]">
+        <Loader size={24} className="animate-spin mr-2" />
+        Checking user permissions...
+      </div>
+    );
+  }
+
   if (!liveViewList || liveViewList.length === 0) {
-    return <p className="text-gray-500">No data available</p>; // Or return null to render nothing
+    return <p className="text-gray-500">No data available</p>;
   }
 
   // 2. Your Logic (Safe to run now)
@@ -333,9 +397,25 @@ function RadarMonitoring() {
     return acc + shiftChecks.filter(c => !c).length;
   }, 0);
 
+  const attentionRequired = liveViewList.filter(s => s.status !== 'Live' || s.quality === 'Critical' || s.risk === 'TARP 4').length;
+  const completionRate = liveViewList.length > 0 ? Math.round((completedChecks / (liveViewList.length * 12)) * 100) : 0;
+
+  const reportInfo = {
+    user: userSite,
+    misscheck: missedChecks,
+    completedcheck: completedChecks,
+    attentionreq: attentionRequired,
+    completion: completionRate,
+    shift: selectedShift,
+    totalalarm: totalAlarms,
+    totalevent: totalEvents,
+    onlinedevice: onlineDevices / totalDevices,
+    quality: lowestQuality.quality,
+    latestupdate: latestUpdate
+  };
+
   return (
     <div className="w-full space-y-4 p-6">
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl text-[var(--dtg-text-primary)]">SSR Monitoring & Hourly Checklist</h1>
@@ -369,13 +449,10 @@ function RadarMonitoring() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Reset
           </Button>
-          <Button size="sm" variant="orange">
-            <Mail className="w-4 h-4 mr-2" />
-            Email PDF
-          </Button>
-          <Button size="sm" variant="brand">
+
+          <Button size="sm" variant="brand" onClick={() => setShowPreview(true)}>
             <Download className="w-4 h-4 mr-2" />
-            Export
+            Preview & Export
           </Button>
         </div>
       </div>
@@ -409,13 +486,13 @@ function RadarMonitoring() {
             <CheckCircle className="w-10 h-10 text-green-500/30" />
           </div>
         </div>
-        <div className="border rounded-lg p-4 bg-gradient-to-br from-[var(--yellow-from)] to-[var(--yellow-to)] border-[var(--yellow-border)]">
+        <div className={`border rounded-lg p-4 ${getRiskColor(lowestQuality.quality)}`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-white text-xs mb-1">Overall Quality</p>
               <p className="text-2xl">{lowestQuality.quality}</p>
             </div>
-            <TrendingUp className="w-10 h-10 text-teal-500/30" />
+            <TrendingUp className="w-10 h-10" />
           </div>
         </div>
         <div className="border rounded-lg p-4 bg-gradient-to-br from-[var(--purple-from)] to-[var(--purple-to)] border-[var(--purple-border)]">
@@ -520,7 +597,7 @@ function RadarMonitoring() {
               })}
             </tbody>
           </table>
-          {viewSensorDetail && <SensorDetail sensor={selectedSensor} onClose={() => setViewSensorDetail(false)} />}
+          {viewSensorDetail && <SensorDetail key={selectedSensor?.id} userSite={userSite} timezone={selectedSensor?.timezone} sensor={selectedSensor} onClose={() => { fetchLiveView(), fetchStats(), setViewSensorDetail(false) }} onRefresh={() => { fetchStats(), fetchLiveView() }} onUpdateComplete={() => { fetchStats(), fetchLiveView() }} shift={selectedShift} />}
         </div>
       </div>
 
@@ -556,7 +633,7 @@ function RadarMonitoring() {
             <div>
               <p className="text-xs text-[var(--dtg-gray-700)]">Completion Rate</p>
               <p className="text-xl text-[var(--dtg-text-primary)]">
-                {liveViewList.length > 0 ? Math.round((completedChecks / (liveViewList.length * 12)) * 100) : 0}%
+                {completionRate}%
               </p>
             </div>
           </div>
@@ -568,12 +645,22 @@ function RadarMonitoring() {
             </div>
             <div>
               <p className="text-xs text-[var(--dtg-gray-700)]">Attention Required</p>
-              <p className="text-xl text-[var(--dtg-text-primary)]">{liveViewList.filter(s => s.status !== 'Operational').length}</p>
+              <p className="text-xl text-[var(--dtg-text-primary)]">{attentionRequired}</p>
             </div>
           </div>
         </div>
       </div>
-    </div>
+      {
+        showPreview && (
+          <HandoverTemplate
+            reportInfo={reportInfo}
+            data={liveViewList}
+            onClose={() => setShowPreview(false)}
+            preloadedNotifications={null}
+          />
+        )
+      }
+    </div > // This is the final closing div of your component
   );
 }
 

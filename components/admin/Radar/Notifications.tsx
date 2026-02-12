@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   AlertTriangle, Bell, WifiOff, CheckCircle, Settings, TrendingUp,
   Filter, Search, Clock, MapPin, User, X, ChevronDown, Activity, Zap
@@ -7,141 +7,121 @@ import {
 import { Input } from '@/components/LandingPage/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/LandingPage/ui/select';
 import { Badge } from '@/components/LandingPage/ui/badge';
-import { Button} from '@/components/LandingPage/ui/button';
-import { getTypeConfig, getSeverityConfig } from '@/config/statusConfig';
+import { Button } from '@/components/LandingPage/ui/button';
+import { getCatConfig, getSeverityConfig } from '@/config/statusConfig';
+import { supabase } from '@/lib/supabaseClient';
+import { formatFromUTC } from "@/utils/timezoneUtils";
+import { AddWorkLog } from '@/components/admin/Radar/Notifications/AddWorkLogModal';
+import { useUserSite } from '@/components/Reusable/useUserSite';
 
 interface Notification {
   id: string;
-  type: 'deformation' | 'alarm' | 'downtime' | 'restored' | 'optimization' | 'system';
-  title: string;
-  message: string;
+  category: 'deformation' | 'alarm' | 'downtime' | 'restored' | 'dqp';
+  subject: { subject: string }[] | any;
+  notes: string;
   location: string;
-  timestamp: string;
-  severity: 'info' | 'warning' | 'critical';
-  read: boolean;
-  actionRequired: boolean;
+  created_at: string;
+  action: string;
+  wallfolder: { radar_id: { site_id: { timezone: string } } } | any;
+  type: string;
+  submitted_by: string;
 }
 
-const notificationData: Notification[] = [
-  {
-    id: '1',
-    type: 'deformation',
-    title: 'Movement Detected - SSR-02',
-    message: 'Linear deformation pattern detected at East Slope. Rate: 2.5mm/day',
-    location: 'East Slope',
-    timestamp: '2025-10-20 14:23',
-    severity: 'warning',
-    read: false,
-    actionRequired: true,
-  },
-  {
-    id: '2',
-    type: 'alarm',
-    title: 'Critical Alarm - IBIS01',
-    message: 'Velocity threshold exceeded. Immediate review required',
-    location: 'South Bench',
-    timestamp: '2025-10-20 14:15',
-    severity: 'critical',
-    read: false,
-    actionRequired: true,
-  },
-  {
-    id: '3',
-    type: 'downtime',
-    title: 'Connection Lost - IBIS01',
-    message: 'IBIS01 South Bench has lost connection. Last data received at 10:45',
-    location: 'South Bench',
-    timestamp: '2025-10-20 11:00',
-    severity: 'critical',
-    read: false,
-    actionRequired: true,
-  },
-  {
-    id: '4',
-    type: 'restored',
-    title: 'System Restored - SSR-01',
-    message: 'SSR-01 North Wall has been restored and is now operational',
-    location: 'North Wall',
-    timestamp: '2025-10-20 10:30',
-    severity: 'info',
-    read: true,
-    actionRequired: false,
-  },
-  {
-    id: '5',
-    type: 'deformation',
-    title: 'Velocity Increase - SSR-02',
-    message: 'Velocity has increased by 15% in the last 24 hours',
-    location: 'East Slope',
-    timestamp: '2025-10-20 09:45',
-    severity: 'warning',
-    read: false,
-    actionRequired: true,
-  },
-  {
-    id: '6',
-    type: 'system',
-    title: 'Data Quality Improved - SSR-03',
-    message: 'Data quality parameters have returned to optimal levels',
-    location: 'West Pit',
-    timestamp: '2025-10-20 08:15',
-    severity: 'info',
-    read: true,
-    actionRequired: false,
-  },
-  {
-    id: '7',
-    type: 'optimization',
-    title: 'Alarm Threshold Optimized',
-    message: 'PS2000 alarm thresholds have been automatically adjusted based on recent patterns',
-    location: 'Central Area',
-    timestamp: '2025-10-20 07:30',
-    severity: 'info',
-    read: true,
-    actionRequired: false,
-  },
-];
+interface Crosschecker {
+  id: string;
+  full_name: string;
+}
+
+interface UserSiteData {
+  user_id: string;
+  displayname: string;
+  // Add other properties if you know them, e.g., site_name: string;
+}
 
 export default function Notifications() {
-  const [notifications, setNotifications] = useState(notificationData);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loadingNotificationList, setLoadingNotificationList] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [filterSeverity, setFilterSeverity] = useState('all');
-  const [showOnlyUnread, setShowOnlyUnread] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterSubject, setFilterSubject] = useState('all');
+  const [crosscheckers, setCrosscheckers] = useState<Crosschecker[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const { userSite, loading: siteLoading } = useUserSite() as { userSite: UserSiteData | null, loading: boolean };
+  const userID = userSite?.user_id;
 
   const filteredNotifications = notifications.filter(n => {
-    const matchesSearch = n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.message.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (n.subject?.subject || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (n.notes || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'all' || n.type === filterType;
-    const matchesSeverity = filterSeverity === 'all' || n.severity === filterSeverity;
-    const matchesRead = !showOnlyUnread || !n.read;
-    return matchesSearch && matchesType && matchesSeverity && matchesRead;
+    const matchesCategory = filterCategory === 'all' || n.category === filterCategory;
+    const matchesSubject = filterSubject === 'all' || n.subject?.subject.toLowerCase() === filterSubject;
+    //const matchesRead = !showOnlyUnread;
+    return matchesSearch && matchesType && matchesCategory && matchesSubject;
   });
-
-  const markAsRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
 
   const deleteNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-  const criticalCount = notifications.filter(n => n.severity === 'critical' && !n.read).length;
-  const actionRequiredCount = notifications.filter(n => n.actionRequired && !n.read).length;
-
   const typeStats = {
-    deformation: notifications.filter(n => n.type === 'deformation' && !n.read).length,
-    alarm: notifications.filter(n => n.type === 'alarm' && !n.read).length,
-    downtime: notifications.filter(n => n.type === 'downtime' && !n.read).length,
-    restored: notifications.filter(n => n.type === 'restored').length,
-    optimization: notifications.filter(n => n.type === 'optimization').length,
-    system: notifications.filter(n => n.type === 'system' && !n.read).length,
+    deformation: notifications.filter(n => n.category === 'deformation').length,
+    alarm: notifications.filter(n => n.category === 'alarm').length,
+    downtime: notifications.filter(n => n.category === 'downtime').length,
+    restored: notifications.filter(n => n.category === 'restored').length,
+    dqp: notifications.filter(n => n.category === 'dqp').length,
+    critical: notifications.filter(n => n.subject?.subject.toLowerCase() === 'critical').length,
+    actionrequired: notifications.filter(n => n.action !== 'No action required').length
   };
+
+  const fetchNotifications = useCallback(async () => {
+
+    try {
+      setLoadingNotificationList(true);
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('work_log')
+        .select('id, created_at,subject:subject(subject),wallfolder:radar_wall_folders(radar_id:radars(site_id:clients(site_name,timezone))),location,category,action,notes,type, submitted_by')
+        .gte('created_at', twentyFourHoursAgo)
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+      console.log(data);
+
+      setNotifications((data as Notification[]) || []);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoadingNotificationList(false);
+    }
+    ;
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications()
+  },
+    [fetchNotifications]);
+
+  // Crosschecker
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const targetNames = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
+        const { data, error } = await supabase.rpc('get_safe_crosscheckers', { target_names: targetNames });
+        if (error) throw error;
+        if (data) setCrosscheckers(data);
+      } catch (err) {
+        console.error("Error fetching crosscheckers:", err);
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  const getDisplayName = (userid: string) => {
+    const user = crosscheckers.find((c) => String(c.id) === String(userid));
+    return user ? user.full_name : 'Unknown';
+  };
+
 
   return (
     <div className="w-full space-y-4 p-6">
@@ -150,20 +130,18 @@ export default function Notifications() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl text-[var(--dtg-text-primary)]">Notifications Center</h1>
-            {unreadCount > 0 && (
-              <Badge className="bg-red-500/20 text-red-400 border-red-500/30 px-3 py-1">
-                {unreadCount} New
-              </Badge>
-            )}
+
+            {/*<Badge className="bg-red-500/20 text-red-400 border-red-500/30 px-3 py-1">
+              New
+            </Badge>*/}
+
           </div>
           <p className="text-[var(--dtg-gray-700)] text-sm">Monitor system alerts, events, and status updates</p>
         </div>
-        <Button
-          onClick={markAllAsRead}
-          variant="brand"
-        >
-          Mark All as Read
+        <Button variant='orange' onClick={() => setShowModal(true)}>
+          + Add Activity
         </Button>
+        <AddWorkLog isOpen={showModal} onClose={() => setShowModal(false)} userID={userID} onSuccess={()=>fetchNotifications()}/>
       </div>
 
       {/* Stats Cards */}
@@ -183,7 +161,7 @@ export default function Notifications() {
     border-[var(--red-border)]">
           <div className="flex items-center justify-between mb-2">
             <AlertTriangle className="w-5 h-5 text-red-400" />
-            <span className="text-2xl text-red-400">{criticalCount}</span>
+            <span className="text-2xl text-red-400">{typeStats.critical}</span>
           </div>
           <p className="text-xs text-white">Critical Alerts</p>
         </div>
@@ -195,7 +173,7 @@ export default function Notifications() {
     border-[var(--yellow-border)]">
           <div className="flex items-center justify-between mb-2">
             <Zap className="w-5 h-5 text-orange-400" />
-            <span className="text-2xl text-orange-400">{actionRequiredCount}</span>
+            <span className="text-2xl text-orange-400">{typeStats.actionrequired}</span>
           </div>
           <p className="text-xs text-white">Action Required</p>
         </div>
@@ -255,34 +233,38 @@ export default function Notifications() {
             </SelectTrigger>
             <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="deformation">Deformation</SelectItem>
-              <SelectItem value="alarm">Alarm</SelectItem>
-              <SelectItem value="downtime">Downtime</SelectItem>
-              <SelectItem value="restored">Restored</SelectItem>
-              <SelectItem value="optimization">Optimization</SelectItem>
-              <SelectItem value="system">System</SelectItem>
+              <SelectItem value="radar">Radar</SelectItem>
+              <SelectItem value="insar">Insar</SelectItem>
+              <SelectItem value="prism">Prism</SelectItem>
+              <SelectItem value="emesent">Emesent</SelectItem>
+              <SelectItem value="dashboard">Dashboard</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterSeverity} onValueChange={setFilterSeverity}>
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
             <SelectTrigger className="bg-[var(--dtg-bg-primary)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
-              <SelectItem value="all">All Severities</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="warning">Warning</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
+              <SelectItem value="all">All Categories</SelectItem>
+              <SelectItem value="deformation">Deformation</SelectItem>
+              <SelectItem value="alarm">Alarm</SelectItem>
+              <SelectItem value="downtime">Downtime</SelectItem>
+              <SelectItem value="restored">Restored</SelectItem>
+              <SelectItem value="dqp">Data Quality</SelectItem>
             </SelectContent>
           </Select>
-          <label className="flex items-center gap-2 px-4 py-2 bg-[var(--dtg-bg-primary)] border border-[var(--dtg-border-medium)] rounded-lg cursor-pointer hover:bg-[var(--dtg-bg-hover)] transition-all">
-            <input
-              type="checkbox"
-              checked={showOnlyUnread}
-              onChange={(e) => setShowOnlyUnread(e.target.checked)}
-              className="w-4 h-4 rounded accent-teal-500"
-            />
-            <span className="text-[var(--dtg-text-primary)] text-sm">Unread Only</span>
-          </label>
+          <Select value={filterSubject} onValueChange={setFilterSubject}>
+            <SelectTrigger className="bg-[var(--dtg-bg-primary)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
+              <SelectItem value="all">All Subjects</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="moderate risk">Moderate Risk</SelectItem>
+              <SelectItem value="service offline">Service Offline</SelectItem>
+              <SelectItem value="notification only">Notification Only</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -297,14 +279,17 @@ export default function Notifications() {
             </div>
           ) : (
             filteredNotifications.map((notification) => {
-              const typeConfig = getTypeConfig(notification.type);
-              const severityConfig = getSeverityConfig(notification.severity);
+              const typeConfig = getCatConfig(notification.type);
+              const severityConfig = getSeverityConfig(notification?.subject?.subject.toLowerCase())
               const Icon = typeConfig.icon;
+              const timezone = "Asia/Jakarta";
+              const LocalTime = formatFromUTC(notification.created_at, timezone);
+              const actionBadge = notification.action?.length > 16 ? "Action Required" : notification.action;
 
               return (
                 <div
                   key={notification.id}
-                  className={`p-4 hover:bg-[var(--primary)]/50 transition-all border-l-4 ${severityConfig.borderLeft} ${!notification.read ? 'bg-[var(--primary)]/10' : ''
+                  className={`p-4 hover:bg-[var(--primary)]/50 transition-all border-l-4 'bg-[var(--primary)]/10'
                     }`}
                 >
                   <div className="flex items-start gap-4">
@@ -317,17 +302,20 @@ export default function Notifications() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-4 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className={`text-[var(--dtg-text-primary)] ${!notification.read ? 'font-semibold' : ''}`}>
-                            {notification.title}
+                          <h3 className={`text-[var(--dtg-text-primary)] text-lg font-bold`}>
+                            {notification.category.toUpperCase()}
                           </h3>
-                          {!notification.read && (
-                            <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />
-                          )}
-                          {notification.actionRequired && (
+
+                          <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />
+                          <Badge className={`${severityConfig.bg} ${severityConfig.color} border ${severityConfig.border} text-xs`}>
+                            {notification.subject?.subject}
+                          </Badge>
+                          {notification.action !== 'No action required' && (
                             <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-xs">
-                              Action Required
+                              {actionBadge}
                             </Badge>
                           )}
+
                         </div>
                         <button
                           onClick={() => deleteNotification(notification.id)}
@@ -337,18 +325,22 @@ export default function Notifications() {
                         </button>
                       </div>
 
-                      <p className="text-[var(--dtg-gray-700)] text-sm mb-3">{notification.message}</p>
+                      <p className="text-[var(--dtg-gray-600)] text-sm mb-3">{notification.notes}</p>
 
                       <div className="flex items-center gap-4 text-xs text-gray-500">
                         <div className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          <span>{notification.timestamp}</span>
+                          <span>{LocalTime}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
                           <span>{notification.location}</span>
                         </div>
-                        <Badge className={`${severityConfig.bg} ${severityConfig.color} border ${severityConfig.border} text-xs`}>
+                        <div className="flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          <span>{getDisplayName(notification.submitted_by)}</span>
+                        </div>
+                        {/*<Badge className={`${severityConfig.bg} ${severityConfig.color} border ${severityConfig.border} text-xs`}>
                           {notification.severity.toUpperCase()}
                         </Badge>
                         {!notification.read && (
@@ -358,7 +350,7 @@ export default function Notifications() {
                           >
                             Mark as Read
                           </button>
-                        )}
+                        */}
                       </div>
                     </div>
                   </div>
