@@ -104,7 +104,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
     const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
     const fileName = formData.category === 'Data Quality' ?
-        `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${siteName}.pdf`
+        `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${sensor.site_name}.pdf`
         :`${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
