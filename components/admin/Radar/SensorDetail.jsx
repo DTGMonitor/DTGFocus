@@ -1575,7 +1575,7 @@ const SensorDetail = ({
                             <Button variant="brand" onClick={() => setShowReportModal(true)}><Download className="w-4 h-4 mr-2" /> Generate PDF</Button>
                         </div>
                         {showReportModal &&
-                            <ReportTemplateModal onClose={() => setShowReportModal(false)} data={dqpList} sensor={sensor}/>}
+                            <ReportTemplateModal onClose={() => setShowReportModal(false)} radarData={dqpList} sensor={sensor}/>}
                     </div>
                 </div>
             </div>

@@ -26,11 +26,11 @@ const REPORT_CONFIG = {
 
 const ReportTemplateRenderer = ({ reportType, data, reportInfo }) => {
     const config = REPORT_CONFIG[reportType];
-    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} reportInfo={reportInfo} />:<div>Template not found</div>;
+    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} reportInfo={reportInfo} /> : <div>Template not found</div>;
 };
 
 // --- 2. THE MODAL COMPONENT ---
-export default function ReportGeneratorModal({ onClose, data, sensor }) {
+export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
     const [generatedReport, setGeneratedReport] = useState(null);
@@ -76,7 +76,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
     startDateObj.setDate(today.getDate() - 183);
 
     const [formData, setFormData] = useState({
-        clientID: '',
+        clientID: 1,
         reportType: 'Radar',
         category: 'Data Quality',
         frequency: '',
@@ -84,6 +84,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
         endDate: formatDate(today),          // "2025-12-26"
     });
 
+    const isRadar = formData.reportType === 'Radar';
     const siteName = clientsList.find(s => String(s.id) === String(formData.clientID))?.site_name || 'Unknown';
     const company = clientsList.find(s => String(s.id) === String(formData.clientID))?.company || 'Unknown';
     const location = clientsList.find(s => String(s.id) === String(formData.clientID))?.location || 'Unknown';
@@ -91,12 +92,12 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
 
     const frequencies = [
         { value: 'daily', label: 'Daily', alt: '24h' },
-        { value: 'weekly', label: 'Weekly',alt: '7d' },
-        { value: 'monthly', label: 'Monthly',alt: '30d' }
+        { value: 'weekly', label: 'Weekly', alt: '7d' },
+        { value: 'monthly', label: 'Monthly', alt: '30d' }
     ];
 
     const reportTypes = Object.keys(REPORT_CONFIG);
-    const categories = ['Water Body','Deformation','Data Quality', 'Comprehensive'];
+    const categories = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive'];
 
     //filename
     const rawDate = formData.endDate || new Date().toISOString().split('T')[0];
@@ -105,7 +106,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
     const fileName = formData.category === 'Data Quality' ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${sensor.site_name}.pdf`
-        :`${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
+        : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
         const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
@@ -145,7 +146,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
             .gte('date', formData.startDate)
             .lte('date', formData.endDate)
             .eq('subcategory', 'MNDWI')
-            .eq('client_id', formData.clientID);
+            .eq('client_id', formData?.clientID);
 
         if (tableError) throw tableError;
 
@@ -218,7 +219,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
             const config = REPORT_CONFIG[formData.reportType];
             const title = config.title;
             const description = config.description;
-            const cleanFileName = `${formData.clientID}/${fileName}`;
+            const cleanFileName = `${formData?.clientID}/${fileName}`;
 
             if (typeof window.html2pdf === 'undefined') {
                 await new Promise((resolve, reject) => {
@@ -294,7 +295,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
                 category: formData.category.toLowerCase(),
                 created_at: new Date().toISOString(),
                 status: 'Completed',
-                client_id: formData.clientID,
+                client_id: formData?.clientID,
                 filename: cleanFileName,
                 description: description,
                 generatedby: displayName,
@@ -338,7 +339,9 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
         }
     };
     const handleGenerateReport = async () => {
-        if (!formData.startDate || !formData.endDate || !formData.clientID) return setMessage('Please select the required fields');
+        const conditionalMessage = isRadar ? !formData.frequency || !formData.startDate || !formData.endDate : !formData.frequency || !formData.startDate || !formData.endDate || !formData?.clientID;
+        if (conditionalMessage) return setMessage('Please select the required fields');
+
         setLoading(true);
         setMessage('');
         try {
@@ -430,7 +433,7 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
                             <button onClick={onClose}><X size={24} /></button>
                         </div>
                         <div className="overflow-x-auto">
-                            <ReportTemplateRenderer reportType={formData.reportType} data={generatedReport.data} reportInfo={generatedReport.info} />
+                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? radarData :generatedReport.data} reportInfo={generatedReport.info} />
                         </div>
                         {message && (
                             <div className={`mx-6 p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :
@@ -462,22 +465,25 @@ export default function ReportGeneratorModal({ onClose, data, sensor }) {
                         <div className="flex items-center justify-between p-6 border-b"><div className="flex items-center gap-3"><FileText className="text-[var(--dtg-primary-teal-dark)]" size={24} /><h2 className="text-2xl font-semibold text-[var(--dtg-gray-900)]">Create New Report</h2></div><button onClick={onClose}><X size={24} /></button></div>
                         <div className="p-6 space-y-6">
                             {/* Client Selection */}
-                            <div className="mb-4">
-                                <label className="text-[var(--dtg-gray-700)] block mb-1 text-sm">Client / Site *</label>
-                                <select
-                                    required
-                                    value={formData.clientID}
-                                    onChange={(e) => handleInputChange('clientID', e.target.value)}
-                                    className="w-full text-[var(--dtg-gray-500)] px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg"
-                                >
-                                    <option value="">Select a Client</option>
-                                    {clientsList.map((client) => (
-                                        <option key={client.id} value={client.id}>
-                                            {client.site_name}, {client.company}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            {!isRadar &&
+                                <div className="mb-4">
+                                    <label className="text-[var(--dtg-gray-700)] block mb-1 text-sm">Client / Site *</label>
+
+                                    <select
+                                        required
+                                        value={formData?.clientID}
+                                        onChange={(e) => handleInputChange('clientID', e.target.value)}
+                                        className="w-full text-[var(--dtg-gray-500)] px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg"
+                                    >
+                                        <option value="">Select a Client</option>
+                                        {clientsList.map((client) => (
+                                            <option key={client.id} value={client.id}>
+                                                {client.site_name}, {client.company}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            }
 
 
                             <div className="grid grid-cols-2 gap-6">

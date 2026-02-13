@@ -208,7 +208,7 @@ function Reports() {
         <AdminUpload onClose={() => setReportUpload(false)} />}
 
       {showReportModal &&
-        <ReportTemplateModal onClose={() => setShowReportModal(false)} data={null} sensor={null}/>}
+        <ReportTemplateModal onClose={() => setShowReportModal(false)} radarData={null} sensor={null}/>}
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <button

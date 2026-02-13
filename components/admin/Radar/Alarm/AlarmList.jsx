@@ -226,7 +226,7 @@ const AlarmList = ({
     };
 
     return (
-        <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
+        <div className="flex flex-col w-full min-h-[200px] gap-2 text-[var(--dtg-text-primary)]">
             {/* Header */}
             <div className="flex w-full justify-between border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
                 <h2 className="text-xl">Alarm</h2>
