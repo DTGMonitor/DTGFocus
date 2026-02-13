@@ -82,6 +82,8 @@ export const getCardColors = (val = "") => {
   if (lower.includes("rapid movement")) return "bg-red-700/20";
   if (lower.includes("detachment")) return "bg-red-700/20";
   if (lower.includes("failure")) return "bg-red-700/20";
+  if (lower.includes("forecast")) return "bg-red-700/20";
+  if (lower.includes("rock fall")) return "bg-red-700/20";
   return "bg-green-500/20";
 };
 

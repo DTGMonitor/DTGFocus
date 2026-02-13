@@ -31,6 +31,7 @@ function LogoSection({ Subtitle = [] }) {
                     <button
                         type="button"
                         title="Home"
+                        disabled
                         onClick={handleLogoClick} // 👈 USE THE NEW FUNCTION HERE
                         style={{
                             backgroundColor: "transparent",

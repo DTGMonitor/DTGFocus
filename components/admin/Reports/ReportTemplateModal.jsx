@@ -76,9 +76,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     startDateObj.setDate(today.getDate() - 183);
 
     const [formData, setFormData] = useState({
-        clientID: 1,
-        reportType: 'Radar',
-        category: 'Data Quality',
+        clientID: sensor?.site_id || '',
+        reportType: sensor ? 'Radar' : 'Insar',
+        category: sensor ? 'Data Quality' : 'Water Body',
         frequency: '',
         startDate: formatDate(startDateObj), // "2024-12-26"
         endDate: formatDate(today),          // "2025-12-26"
@@ -104,7 +104,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const compactDate = rawDate.replaceAll('-', '').slice(2);
     const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
-    const fileName = formData.category === 'Data Quality' ?
+    const fileName = (sensor && formData.category === 'Data Quality') ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${sensor.site_name}.pdf`
         : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
@@ -214,13 +214,24 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const saveReportToSupabase = async () => {
         if (!generatedReport) return;
 
+        // 1. Save the user's current scroll position
+        const originalScrollX = window.scrollX;
+        const originalScrollY = window.scrollY;
+
         try {
             setLoading(true);
             const config = REPORT_CONFIG[formData.reportType];
             const title = config.title;
             const description = config.description;
             const cleanFileName = `${formData?.clientID}/${fileName}`;
+            const isRadarTemplate = config.template === 'RadarTemplate';
+            const pdfWidth = isRadarTemplate ? 1240 : 1280;
+            const pageHeight = isRadarTemplate ? 1754 : 720;
+            const totalPages = isRadarTemplate ? 3 : 5;
+            const pdfHeight = pageHeight * totalPages;
+            const orientation = isRadarTemplate ? 'portrait' : 'landscape';
 
+            // Load scripts if needed
             if (typeof window.html2pdf === 'undefined') {
                 await new Promise((resolve, reject) => {
                     const script = document.createElement('script');
@@ -231,64 +242,100 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                 });
             }
 
-            // --- OFF-SCREEN RENDERING ---
+            // Also load html2canvas and jsPDF separately for manual control
+            const loadScript = (src) => new Promise((resolve, reject) => {
+                if (document.querySelector(`script[src="${src}"]`)) return resolve();
+                const s = document.createElement('script');
+                s.src = src;
+                s.onload = resolve;
+                s.onerror = reject;
+                document.head.appendChild(s);
+            });
+
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+
+            window.scrollTo(0, 0);
+
+            // 3. CONTAINER — visible, at true 0,0, on top of everything
             const container = document.createElement('div');
-            container.style.position = 'fixed';
+            container.style.position = 'absolute';
             container.style.top = '0';
             container.style.left = '0';
-            container.style.width = '1280px';
-            container.style.zIndex = '-9999';
-            container.style.opacity = '0';
-            document.body.appendChild(container);
+            container.style.width = `${pdfWidth}px`;
+            container.style.zIndex = '99999';
+            container.style.backgroundColor = '#ffffff';
+            container.style.margin = '0';
+            container.style.padding = '0';
+            document.body.insertBefore(container, document.body.firstChild);
 
             const root = createRoot(container);
-            // Use the same data and info from generatedReport
+            const TemplateComponent = config.template === 'RadarTemplate' ? RadarTemplate : InsarTemplate;
+
             root.render(
-                <InsarTemplate
+                <TemplateComponent
                     data={generatedReport.data}
                     reportInfo={generatedReport.info}
                     exportMode={true}
                 />
             );
 
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise(resolve => setTimeout(resolve, 2500));
 
-            // PDF Generation
-            const opt = {
-                margin: 0,
-                filename: cleanFileName.split('/').pop(),
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: {
+            // Measure after render
+            const contentHeight = container.scrollHeight || pdfHeight;
+            console.log('Measured contentHeight:', contentHeight); // Debug this
+
+            // 4. CAPTURE EACH PAGE SEPARATELY with html2canvas
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                unit: 'px',
+                format: [pdfWidth, pageHeight],
+                orientation: orientation
+            });
+
+            for (let i = 0; i < totalPages; i++) {
+                const yOffset = i * pageHeight;
+
+                const canvas = await window.html2canvas(container, {
                     scale: 2,
                     useCORS: true,
                     logging: false,
                     backgroundColor: '#ffffff',
-                    width: 1280,
-                    height: 3600,
-                    windowWidth: 1280,
-                    windowHeight: 3600,
-                    scrollY: 0,
-                    scrollX: 0,
+                    windowWidth: pdfWidth,
+                    windowHeight: contentHeight,
+                    width: pdfWidth,
+                    height: pageHeight,       // capture exactly one page height
                     x: 0,
-                    y: 0,
-                },
-                pagebreak: { mode: ['avoid-all', 'css'] },
-                jsPDF: { unit: 'px', format: [1280, 720], orientation: 'landscape' }
-            };
+                    y: yOffset,               // slide the window down per page
+                    scrollX: 0,
+                    scrollY: 0,
+                });
 
-            const elementToCapture = container.firstChild;
-            const pdfBlob = await window.html2pdf().set(opt).from(elementToCapture).output('blob');
+                const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+                if (i > 0) pdf.addPage([pdfWidth, pageHeight], orientation);
+                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pageHeight);
+
+                console.log(`Page ${i + 1} captured at y=${yOffset}`);
+            }
+
+            // Output as blob
+            const pdfBlob = pdf.output('blob');
+
+            // 5. CLEANUP
+            root.unmount();
+            document.body.removeChild(container);
+            window.scrollTo(originalScrollX, originalScrollY);
+
+            // ... (Rest of your upload/Supabase logic) ...
 
             const fileSizeInBytes = pdfBlob.size;
             const fileSizeInKB = (fileSizeInBytes / 1024).toFixed(2);
             const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
+            const formattedSize = fileSizeInBytes > 1024 * 1024 ? `${fileSizeInMB} MB` : `${fileSizeInKB} KB`;
 
-            const formattedSize = fileSizeInBytes > 1024 * 1024 ?
-                `${fileSizeInMB} MB` : `${fileSizeInKB} KB`;
-
-            root.unmount();
-            document.body.removeChild(container);
-
+            // DB Insert
             const { data: metadata, error: metadataError } = await supabase.from('reports').insert({
                 title: title,
                 type: formData.reportType.toLowerCase(),
@@ -305,6 +352,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
             if (metadataError) throw metadataError;
 
+            // Storage Upload
             const { error: uploadError } = await supabase.storage.from('Reports').upload(
                 cleanFileName,
                 pdfBlob,
@@ -313,6 +361,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
             if (uploadError) throw uploadError;
 
+            // Work Log (Optional)
             try {
                 const workLogPayload = {
                     created_at: new Date().toISOString(),
@@ -323,28 +372,46 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     notes: `${title} has been generated`,
                     submitted_by: user?.id
                 };
-
-                const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
-                if (logError) console.error("Work Log Insert Failed:", logError);
-            } catch (logErr) {
-                console.warn("Failed to create work log.", logErr);
-            }
+                await supabase.from('work_log').insert([workLogPayload]);
+            } catch (logErr) { console.warn("Failed to create work log.", logErr); }
 
             setMessage('Report generated successfully!');
+
         } catch (error) {
             console.error('Error:', error);
             setMessage(`Error: ${error.message}`);
+            // Restore scroll even on error
+            window.scrollTo(originalScrollX, originalScrollY);
         } finally {
             setLoading(false);
         }
     };
+
     const handleGenerateReport = async () => {
-        const conditionalMessage = isRadar ? !formData.frequency || !formData.startDate || !formData.endDate : !formData.frequency || !formData.startDate || !formData.endDate || !formData?.clientID;
+        const isManual = !sensor;
+        const conditionalMessage = !isManual ? !formData.frequency || !formData.startDate || !formData.endDate : !formData.frequency || !formData.startDate || !formData.endDate || !formData?.clientID;
         if (conditionalMessage) return setMessage('Please select the required fields');
 
         setLoading(true);
         setMessage('');
         try {
+            if (formData.reportType === 'Radar') {
+                setGeneratedReport({
+                    data: radarData || [],
+                    info: {
+                        generatedBy: displayName,
+                        type: formData.reportType,
+                        category: formData.category,
+                        frequency: formData.frequency,
+                        period: `${periodAdjustment(formData.startDate)} to ${periodAdjustment(formData.endDate)}`,
+                        site: completeSiteName,
+                        company: company
+                    }
+                });
+                setShowPreview(true);
+                setLoading(false);
+                return;
+            }
             setMessage('Fetching data...');
             const fetchedData = await fetchDataFromSupabase();
 
@@ -433,7 +500,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             <button onClick={onClose}><X size={24} /></button>
                         </div>
                         <div className="overflow-x-auto">
-                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? radarData :generatedReport.data} reportInfo={generatedReport.info} />
+                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? radarData : generatedReport.data} reportInfo={generatedReport.info} />
                         </div>
                         {message && (
                             <div className={`mx-6 p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :
@@ -465,7 +532,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         <div className="flex items-center justify-between p-6 border-b"><div className="flex items-center gap-3"><FileText className="text-[var(--dtg-primary-teal-dark)]" size={24} /><h2 className="text-2xl font-semibold text-[var(--dtg-gray-900)]">Create New Report</h2></div><button onClick={onClose}><X size={24} /></button></div>
                         <div className="p-6 space-y-6">
                             {/* Client Selection */}
-                            {!isRadar &&
+                            {!sensor &&
                                 <div className="mb-4">
                                     <label className="text-[var(--dtg-gray-700)] block mb-1 text-sm">Client / Site *</label>
 

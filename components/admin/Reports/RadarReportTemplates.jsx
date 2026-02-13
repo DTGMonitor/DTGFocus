@@ -108,7 +108,6 @@ const getSummary = (overall) => {
 // --- 1. THE TEMPLATE ---
 export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
     const [currentPage, setCurrentPage] = useState(1);
-    if (!data || data.length === 0) return null;
     const today = new Date();
     const totalPages = 3;
     const header = `24h Data Quality Assessment`;
@@ -126,6 +125,8 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
     };
 
     const processedGroups = useMemo(() => {
+        if (!data || data.length === 0) return [];
+
         const groups = {};
         const parentStatusMap = {};
 
@@ -172,11 +173,15 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
 
     // Get Overall Status (Level 0)
     const overallStatus = useMemo(() => {
+        if (!data || data.length === 0) return null;
         return data.find(item => item.parameter?.level === 0)?.value;
     }, [data]);
     const overallColor = useMemo(() => {
         return getStatusStyle(overallStatus).backgroundColor;
     }, [overallStatus]);
+
+    // Safe early return after hooks
+    if (!data || data.length === 0) return null;
 
     const pages = [
         // --- PAGE 1 ---
@@ -321,9 +326,9 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
     // --- PDF EXPORT VIEW ---
     if (exportMode) {
         return (
-            <div style={{ width: '3600px', height: '1280px', margin: 0, padding: 0, backgroundColor: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ width: '1240px', height: '5262px', margin: 0, padding: 0, backgroundColor: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {pages.map((page, index) => (
-                    <div key={index} style={{ width: '720px', height: '1280px', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                    <div key={index} style={{ width: '1240px', height: '1754px', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                         {page}
                     </div>
                 ))}

@@ -19,6 +19,7 @@ interface BatchRow {
     location: string;
     reason: ReasonType;
     cause: string;
+    priority: number;
 }
 
 interface ExistingRegion {
@@ -38,13 +39,13 @@ interface BatchImportProps {
 
 // --- 2. CONSTANTS (Typed) ---
 const CAUSE_OPTIONS: Record<ReasonType, string[]> = {
-    False: ["Machinery Activity", "Rapid Atmospheric Changes", "Rainfall Event", 
-        "Riling Material", "Vegetation", "Pushed Material", "Water Refraction", 
-        "Sandstorm Event", "Blasting Event", "Diurnal Pattern", "Wire Mesh", 
+    False: ["Machinery Activity", "Rapid Atmospheric Changes", "Rainfall Event",
+        "Riling Material", "Vegetation", "Pushed Material", "Water Refraction",
+        "Sandstorm Event", "Blasting Event", "Diurnal Pattern", "Wire Mesh",
         "Mine Facility", "Step After Link Down"],
-    Valid: ["Failure Pattern Indication", "Slip Pattern Indication", 
-        "Material Detachment Indication", "Rock Fall", "Rapid Movement", 
-        "Progressive Deformation Trend","Linear Accelerating Trend", "Linear Deformation Trend", 
+    Valid: ["Failure Pattern Indication", "Slip Pattern Indication",
+        "Material Detachment Indication", "Rock Fall", "Rapid Movement",
+        "Progressive Deformation Trend", "Linear Accelerating Trend", "Linear Deformation Trend",
         "Regressive Deformation Trend"]
 };
 
@@ -81,10 +82,16 @@ export const BatchAlarmImport = ({
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const parsedRows: BatchRow[] = results.data.map((row: any, index: number) => {
                     const message = row['Event Message'] || "";
+                    const priorityMatch = message.match(/Primary Priority\s+(\d+)\s+Alarm/i);
+                    const priority = priorityMatch ? parseInt(priorityMatch[1], 10) : 0;
+
+                    // FIX 2: Extract region name from "Alarm: REGION_NAME -"
                     const regionMatch = message.match(/Alarm:\s*(.*?)\s*-/);
                     const extractedRegionName = regionMatch ? regionMatch[1].trim() : "Unknown";
 
-                    const existing = existingRegions.find(r => r.name.toLowerCase() === extractedRegionName.toLowerCase());
+                    const existing = existingRegions.find(
+                        r => r.name.toLowerCase() === extractedRegionName.toLowerCase()
+                    );
 
                     return {
                         id: `row-${index}-${Date.now()}`,
@@ -94,7 +101,8 @@ export const BatchAlarmImport = ({
                         isNewRegion: !existing,
                         location: "",
                         reason: "False",
-                        cause: ""
+                        cause: "",
+                        priority: priority
                     };
                 });
                 setRows(parsedRows);
@@ -122,25 +130,50 @@ export const BatchAlarmImport = ({
         setIsSubmitting(true);
         try {
             // A. Create New Regions
-            const newRegions = [...new Set(rows.filter(r => r.isNewRegion).map(r => r.regionName))];
-            const regionMap = new Map<string, number>();
+            const newRegionsMap = new Map<string, number>();
+            rows.filter(r => r.isNewRegion).forEach(r => {
+                if (!newRegionsMap.has(r.regionName)) {
+                    newRegionsMap.set(r.regionName, r.priority);
+                }
+            });
 
+            const regionMap = new Map<string, number>();
             existingRegions.forEach(r => regionMap.set(r.name.toLowerCase(), r.alarm_region_id));
 
-            for (const name of newRegions) {
+            for (const [name, priority] of newRegionsMap) {
                 // 1. RPC Call
-                const { error } = await supabase.rpc('add_alarm_regions', {
+                const { data: rpcData, error } = await supabase.rpc('add_alarm_regions', {
                     _wallfolder_id: wallFolderId,
                     _name: name,
-                    _type: 'Red'
+                    _priority: priority
                 });
                 if (error) throw error;
 
-                // 2. Fetch new ID
-                const { data: fetchNew } = await supabase.from('alarm_regions').select('id').eq('name', name).single();
-                if (fetchNew) regionMap.set(name.toLowerCase(), fetchNew.id);
+                // 2. Try to get ID from RPC return value first
+                let newId: number | null = null;
 
+                if (typeof rpcData === 'number') {
+                    newId = rpcData;
+                } else if (Array.isArray(rpcData) && rpcData.length > 0) {
+                    newId = rpcData[0]?.alarm_region_id || rpcData[0]?.id;
+                } else if (rpcData && typeof rpcData === 'object') {
+                    newId = (rpcData as any).alarm_region_id || (rpcData as any).id;
+                }
 
+                if (newId) {
+                    regionMap.set(name.toLowerCase(), newId);
+                } else {
+                    // 3. Fallback: fetch it manually — use the correct column name!
+                    const { data: fetchNew, error: fetchError } = await supabase
+                        .from('alarm_regions')
+                        .select('alarm_region_id')   // ← match your actual PK column
+                        .eq('name', name)
+                        .eq('wallfolder', wallFolderId)  // ← scope to this wallfolder to avoid name collisions
+                        .single();
+
+                    if (fetchError) throw new Error(`Failed to fetch new region ID for "${name}"`);
+                    if (fetchNew) regionMap.set(name.toLowerCase(), fetchNew.alarm_region_id);
+                }
             }
 
             // B. Prepare Payloads
@@ -149,11 +182,28 @@ export const BatchAlarmImport = ({
                     if (!row.rawTime) throw new Error("Time is empty");
 
                     // --- DATE PARSING FIX START ---
-                    // Handles "28/01/2026 6:58:45 PM"
-                    const [datePart, timePart, modifier] = row.rawTime.trim().split(/\s+/);
-                    const [day, month, year] = datePart.split('/');
-                    let [hours, minutes, seconds] = timePart.split(':');
+                    // Handles "28/01/2026 6:58:45 PM" or "2026-01-28 18:58:45"
+                    const parts = row.rawTime.trim().split(/\s+/);
+                    const datePart = parts[0];
+                    const timePart = parts[1] || "00:00:00";
+                    const modifier = parts[2]; // AM/PM
 
+                    let day, month, year;
+                    if (datePart.includes('/')) {
+                        [day, month, year] = datePart.split('/');
+                    } else if (datePart.includes('-')) {
+                        const dParts = datePart.split('-');
+                        if (dParts[0].length === 4) {
+                            [year, month, day] = dParts;
+                        } else {
+                            [day, month, year] = dParts;
+                        }
+                    } else {
+                        throw new Error("Unknown date format");
+                    }
+
+                    let [hours, minutes, seconds] = timePart.split(':');
+                    if (!minutes) minutes = '00';
                     if (!seconds) seconds = '00';
 
                     if (modifier) {
@@ -161,15 +211,26 @@ export const BatchAlarmImport = ({
                         if (modifier.toUpperCase() === 'AM' && hours === '12') hours = '00';
                     }
 
-                    const isoLikeString = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+                    // Pad to 2 digits to ensure ISO compliance (e.g. 2:04 -> 02:04)
+                    const pad = (s: string | undefined) => (s || '00').length < 2 ? `0${s}` : s;
+
+                    const isoLikeString = `${year}-${pad(month)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
                     // --- DATE PARSING FIX END ---
 
                     const utcTime = toUTC(isoLikeString, clientTimezone);
 
+                    if (!utcTime) throw new Error("Failed to convert to UTC");
+
+                    const alarmRegionId = row.regionId || regionMap.get(row.regionName.toLowerCase());
+
+                    if (!alarmRegionId) {
+                        throw new Error(`Could not resolve region ID for "${row.regionName}"`);
+                    }
+
                     return {
                         created_at: new Date().toISOString(),
                         triggered_at: utcTime,
-                        alarm_region: row.regionId || regionMap.get(row.regionName.toLowerCase()),
+                        alarm_region: alarmRegionId,   // ← clean, no inline ||
                         location: row.location,
                         reason: row.reason,
                         detected_by: userSiteId,
@@ -189,8 +250,8 @@ export const BatchAlarmImport = ({
             // --- D. INSERT WORK LOG (New) ---
             try {
                 // 1. Calculate Summaries
-                const uniqueReason= [...new Set(rows.map(r => r.reason).filter(Boolean))];
-                const reasonDisplay =uniqueReason.length===1 ? uniqueReason[0] : "valid and false"
+                const uniqueReason = [...new Set(rows.map(r => r.reason).filter(Boolean))];
+                const reasonDisplay = uniqueReason.length === 1 ? uniqueReason[0] : "valid and false"
                 const uniqueCauses = [...new Set(rows.map(r => r.cause).filter(Boolean))];
                 const causeDisplay = uniqueCauses.length === 1 ? uniqueCauses[0] : "Various Causes";
 
@@ -246,7 +307,7 @@ export const BatchAlarmImport = ({
                     <input {...getInputProps()} />
                     <Upload size={40} className="text-[var(--dtg-gray-500)] mb-4" />
                     <p className="text-[var(--dtg-text-secondary)]">Drag & drop your CSV file here</p>
-                    <p className="text-xs text-[var(--dtg-gray-500)] mt-2">Required Columns: Type, Date & Time, Event Message</p>
+                    <p className="text-xs text-[var(--dtg-gray-500)] mt-2">Required Columns: Priority, Date & Time, Event Message</p>
                 </div>
             ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">

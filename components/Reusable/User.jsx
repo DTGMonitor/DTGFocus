@@ -124,6 +124,7 @@ export default function UserDropdown({
         >
             <button
                 type="button"
+                disabled
                 onClick={async () => {
                     onClose?.();
                     await supabase.auth.signOut();
@@ -148,6 +149,7 @@ export default function UserDropdown({
             </button>
             <button
                 type="button"
+                disabled
                 onClick={async () => {
                     onClose?.();
                     await supabase.auth.signOut();

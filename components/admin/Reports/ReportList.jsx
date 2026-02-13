@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from '@/components/Reusable/useUserSite';
 import {
-    FileText, Download, Calendar, Eye, X, Loader, Search
+    FileText, Download, Calendar, Eye, X, Loader, Search, Trash2
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
 import { Input } from "@/components/LandingPage/ui/input";
@@ -38,7 +38,6 @@ const ReportsList = ({refreshTrigger,reportData}) => {
             let query = supabase
                 .from('reports')
                 .select('*')
-                .eq('type', 'insar')
                 .order('created_at', { ascending: false });
 
             if (userRole !== 'admin') {
@@ -104,6 +103,42 @@ const ReportsList = ({refreshTrigger,reportData}) => {
         }
     };
     
+    const handleDeleteReport = async (report) => {
+        if (!window.confirm(`Are you sure you want to delete "${report.title || getCleanFilename(report.filename)}"?`)) {
+            return;
+        }
+
+        try {
+            // 1. Delete from Storage
+            const { error: storageError } = await supabase.storage
+                .from(BUCKET_NAME)
+                .remove([report.filename]);
+
+            if (storageError) {
+                console.error('Storage delete error:', storageError);
+                throw new Error('Failed to delete file from storage');
+            }
+
+            // 2. Delete from Database
+            const { error: dbError } = await supabase
+                .from('reports')
+                .delete()
+                .eq('id', report.id);
+
+            if (dbError) throw dbError;
+
+            // 3. Update Local State
+            const updatedReports = reports.filter(r => r.id !== report.id);
+            setReports(updatedReports);
+            if (reportData) {
+                reportData(updatedReports);
+            }
+
+        } catch (error) {
+            console.error('Error deleting report:', error);
+            alert('Error deleting report: ' + error.message);
+        }
+    };
 
     const filteredReports = reports.filter(report => {
         const matchesSearch = report.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -256,6 +291,13 @@ const ReportsList = ({refreshTrigger,reportData}) => {
                                                 title="Download Report"
                                             >
                                                 <Download size={15} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteReport(report)}
+                                                className="p-1 rounded border-none bg-transparent text-[var(--dtg-gray-400)] outline-none cursor-pointer hover:text-red-500"
+                                                title="Delete Report"
+                                            >
+                                                <Trash2 size={15} />
                                             </button>
                                         </>
                                     )}
