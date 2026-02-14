@@ -200,7 +200,7 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
                     <tbody>
                         <tr style={{ borderTop: '3px solid white' }}>
                             <td style={{ borderRight: '3px solid white', textAlign: 'center', fontSize: '16px', textTransform: 'uppercase', width: '250px', height: '100px', fontWeight: 'bold', backgroundColor: overallColor }}>{overallStatus}</td>
-                            <td style={{ borderBottom: '3px solid black', padding:10, color: 'black', fontWeight: 'bold', fontSize: '16px'}}>{getSummary(overallStatus)}</td>
+                            <td style={{ borderBottom: '3px solid black', padding: 10, color: 'black', fontWeight: 'bold', fontSize: '16px' }}>{getSummary(overallStatus)}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -283,7 +283,7 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
                                             >
                                                 <div className="flex flex-wrap gap-4">
                                                     {group.items.map((item) => (
-                                                        <div key={item.parameter.id} className="flex items-center gap-2 text-xs" style={{width:'170px'}}>
+                                                        <div key={item.parameter.id} className="flex items-center gap-2 text-xs" style={{ width: '170px' }}>
                                                             <span style={{
                                                                 display: 'inline-block',
                                                                 width: '10px',
@@ -324,11 +324,12 @@ export const RadarTemplate = ({ data, reportInfo, exportMode = false }) => {
     ];
 
     // --- PDF EXPORT VIEW ---
+    // RadarReportTemplates.jsx
     if (exportMode) {
         return (
-            <div style={{ width: '1240px', height: '5262px', margin: 0, padding: 0, backgroundColor: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ width: '794px', height: '3369px', margin: 0, padding: 0, backgroundColor: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {pages.map((page, index) => (
-                    <div key={index} style={{ width: '1240px', height: '1754px', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                    <div key={index} style={{ width: '794px', height: '1123px', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                         {page}
                     </div>
                 ))}

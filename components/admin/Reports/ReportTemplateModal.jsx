@@ -105,7 +105,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
     const fileName = (sensor && formData.category === 'Data Quality') ?
-        `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor.radar_number} - ${sensor.site_name}.pdf`
+        `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
         : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
@@ -225,10 +225,10 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             const description = config.description;
             const cleanFileName = `${formData?.clientID}/${fileName}`;
             const isRadarTemplate = config.template === 'RadarTemplate';
-            const pdfWidth = isRadarTemplate ? 1240 : 1280;
-            const pageHeight = isRadarTemplate ? 1754 : 720;
+            const pdfWidth = isRadarTemplate ? 794 : 1280;
+            const pageHeight = isRadarTemplate ? 1123 : 720;
             const totalPages = isRadarTemplate ? 3 : 5;
-            const pdfHeight = pageHeight * totalPages;
+            const pdfHeight = pageHeight * totalPages; // 3369 or 3600
             const orientation = isRadarTemplate ? 'portrait' : 'landscape';
 
             // Load scripts if needed
@@ -289,8 +289,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             // 4. CAPTURE EACH PAGE SEPARATELY with html2canvas
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF({
-                unit: 'px',
-                format: [pdfWidth, pageHeight],
+                unit: 'mm',
+                format: isRadarTemplate ? 'a4' : [279.4, 157.2], // A4 portrait OR 16:9 in mm (1280/720 * 25.4/96)
                 orientation: orientation
             });
 
@@ -305,19 +305,24 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     windowWidth: pdfWidth,
                     windowHeight: contentHeight,
                     width: pdfWidth,
-                    height: pageHeight,       // capture exactly one page height
+                    height: pageHeight,
                     x: 0,
-                    y: yOffset,               // slide the window down per page
+                    y: yOffset,
                     scrollX: 0,
                     scrollY: 0,
                 });
 
                 const imgData = canvas.toDataURL('image/jpeg', 0.98);
 
-                if (i > 0) pdf.addPage([pdfWidth, pageHeight], orientation);
-                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pageHeight);
+                // Page dimensions in mm
+                const mmWidth = isRadarTemplate ? 210 : 338.7;  // A4 width OR 1280px in mm
+                const mmHeight = isRadarTemplate ? 297 : 190.5;  // A4 height OR 720px in mm
 
-                console.log(`Page ${i + 1} captured at y=${yOffset}`);
+                if (i > 0) pdf.addPage(
+                    isRadarTemplate ? 'a4' : [mmWidth, mmHeight],
+                    orientation
+                );
+                pdf.addImage(imgData, 'JPEG', 0, 0, mmWidth, mmHeight);
             }
 
             // Output as blob
@@ -370,7 +375,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     category: formData.category.toLowerCase(),
                     action: 'No action required',
                     notes: `${title} has been generated`,
-                    submitted_by: user?.id
+                    submitted_by: user?.id,
+                    type: formData.reportType.toLowerCase(),
                 };
                 await supabase.from('work_log').insert([workLogPayload]);
             } catch (logErr) { console.warn("Failed to create work log.", logErr); }

@@ -101,7 +101,7 @@ const AlarmList = ({
             .rpc('add_alarm_regions', {
                 _wallfolder_id: sensor.wallfolder_id, // Ensure this matches your radar ID type (int vs uuid)
                 _name: newRegionInput,
-                _type: newTypeInput   // <--- Passed here
+                _priority: newTypeInput   // <--- Passed here
             });
 
         if (!error) {
@@ -256,11 +256,11 @@ const AlarmList = ({
                                             <label className="text-xs font-semibold text-[var(--dtg-gray-500)] mb-1 block">New Alarm Type</label>
                                             <select value={newTypeInput} onChange={(e) => setNewTypeInput(e.target.value)} className="py-1.5 text-sm text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] outline-none border border-[var(--dtg-border-medium)] rounded w-full">
                                                 <option value=""></option>
-                                                <option value="Red">Red</option>
-                                                <option value="Orange">Orange</option>
-                                                <option value="Yellow">Yellow</option>
-                                                <option value="Purple">Purple</option>
-                                                <option value="Blue">Blue</option>
+                                                <option value="1">Red</option>
+                                                <option value="2">Orange</option>
+                                                <option value="3">Yellow</option>
+                                                <option value="4">Purple</option>
+                                                <option value="5">Blue</option>
                                             </select>
                                         </div>
                                         <div className="mb-3">

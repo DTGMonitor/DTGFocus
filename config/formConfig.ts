@@ -167,6 +167,11 @@ export const generateEmailBody = (
         hour: '2-digit', minute: '2-digit', hour12: false
     }) : "N/A";
 
+      const getVelocityUnit = (vcp: number) => {
+        if (vcp < 1440) return 'mm/h';
+        return 'mm/d'
+    };
+
     const getInverseUnit = (vcp: number) => {
         if (vcp < 1440) return 'h/mm';
         return 'd/mm'
@@ -179,12 +184,12 @@ export const generateEmailBody = (
     if (formData.Type === "Failure") {
         metricsBlock = `
 > SHORT VCP
-  - Max Velocity (1): ${formData.Vmax1 || "-"} ${formData.Unit1 || "-"}
+  - Max Velocity (1): ${formData.Vmax1 || "-"} ${getVelocityUnit(formData.VCP1) || "-"}
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
   
 > LONG VCP
-  - Max Velocity (2): ${formData.Vmax2 || "-"} ${formData.Unit2 || "-"}
+  - Max Velocity (2): ${formData.Vmax2 || "-"} ${getVelocityUnit(formData.VCP2) || "-"}
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
         `.trim();
@@ -192,15 +197,15 @@ export const generateEmailBody = (
     // Case B: Progressive / Linear Acc (Has Min & Max)
     else if (["Progressive", "Linear Accelerating"].includes(formData.Type)) {
         metricsBlock = `
-  - Vmin: ${formData.Vmin || "-"} ${formData.Unit1 || "-"}
-  - Vmax: ${formData.Vmax || "-"} ${formData.Unit1 || "-"}
+  - Vmin: ${formData.Vmin || "-"} ${getVelocityUnit(formData.VCP) || "-"}
+  - Vmax: ${formData.Vmax || "-"} ${getVelocityUnit(formData.VCP) || "-"}
   - VCP:  ${formData.VCP || "-"}
         `.trim();
     }
     // Case C: Standard (Linear, etc.)
     else if (["Linear"].includes(formData.Type)) {
         metricsBlock = `
-  - Velocity: ${formData.AverageVelocity || "-"} ${formData.Unit1 || "-"}
+  - Velocity: ${formData.AverageVelocity || "-"} ${getVelocityUnit(formData.VCP) || "-"}
   - VCP: ${formData.VCP || "-"}
         `.trim();
     }
