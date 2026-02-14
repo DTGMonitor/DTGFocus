@@ -24,9 +24,9 @@ const REPORT_CONFIG = {
 };
 
 
-const ReportTemplateRenderer = ({ reportType, data, reportInfo }) => {
+const ReportTemplateRenderer = ({ reportType, data, reportInfo, sensor }) => {
     const config = REPORT_CONFIG[reportType];
-    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} reportInfo={reportInfo} /> : <div>Template not found</div>;
+    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} sensor={sensor} reportInfo={reportInfo} /> : <div>Template not found</div>;
 };
 
 // --- 2. THE MODAL COMPONENT ---
@@ -38,6 +38,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const { user, userSite, loading: authLoading } = useUserSite();
     const [clientsList, setClientsList] = useState([]);
     const [loadingClients, setLoadingClients] = useState(true);
+    const [processedRadarData, setProcessedRadarData] = useState([]);
 
     const displayName = userSite?.displayname || user?.email;
 
@@ -63,6 +64,22 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             fetchClients();
         }
     }, [user]);
+
+    // Process Radar Data (Sign Images)
+    useEffect(() => {
+        const processRadarData = async () => {
+            if (!radarData) return;
+            const processed = await Promise.all(radarData.map(async (item) => {
+                if (item.image && item.image.image_url) {
+                    const { data } = await supabase.storage.from('Radar').createSignedUrl(item.image.image_url, 3600);
+                    return { ...item, fullImageUrl: data?.signedUrl };
+                }
+                return item;
+            }));
+            setProcessedRadarData(processed);
+        };
+        if (sensor) processRadarData();
+    }, [radarData, sensor]);
 
     // 1. Helper to get "YYYY-MM-DD" string for inputs
     const formatDate = (dateObj) => dateObj.toLocaleDateString('en-CA');
@@ -225,9 +242,16 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             const description = config.description;
             const cleanFileName = `${formData?.clientID}/${fileName}`;
             const isRadarTemplate = config.template === 'RadarTemplate';
-            const pdfWidth = isRadarTemplate ? 794 : 1280;
-            const pageHeight = isRadarTemplate ? 1123 : 720;
-            const totalPages = isRadarTemplate ? 3 : 5;
+            
+            // Calculate Radar Pages dynamically
+            const appendixCount = isRadarTemplate ? processedRadarData.filter(item => item.notes && (item.image || item.appendix)).length : 0;
+            const itemsPerPage = 2;
+            const appendixPages = Math.ceil(appendixCount / itemsPerPage);
+            const radarTotalPages = 2 + (appendixPages > 0 ? appendixPages : 0); // Page 1 + Page 2 + Appendix Pages
+
+            const pdfWidth = isRadarTemplate ? 1240 : 1280;
+            const pageHeight = isRadarTemplate ? 1754 : 720;
+            const totalPages = isRadarTemplate ? radarTotalPages : 5;
             const pdfHeight = pageHeight * totalPages; // 3369 or 3600
             const orientation = isRadarTemplate ? 'portrait' : 'landscape';
 
@@ -274,9 +298,10 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
             root.render(
                 <TemplateComponent
-                    data={generatedReport.data}
+                    data={isRadarTemplate ? processedRadarData : generatedReport.data}
                     reportInfo={generatedReport.info}
                     exportMode={true}
+                    sensor={sensor}
                 />
             );
 
@@ -372,7 +397,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     created_at: new Date().toISOString(),
                     subject: 1,
                     location: siteName,
-                    category: formData.category.toLowerCase(),
+                    category: `${formData.frequency.toLowerCase()} report`,
                     action: 'No action required',
                     notes: `${title} has been generated`,
                     submitted_by: user?.id,
@@ -506,7 +531,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             <button onClick={onClose}><X size={24} /></button>
                         </div>
                         <div className="overflow-x-auto">
-                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? radarData : generatedReport.data} reportInfo={generatedReport.info} />
+                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? processedRadarData : generatedReport.data} reportInfo={generatedReport.info} sensor={sensor} />
                         </div>
                         {message && (
                             <div className={`mx-6 p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :
