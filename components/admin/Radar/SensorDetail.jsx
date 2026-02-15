@@ -129,6 +129,10 @@ const SensorDetail = ({
     // NEW: Track if we are editing an existing downtime record
     const [activeDowntimeId, setActiveDowntimeId] = useState(null);
 
+    // [NEW] Refs for handling race conditions
+    const lastEditTimeRef = useRef(0);
+    const prevSensorIdRef = useRef(sensor.id);
+
     // DQP
     const [isDQPModalOpen, setIsDQPModalOpen] = useState(false);
     const [pendingUpdate, setPendingUpdate] = useState(null);
@@ -141,11 +145,30 @@ const SensorDetail = ({
     const [showReportModal, setShowReportModal] = useState(false);
 
     useEffect(() => {
+        // 1. Check if Sensor ID changed (User switched sensors)
+        if (sensor.id !== prevSensorIdRef.current) {
+            prevSensorIdRef.current = sensor.id;
+            lastEditTimeRef.current = 0; // Reset edit timer
+
+            setLocalStatus(sensor.status);
+            setLocalRisk(sensor.risk);
+            setLocalQuality(sensor.quality);
+            setLocalScore(sensor.normalised_score);
+            return;
+        }
+
+        // 2. If same sensor, check if we recently edited
+        const timeSinceEdit = Date.now() - lastEditTimeRef.current;
+        if (timeSinceEdit < 2000) {
+            // Ignore prop updates for 2 seconds after edit to prevent stale data overwrite
+            return;
+        }
+
         setLocalStatus(sensor.status);
         setLocalRisk(sensor.risk);
         setLocalQuality(sensor.quality);
         setLocalScore(sensor.normalised_score);
-    }, [sensor.status, sensor.risk, sensor.quality, sensor.normalised_score]);
+    }, [sensor.status, sensor.risk, sensor.quality, sensor.normalised_score, sensor.id]);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -256,7 +279,27 @@ const SensorDetail = ({
             // Trigger validation immediately after setting data
             validateCompleteness(mergedData);
         }
-    }, [sensor.dqp_record_id, parameterMap]); // Dependency on parameterMap is key!
+
+        // [NEW] Fetch latest score/quality to keep metadata in sync
+        try {
+            const { data: parentRecord, error: parentError } = await supabase
+                .from('latest_radar_wall_folders')
+                .select('quality, normalised_score, type')
+                .eq('wallfolder_id', sensor.wallfolder_id)
+                .single();
+
+            if (!parentError && parentRecord) {
+                const timeSinceEdit = Date.now() - lastEditTimeRef.current;
+                if (timeSinceEdit > 2000) {
+                    setLocalStatus(parentRecord.type);
+                    setLocalQuality(parentRecord.quality);
+                    setLocalScore(parentRecord.normalised_score);
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching parent record quality:", err);
+        }
+    }, [sensor.dqp_record_id, parameterMap, sensor.wallfolder_id]); // Dependency on parameterMap is key!
 
     // 3. Load them in order
     useEffect(() => {
@@ -606,26 +649,56 @@ const SensorDetail = ({
             }
 
             // [NEW] Update UI Immediately
-            await fetchDataQuality();
+            // Wait for DB triggers/views to update before fetching
+            lastEditTimeRef.current = Date.now();
+
+            // 2. Optimistic UI Update (Do this BEFORE fetching)
+            // This ensures the numbers flip instantly, even if "Lost Connection" is selected.
             setLocalStatus(targetStatus);
 
-            const { data: parentRecord, error: parentError } = await supabase
-                .from('latest_radar_wall_folders')
-                .select('quality, normalised_score')
-                .eq('wallfolder_id', sensor.wallfolder_id)
-                .single();
-
-            if (!parentError && parentRecord) {
-                setLocalQuality(parentRecord.quality);
-                setLocalScore(parentRecord.normalised_score);
+            if (targetStatus === 'Live') {
+                setLocalQuality('Optimal');
+                setLocalScore(1);
             } else {
-                // Fallback to optimistic update if fetch fails
-                if (targetStatus === 'Link Down') { setLocalQuality('Critical'); }
-                if (targetStatus === 'Live') { setLocalQuality('Optimal'); }
+                // Covers 'Link Down', 'Lost Connection', 'Maintenance', etc.
+                setLocalQuality('Critical');
+                setLocalScore(0);
             }
 
+            // 3. Update DQP Table (This is fast)
+            await fetchDataQuality();
+
+            // 4. Background Verification (Optional but good for consistency)
+            // We let this run in the background. If it finds new data, it will refine the score,
+            // but the user already sees the correct "Critical/0%" status from Step 2.
+            const verifyBackend = async () => {
+                let attempts = 0;
+                while (attempts < 3) {
+                    await new Promise(r => setTimeout(r, 1000)); // Wait 1s between checks
+
+                    const { data, error } = await supabase
+                        .from('latest_radar_wall_folders')
+                        .select('quality, normalised_score, type')
+                        .eq('wallfolder_id', sensor.wallfolder_id)
+                        .single();
+
+                    if (data && data.type === targetStatus) {
+                        // Backend has caught up, sync exact values
+                        setLocalQuality(data.quality);
+                        setLocalScore(data.normalised_score);
+                        break;
+                    }
+                    attempts++;
+                }
+            };
+
+            // Trigger background verification without awaiting it to block the UI closing
+            verifyBackend();
+
+            // 5. Success & Close
             toast.success('Status updated successfully');
             setIsModalOpen(false);
+
             if (onUpdateComplete) onUpdateComplete();
 
             openOutlookDraft(emailSubject, emailBody, siteName, "DTG Engineers");
@@ -1091,18 +1164,6 @@ const SensorDetail = ({
 
         // 5. Fetch fresh data (UI Refresh)
         await fetchDataQuality();
-
-        // 6. Fetch updated Parent Record (Score & Quality)
-        const { data: parentRecord, error: parentError } = await supabase
-            .from('latest_radar_wall_folders')
-            .select('quality, normalised_score')
-            .eq('wallfolder_id', sensor.wallfolder_id)
-            .single();
-
-        if (!parentError && parentRecord) {
-            setLocalQuality(parentRecord.quality);
-            setLocalScore(parentRecord.normalised_score);
-        }
     };
 
     // Close menu when clicking outside
@@ -1143,10 +1204,7 @@ const SensorDetail = ({
 
 
     return (
-        <div className="fixed inset-0 bg-[var(--dtg-bg-primary)]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={onClose}
-        >
-            <Toaster position="top-center" reverseOrder={false} />
+        <div className="fixed inset-0 bg-[var(--dtg-bg-primary)]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">            <Toaster position="top-center" reverseOrder={false} />
             <div className="bg-[var(--dtg-bg-primary)] rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col border border-[var(--dtg-border-medium)]"
                 onClick={(e) => e.stopPropagation()}>
 
@@ -1492,6 +1550,7 @@ const SensorDetail = ({
                                         >
                                             <DeformationList
                                                 sensor={sensor}
+                                                alarmRegion={sharedRegions}
                                                 search={searchDeformation}
                                                 rawList={deformationList}
                                                 filtered={filteredDeformation}

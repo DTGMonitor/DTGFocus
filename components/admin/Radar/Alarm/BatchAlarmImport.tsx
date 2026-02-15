@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import { supabase } from "@/lib/supabaseClient";
@@ -49,6 +49,12 @@ const CAUSE_OPTIONS: Record<ReasonType, string[]> = {
         "Regressive Deformation Trend"]
 };
 
+const getReasonForCause = (cause: string): ReasonType | null => {
+    if (CAUSE_OPTIONS.False.includes(cause)) return 'False';
+    if (CAUSE_OPTIONS.Valid.includes(cause)) return 'Valid';
+    return null;
+};
+
 export const BatchAlarmImport = ({
     wallFolderId,
     existingRegions,
@@ -69,6 +75,69 @@ export const BatchAlarmImport = ({
     const [globalLocation, setGlobalLocation] = useState('');
     const [globalReason, setGlobalReason] = useState<ReasonType>('False');
     const [globalCause, setGlobalCause] = useState('');
+
+    // --- DRAG TO COPY STATE ---
+    const [dragState, setDragState] = useState<{
+        active: boolean;
+        startIdx: number | null;
+        endIdx: number | null;
+        col: keyof BatchRow | null;
+        value: any;
+    }>({ active: false, startIdx: null, endIdx: null, col: null, value: null });
+
+    // --- DRAG HANDLERS ---
+    useEffect(() => {
+        const handleMouseUp = () => {
+            if (dragState.active && dragState.startIdx !== null && dragState.endIdx !== null && dragState.col) {
+                const start = Math.min(dragState.startIdx, dragState.endIdx);
+                const end = Math.max(dragState.startIdx, dragState.endIdx);
+                const sourceValue = dragState.value;
+
+                setRows(prev => prev.map((row, idx) => {
+                    if (idx >= start && idx <= end) {
+                        const updates: Partial<BatchRow> = { [dragState.col!]: sourceValue };
+
+                        // Auto-update Reason if dragging Cause
+                        if (dragState.col === 'cause') {
+                            const inferredReason = getReasonForCause(sourceValue);
+                            if (inferredReason) {
+                                updates.reason = inferredReason;
+                            }
+                        }
+
+                        return { ...row, ...updates };
+                    }
+                    return row;
+                }));
+            }
+            setDragState({ active: false, startIdx: null, endIdx: null, col: null, value: null });
+        };
+
+        if (dragState.active) {
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+        return () => window.removeEventListener('mouseup', handleMouseUp);
+    }, [dragState]);
+
+    const handleDragStart = (e: React.MouseEvent, idx: number, col: keyof BatchRow, value: any) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragState({ active: true, startIdx: idx, endIdx: idx, col, value });
+    };
+
+    const handleDragEnter = (idx: number, col: keyof BatchRow) => {
+        if (dragState.active && dragState.col === col) {
+            setDragState(prev => ({ ...prev, endIdx: idx }));
+        }
+    };
+
+    const getCellClass = (idx: number, col: keyof BatchRow) => {
+        const base = "p-2 relative group";
+        if (!dragState.active || dragState.col !== col || dragState.startIdx === null || dragState.endIdx === null) return base;
+        const start = Math.min(dragState.startIdx, dragState.endIdx);
+        const end = Math.max(dragState.startIdx, dragState.endIdx);
+        return (idx >= start && idx <= end) ? `${base} bg-blue-500/20` : base;
+    };
 
     // --- 3. PARSING ---
     const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -366,9 +435,9 @@ export const BatchAlarmImport = ({
                                         </td>
 
                                         {/* Editable Location */}
-                                        <td className="p-2">
+                                        <td className={getCellClass(idx, 'location')} onMouseEnter={() => handleDragEnter(idx, 'location')}>
                                             <input
-                                                className="w-full bg-transparent border-b border-transparent focus:border-[var(--dtg-brand-orange)] outline-none text-xs"
+                                                className="w-full bg-[var(--dtg-bg-card)] border-b border-[var(--dtg-border-medium)] focus:border-[var(--dtg-brand-orange)] outline-none text-xs"
                                                 value={row.location}
                                                 onChange={(e) => {
                                                     const newRows = [...rows];
@@ -377,12 +446,17 @@ export const BatchAlarmImport = ({
                                                 }}
                                                 placeholder="..."
                                             />
+                                            <div
+                                                className="absolute bottom-0 right-0 w-3 h-3 bg-orange-500 cursor-crosshair opacity-0 group-hover:opacity-100 z-20"
+                                                onMouseDown={(e) => handleDragStart(e, idx, 'location', row.location)}
+                                                title="Drag to copy"
+                                            />
                                         </td>
 
                                         {/* Editable Reason */}
-                                        <td className="p-2">
+                                        <td className={getCellClass(idx, 'reason')} onMouseEnter={() => handleDragEnter(idx, 'reason')}>
                                             <select
-                                                className="bg-transparent text-xs outline-none"
+                                                className="text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] text-xs outline-none w-full"
                                                 value={row.reason}
                                                 onChange={(e: any) => {
                                                     const newRows = [...rows];
@@ -394,12 +468,17 @@ export const BatchAlarmImport = ({
                                                 <option value="False">False</option>
                                                 <option value="Valid">Valid</option>
                                             </select>
+                                            <div
+                                                className="absolute bottom-0 right-0 w-3 h-3 bg-orange-500 cursor-crosshair opacity-0 group-hover:opacity-100 z-20"
+                                                onMouseDown={(e) => handleDragStart(e, idx, 'reason', row.reason)}
+                                                title="Drag to copy"
+                                            />
                                         </td>
 
                                         {/* Editable Cause */}
-                                        <td className="p-2">
+                                        <td className={getCellClass(idx, 'cause')} onMouseEnter={() => handleDragEnter(idx, 'cause')}>
                                             <select
-                                                className="bg-transparent text-xs outline-none w-full"
+                                                className="text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] text-xs outline-none w-full"
                                                 value={row.cause}
                                                 onChange={(e) => {
                                                     const newRows = [...rows];
@@ -410,6 +489,11 @@ export const BatchAlarmImport = ({
                                                 <option value=""></option>
                                                 {CAUSE_OPTIONS[row.reason].map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
+                                            <div
+                                                className="absolute bottom-0 right-0 w-3 h-3 bg-orange-500 cursor-crosshair opacity-0 group-hover:opacity-100 z-20"
+                                                onMouseDown={(e) => handleDragStart(e, idx, 'cause', row.cause)}
+                                                title="Drag to copy"
+                                            />
                                         </td>
 
                                         <td className="p-2 text-center">

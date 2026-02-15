@@ -230,7 +230,7 @@ const ReportsList = ({refreshTrigger,reportData}) => {
                     </h3>
                 </div>
 
-                <div className='divide-y divide-[var(--dtg-border-medium)]'>
+                <div className='divide-y divide-[var(--dtg-border-medium)] max-h-[400px] overflow-y-auto'>
                     {filteredReports.map((report) => (
                         <div key={report.id} className="p-2">
                             <div className="flex items-start justify-between">

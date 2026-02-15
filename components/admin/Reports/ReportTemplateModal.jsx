@@ -117,8 +117,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const categories = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive'];
 
     //filename
-    const rawDate = formData.endDate || new Date().toISOString().split('T')[0];
-    const compactDate = rawDate.replaceAll('-', '').slice(2);
+    const rawDate = formData.endDate || new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0];
+    const compactDate = rawDate.replaceAll('-', '').slice(0);
     const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
     const fileName = (sensor && formData.category === 'Data Quality') ?
@@ -315,15 +315,16 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF({
                 unit: 'mm',
-                format: isRadarTemplate ? 'a4' : [279.4, 157.2], // A4 portrait OR 16:9 in mm (1280/720 * 25.4/96)
-                orientation: orientation
+                format: isRadarTemplate ? 'a4' : [338.7, 190.5],
+                orientation: orientation,
+                compress: true
             });
 
             for (let i = 0; i < totalPages; i++) {
                 const yOffset = i * pageHeight;
 
                 const canvas = await window.html2canvas(container, {
-                    scale: 2,
+                    scale: 1.5,
                     useCORS: true,
                     logging: false,
                     backgroundColor: '#ffffff',
@@ -337,17 +338,22 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     scrollY: 0,
                 });
 
-                const imgData = canvas.toDataURL('image/jpeg', 0.98);
+                const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
                 // Page dimensions in mm
-                const mmWidth = isRadarTemplate ? 210 : 338.7;  // A4 width OR 1280px in mm
-                const mmHeight = isRadarTemplate ? 297 : 190.5;  // A4 height OR 720px in mm
+                const mmWidth = pdf.internal.pageSize.getWidth();
+                const mmHeight = pdf.internal.pageSize.getHeight();
 
-                if (i > 0) pdf.addPage(
-                    isRadarTemplate ? 'a4' : [mmWidth, mmHeight],
-                    orientation
-                );
+                if (i > 0) pdf.addPage();
                 pdf.addImage(imgData, 'JPEG', 0, 0, mmWidth, mmHeight);
+
+                // --- [NEW] ADD PAGE NUMBER ---
+                pdf.setFontSize(8);
+                pdf.setTextColor(128); // Gray color
+                const pageNumText = `Page ${i + 1} of ${totalPages}`;
+                const textX = mmWidth - 15; // 15mm from the right edge
+                const textY = mmHeight - 10; // 10mm from the bottom edge
+                pdf.text(pageNumText, textX, textY, { align: 'right' });
             }
 
             // Output as blob

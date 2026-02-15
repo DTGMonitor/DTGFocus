@@ -60,8 +60,25 @@ export default function Notifications() {
     return matchesSearch && matchesType && matchesCategory && matchesSubject;
   });
 
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  const deleteNotification = async (id: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('work_log')
+        .delete()
+        .eq('id', id)
+        .select();
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error("Deletion failed. You may not have permission to delete this item.");
+      }
+
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    } catch (error: any) {
+      console.error("Error deleting notification:", error);
+      alert(`Failed to delete notification: ${error.message}`);
+    }
   };
 
   const typeStats = {

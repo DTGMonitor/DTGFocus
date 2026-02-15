@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { supabase } from "@/lib/supabaseClient"; // Check your path
-import { X, Loader2, Save } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button"; // Check your path
-import { Input } from "@/components/LandingPage/ui/input"; // Check your path
-import { toUTC } from "@/utils/timezoneUtils"; // Check your path
+import { supabase } from "@/lib/supabaseClient";
+import { Loader2, Save } from 'lucide-react';
+import { Button } from "@/components/LandingPage/ui/button";
+import { Input } from "@/components/LandingPage/ui/input";
+import { Checkbox } from '@/components/LandingPage/ui/checkbox';
+import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
 
 interface UserProfile {
@@ -11,12 +12,18 @@ interface UserProfile {
     full_name: string;
 }
 
+interface AlarmRegion {
+    id: number;
+    name: string;
+}
+
 interface AddDeformationFormProps {
     sensor: any;
     userID: string;
     userName: string;
     clientTimezone: string;
-    wallfolder: string;
+    wallfolder: number;
+    alarmRegion?: AlarmRegion[];
     crosscheckers: UserProfile[];
     onClose: () => void;
     onSuccess?: () => void;
@@ -47,8 +54,30 @@ const openOutlookDraft = (
     window.location.href = mailtoLink;
 };
 
+interface FormDataState {
+    Type: string;
+    WallFolderID: number;
+    alarmRegions: number[];
+    Location: string;
+    Start: string;
+    Notes: string;
+    DetectedBy: string;
+    CrosscheckedBy: string;
+    SiteEngineer: string;
+    NotificationTime: string;
+    NotificationBy: string;
+    SurfaceArea: string;
+    Vmax1: string;
+    Vmax2: string;
+    InverseVelocity1?: string;
+    InverseVelocity2?: string;
+    [key: string]: any;
+    triggeredTimes: { [key: number]: string };
+}
+
 const AddDeformationForm = ({
     sensor,
+    alarmRegion = [],
     userID,
     userName,
     clientTimezone,
@@ -57,11 +86,13 @@ const AddDeformationForm = ({
     onSuccess
 }: AddDeformationFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [withAlarm, setWithAlarm] = useState(false);
 
     // 1. Unified Form State
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<FormDataState>({
         Type: "", // This drives the dynamic fields
         WallFolderID: sensor.wallfolder_id,
+        alarmRegions: [],
         Location: "",
         Start: "",
         Notes: "",
@@ -72,8 +103,8 @@ const AddDeformationForm = ({
         NotificationBy: "",
         SurfaceArea: "",
         Vmax1: "",
-        Vmax2: ""
-        // ... dynamic fields will be added here loosely
+        Vmax2: "",
+        triggeredTimes: {}
     });
 
     // Helper to render the 3-column "Velocity Group" row
@@ -104,12 +135,12 @@ const AddDeformationForm = ({
         const gridCols = vminKey ? "grid-cols-4" : "grid-cols-3";
 
         return (
-            <div key={velKey} className="col-span-2 bg-zinc-900/50">
+            <div key={velKey} className="col-span-2 bg-[var(--dtg-bg-card)]/50">
                 <div className={`grid ${gridCols} gap-4`}>
 
                     {/* 3. VCP Input */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {vcpDef?.label || "VCP"}
                         </label>
                         <Input
@@ -117,14 +148,14 @@ const AddDeformationForm = ({
                             step="60"
                             value={rawVcpValue || ''}
                             onChange={(e) => handleChange(vcpKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
                     {/* 1. Vmin Input (Only rendered if vminKey is provided) */}
                     {vminKey && (
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                                 {vminDef?.label || "Vmin"}
                             </label>
                             <Input
@@ -132,14 +163,14 @@ const AddDeformationForm = ({
                                 step="0.1"
                                 value={getFormValue(vminKey) || ''}
                                 onChange={(e) => handleChange(vminKey, e.target.value)}
-                                className="bg-card"
+                                className='bg-[var(--dtg-bg-card)]'
                             />
                         </div>
                     )}
 
                     {/* 2. Velocity Input (Vmax or Average) */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {def?.label || velKey}
                         </label>
                         <Input
@@ -147,16 +178,16 @@ const AddDeformationForm = ({
                             step="0.1"
                             value={getFormValue(velKey) || ''}
                             onChange={(e) => handleChange(velKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
                     {/* 4. Unit Display */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {unitDef?.label || "Unit"}
                         </label>
-                        <div className="h-9 flex items-center px-3 rounded-md border border-zinc-700 bg-zinc-800 text-gray-300 text-sm font-mono">
+                        <div className="h-9 flex items-center px-3 rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] text-[var(--dtg-gray-300)] text-sm font-mono">
                             {calculatedUnit}
                         </div>
                     </div>
@@ -222,12 +253,12 @@ const AddDeformationForm = ({
             : "-";
 
         return (
-            <div key={invKey} className="col-span-2 bg-zinc-900/30">
+            <div key={invKey} className="col-span-2 ">
                 <div className="grid grid-cols-4 gap-4">
 
                     {/* Inverse Velocity Input */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {invDef?.label || "Inv. Velocity"}
                         </label>
                         <Input
@@ -236,13 +267,13 @@ const AddDeformationForm = ({
                             // Value is derived, but allows manual override if needed (e.g. in Forecast mode)
                             value={getFormValue(invKey) || ''}
                             onChange={(e) => handleChange(invKey, e.target.value)}
-                            className="bg-card text-blue-300 border-blue-900/50 focus:border-blue-500"
+                            className="bg-[var(--dtg-bg-card)] text-blue-300 border-blue-900/50 focus:border-blue-500"
                         />
                     </div>
 
                     {/* VCP Input (Shared) */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {vcpDef?.label || "VCP"}
                         </label>
                         <Input
@@ -250,30 +281,30 @@ const AddDeformationForm = ({
                             step="60"
                             value={rawVcpValue || ''}
                             onChange={(e) => handleChange(vcpKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
                     {/* Inverted Unit Display */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {unitDef?.label || "Unit (Inv)"}
                         </label>
-                        <div className="h-9 flex items-center px-3 rounded-md border border-zinc-700 bg-zinc-800 text-blue-300 text-sm font-mono">
+                        <div className="h-9 flex items-center px-3 rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] text-blue-300 text-sm font-mono">
                             {calculatedUnit}
                         </div>
                     </div>
 
                     {/* Forecast Input (Shared) */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {resultDef?.label || "Forecast Result"}
                         </label>
                         <Input
                             type="datetime-local"
                             value={resultValue || ''}
                             onChange={(e) => handleChange(resultKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
                 </div>
@@ -305,13 +336,13 @@ const AddDeformationForm = ({
         const invUnit = rawVcpValue ? (vcpValue < 1440 ? "h/mm" : "d/mm") : "-";
 
         return (
-            <div key={velKey} className="col-span-1 bg-zinc-900/50">
+            <div key={velKey} className="col-span-1">
                 {/* 4-Column Grid for Maximum Efficiency */}
                 <div className="grid grid-cols-3 gap-4">
 
                     {/* 3. VCP Input */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {vcpDef?.label || "VCP"}
                         </label>
                         <Input
@@ -319,13 +350,13 @@ const AddDeformationForm = ({
                             step="60"
                             value={rawVcpValue || ''}
                             onChange={(e) => handleChange(vcpKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
                     {/* 1. Velocity Input */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {velDef?.label || velKey} ({stdUnit})
                         </label>
                         <Input
@@ -333,21 +364,22 @@ const AddDeformationForm = ({
                             step="0.1"
                             value={getFormValue(velKey) || ''}
                             onChange={(e) => handleChange(velKey, e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
                     {/* 2. Inverse Velocity Input (Next to Referenced Velocity) */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             {invDef?.label || "Inv. Velocity"} ({invUnit})
                         </label>
                         <Input
+                            disabled
                             type="number"
                             step="0.01"
                             value={getFormValue(invKey) || ''}
                             onChange={(e) => handleChange(invKey, e.target.value)}
-                            className="bg-card text-blue-300 border-blue-900/30"
+                            className="bg-[var(--dtg-bg-card)] text-blue-300 border-blue-900/30"
                         />
                     </div>
 
@@ -361,6 +393,26 @@ const AddDeformationForm = ({
         setFormData(prev => ({ ...prev, [key]: value }));
     };
 
+    const handleRegionTimeChange = (regionId: number, value: string) => {
+        setFormData(prev => ({
+            ...prev,
+            triggeredTimes: {
+                ...prev.triggeredTimes,
+                [regionId]: value
+            }
+        }));
+    };
+
+    const handleRegionToggle = (regionId: number) => {
+        setFormData(prev => {
+            const current = prev.alarmRegions;
+            if (current.includes(regionId)) {
+                return { ...prev, alarmRegions: current.filter(id => id !== regionId) };
+            }
+            return { ...prev, alarmRegions: [...current, regionId] };
+        });
+    };
+
     // --- Submit Handler ---
     const handleSubmit = async () => {
         setIsLoading(true);
@@ -369,11 +421,11 @@ const AddDeformationForm = ({
             const fixedColumns = {
                 def_type: formData.Type,
                 created_at: new Date().toISOString(),
-                wallfolder_id: formData.WallFolderID ? parseInt(formData.WallFolderID) : null,
+                wallfolder_id: formData.WallFolderID || null,
                 location: formData.Location,
                 isactive: "Yes",
                 tarp_level: currentConfig.tarp,
-                start: formData.Start ? toUTC(formData.Start, clientTimezone) : null, // Assuming toUTC handles string
+                start: formData.Start ? toUTC(formData.Start, clientTimezone) : null,
                 notes: formData.Notes,
                 detected_by: formData.DetectedBy,
                 crosschecked_by: formData.CrosscheckedBy || null,
@@ -411,14 +463,37 @@ const AddDeformationForm = ({
             });
 
             // 3. Send to Supabase (Option 1: JSONB approach)
-            const { error } = await supabase
+            const { data: insertedRecord, error } = await supabase
                 .from('def_records') // Your table name
                 .insert([{
                     ...fixedColumns,
                     properties: properties // All the conditional stuff goes here
-                }]);
+                }])
+                .select('id')
+                .single();
 
             if (error) throw error;
+
+            // 4. Insert Linked Alarm Records
+            if (formData.alarmRegions.length > 0 && insertedRecord) {
+                const alarmPayloads = formData.alarmRegions.map(regionId => ({
+                    triggered_at: formData.triggeredTimes[regionId] ? toUTC(formData.triggeredTimes[regionId], clientTimezone) : null,
+                    alarm_region: regionId,
+                    location: formData.Location,
+                    reason: 'Valid',
+                    cause: formData.Type,
+                    deformation: insertedRecord.id,
+                    detected_by: formData.DetectedBy,
+                    crosschecked_by: formData.CrosscheckedBy || null
+                }));
+
+                const { error: alarmError } = await supabase
+                    .from('alarm_records')
+                    .insert(alarmPayloads);
+
+                if (alarmError) console.error("Error inserting linked alarms:", alarmError);
+            }
+
             // --- D. INSERT WORK LOG (New) ---
             try {
 
@@ -461,8 +536,12 @@ const AddDeformationForm = ({
     const selectedCrosschecker = crosscheckers.find(u => u.id === formData.CrosscheckedBy);
     const crosscheckerName = selectedCrosschecker ? `& ${selectedCrosschecker.full_name}` : "";
     const logDetails = getWorkLogDetails(currentConfig.tarp, formData.NotificationTime);
-    const emailSubject = generateEmailSubject(logDetails.subject, currentConfig.tarp, formData.Type, cleanSensor)
-    const emailBody = generateEmailBody(formData, cleanSensor, logDetails.subject, userName, crosscheckerName);
+
+    const selectedRegions = alarmRegion.filter((r: any) => formData.alarmRegions.includes(r.id));
+    const emailSubject = generateEmailSubject(logDetails.subject, currentConfig.tarp, formData.Type, cleanSensor, selectedRegions);
+
+    const emailFormData = { ...formData, alarmRegions: selectedRegions };
+    const emailBody = generateEmailBody(emailFormData, cleanSensor, logDetails.subject, userName, crosscheckerName);
     const visibleDynamicFields = currentConfig.fields;
 
     return (
@@ -470,30 +549,43 @@ const AddDeformationForm = ({
             {/* Header */}
             <div className="flex justify-between items-center p-4 border-b">
                 <h2 className="text-lg font-bold">New Deformation Record</h2>
-                <button onClick={onClose}><X size={20} /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
 
                 {/* SECTION 1: MANDATORY (Yellow Columns) */}
                 <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-1">
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Type *</label>
-                        <select
-                            className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
-                            value={formData.Type}
-                            onChange={(e) => handleChange("Type", e.target.value)}
-                        >
-                            <option value="">-- Select Type --</option>
-                            {Object.keys(TYPE_MATRIX).map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                    <div className="flex gap-4">
+                        <div className='flex flex-col gap-2 items-center'>
+                            <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">Alarm(s)</label>
+                            <Checkbox
+                                checked={withAlarm}
+                                onCheckedChange={() => setWithAlarm(!withAlarm)}
+                                className={`w-5 h-5 ${withAlarm
+                                    ? 'border-green-600 hover:border-green-500'
+                                    : 'border-gray-600 hover:border-gray-500'
+                                    }`}
+                            />
+                        </div>
+
+                        <div className="flex-1 col-span-1">
+                            <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">Type *</label>
+                            <select
+                                className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                                value={formData.Type}
+                                onChange={(e) => handleChange("Type", e.target.value)}
+                            >
+                                <option value="">-- Select Type --</option>
+                                {Object.keys(TYPE_MATRIX).map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
                     </div>
 
                     {/* Common Fixed Fields */}
                     <SimpleField label="Time of Event/Trend Start Time" type="datetime-local" value={formData.Start} onChange={(v: any) => handleChange("Start", v)} />
                     <SimpleField label="Location" value={formData.Location} onChange={(v: any) => handleChange("Location", v)} />
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                             Surface Area (m2)
                         </label>
                         <Input
@@ -501,13 +593,13 @@ const AddDeformationForm = ({
                             step="0.1"
                             value={formData.SurfaceArea}
                             onChange={(e) => handleChange("SurfaceArea", e.target.value)}
-                            className="bg-card"
+                            className='bg-[var(--dtg-bg-card)]'
                         />
                     </div>
 
 
                     <div className="col-span-2">
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Notes</label>
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">Notes</label>
                         <textarea
                             className="w-full border rounded p-2 text-sm bg-transparent"
                             rows={2}
@@ -516,6 +608,31 @@ const AddDeformationForm = ({
                         />
                     </div>
                 </div>
+                {withAlarm &&
+                    <div className="space-y-2">
+                        <label>Alarm Region(s)</label>
+                        <div className="grid grid-cols-2 gap-2 border border-[var(--dtg-border-light)] p-2 rounded max-h-[150px] overflow-y-auto">
+                            {alarmRegion.map((region) => (
+                                <div key={region.id}>
+                                    <div className='space-x-2'>
+                                        <Checkbox
+                                            id={`region-${region.id}`}
+                                            checked={formData.alarmRegions.includes(region.id)}
+                                            onCheckedChange={() => handleRegionToggle(region.id)}
+                                        />
+                                        <label htmlFor={`region-${region.id}`} className="text-sm cursor-pointer select-none">
+                                            {region.name}
+                                        </label>
+                                    </div>
+                                    {formData.alarmRegions.includes(region.id) &&
+                                        <div className='pb-1 border-b border-[var(--dtg-border-medium)] max-w-[170px]'>
+                                            <SimpleField label="Triggered time" type="datetime-local" value={formData.triggeredTimes[region.id] || ''} onChange={(v: string) => handleRegionTimeChange(region.id, v)} />
+                                        </div>
+                                    }
+                                </div>
+                            ))}
+                        </div>
+                    </div>}
 
                 {/* SECTION 2: DYNAMIC FIELDS */}
                 {formData.Type && visibleDynamicFields.length > 0 && (
@@ -573,7 +690,7 @@ const AddDeformationForm = ({
                                 const def = FIELD_DEFINITIONS[fieldKey as FieldKey];
                                 return (
                                     <div key={fieldKey}>
-                                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">
                                             {def?.label || fieldKey}
                                         </label>
                                         <Input
@@ -581,7 +698,7 @@ const AddDeformationForm = ({
                                             step={(def as any)?.step || "any"}
                                             value={formData[fieldKey as keyof typeof formData] || ''}
                                             onChange={(e) => handleChange(fieldKey, e.target.value)}
-                                            className="bg-card"
+                                            className='bg-[var(--dtg-bg-card)]'
                                         />
                                     </div>
                                 );
@@ -593,7 +710,7 @@ const AddDeformationForm = ({
                 {/* SECTION 3: PEOPLE (Fixed) */}
                 <div className="border-t pt-4 grid grid-cols-2 gap-4">
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Crosschecked By</label>
+                        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">Crosschecked By</label>
                         <select
                             className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
                             value={formData.CrosscheckedBy}
@@ -607,7 +724,7 @@ const AddDeformationForm = ({
                     {(formData.Type === "Progressive" || formData.Type === "Linear Accelerating" || formData.Type === "Linear") && (
                         <div className="grid grid-cols-3 gap-4">
                             <div>
-                                <label className="text-xs text-zinc-400 mb-1 block">Notification By</label>
+                                <label className="text-xs text-[var(--dtg-gray-600)] mb-1 block">Notification By</label>
                                 <select
                                     value={formData.NotificationBy || ""}
                                     onChange={(e) => handleChange("NotificationBy", e.target.value)}
@@ -638,15 +755,22 @@ const AddDeformationForm = ({
     );
 };
 
+interface SimpleFieldProps {
+    label: string;
+    type?: string;
+    value: string | number | undefined;
+    onChange: (value: string) => void;
+}
+
 // Simple helper component to reduce clutter
-const SimpleField = ({ label, type = "text", value, onChange }: any) => (
+const SimpleField = ({ label, type = "text", value, onChange }: SimpleFieldProps) => (
     <div>
-        <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+        <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">{label}</label>
         <Input
             type={type}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="bg-card w-full"
+            className="bg-[var(--dtg-bg-card)] w-full"
             // This allows clicking the text/input body to open the calendar
             onClick={(e) => {
                 if (type === 'datetime-local' || type === 'date') {

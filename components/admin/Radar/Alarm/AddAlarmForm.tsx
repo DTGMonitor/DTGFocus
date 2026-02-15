@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from "@/lib/supabaseClient";
-import { X, Check, Search, ChevronDown, Plus, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { Button } from "@/components/LandingPage/ui/button";
 import { Input } from "@/components/LandingPage/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
@@ -56,37 +56,16 @@ const AddAlarmForm = ({
     const [selectedCrosschecker, setSelectedCrosschecker] = useState('');
 
     const [causeInput, setCauseInput] = useState('');
-    const [isCauseOpen, setIsCauseOpen] = useState(false);
-
-    // Fix: "ref object is null" error. We tell it this is a Div element.
-    const causeWrapperRef = useRef<HTMLDivElement>(null);
-
-    // --- CLICK OUTSIDE LISTENER (FOR COMBOBOX) ---
-    useEffect(() => {
-        // Fix #3: Typed Event
-        function handleClickOutside(event: MouseEvent) {
-            // Fix #3: Type Assertion (as Node)
-            if (causeWrapperRef.current && !causeWrapperRef.current.contains(event.target as Node)) {
-                setIsCauseOpen(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [causeWrapperRef]);
-
+    const [isCustomCauseMode, setIsCustomCauseMode] = useState(false);
 
     // --- FILTER CAUSES ---
     const currentCauseList = CAUSE_OPTIONS[reason] || [];
 
-    const filteredCauses = useMemo(() => {
-        if (!causeInput) return currentCauseList;
-        return currentCauseList.filter(c =>
-            c.toLowerCase().includes(causeInput.toLowerCase())
-        );
-    }, [causeInput, currentCauseList]);
-
-    const isCustomCause = causeInput && !currentCauseList.includes(causeInput);
-
+    // Reset custom mode when reason changes
+    useEffect(() => {
+        setIsCustomCauseMode(false);
+        setCauseInput('');
+    }, [reason]);
 
     // --- SUBMIT HANDLER ---
     const handleSubmit = async () => {
@@ -168,7 +147,7 @@ const AddAlarmForm = ({
             </div>
 
             {/* BODY */}
-            <div className="h-[15vh] overflow-y-auto grid grid-cols-2 items-start justify-start gap-2 p-2">
+            <div className="grid grid-cols-2 items-start justify-start gap-2 p-2">
 
                 {/* 1. Date & Time */}
                 <div className="grid grid-cols-1 gap-1">
@@ -192,7 +171,6 @@ const AddAlarmForm = ({
                                 key={opt}
                                 onClick={() => {
                                     setReason(opt);
-                                    setCauseInput('');
                                 }}
                                 className={`flex-1 py-1... ${reason === opt
                                     ? (opt === 'Valid' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 'bg-[var(--dtg-brand-orange)]/20 text-[var(--dtg-brand-orange)] border border-[var(--dtg-brand-orange)]/50')
@@ -229,58 +207,53 @@ const AddAlarmForm = ({
                                     <option key={user.id} value={user.id}>{user.full_name}</option>
                                 ))}
                             </select>
-                            <ChevronDown className="absolute right-3 top-2.5 text-[var(--dtg-gray-500)] pointer-events-none" size={14} />
                         </div>
                     </div>
                 </div>
 
-                {/* 4. Cause (Smart Combobox) */}
-                <div className="grid grid-cols-1 gap-1 relative" ref={causeWrapperRef}>
+                {/* 4. Cause */}
+                <div className="grid grid-cols-1 gap-1">
                     <label className="text-xs font-semibold text-[var(--dtg-gray-500)]">Cause <span className="text-red-400">*</span></label>
 
-                    <div className="relative">
-                        <Search className="absolute left-3 top-2.5 text-[var(--dtg-gray-500)]" size={16} />
-                        <input
-                            type="text"
-                            placeholder={`Search or type new ${reason.toLowerCase()} cause...`}
-                            value={causeInput}
-                            onChange={(e) => { setCauseInput(e.target.value); setIsCauseOpen(true); }}
-                            onFocus={() => setIsCauseOpen(true)}
-                            className="w-full pl-10 pr-4 py-2 bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md text-sm text-[var(--dtg-text-primary)] outline-none focus:border-[var(--dtg-brand-orange)]"
-                        />
-                        {/* Dropdown Menu */}
-                        {isCauseOpen && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md shadow-xl z-20 max-h-48 overflow-y-auto">
-                                {filteredCauses.map((c, idx) => (
-                                    <button
-                                        key={idx}
-                                        onClick={() => { setCauseInput(c); setIsCauseOpen(false); }}
-                                        className="w-full text-left px-4 py-2 text-sm text-[var(--dtg-text-primary)] hover:bg-[var(--dtg-bg-primary)] flex items-center justify-between group"
-                                    >
-                                        {c}
-                                        {causeInput === c && <Check size={14} className="text-[var(--dtg-brand-orange)]" />}
-                                    </button>
+                    {isCustomCauseMode ? (
+                        <div className="flex gap-2">
+                            <Input
+                                value={causeInput}
+                                onChange={(e) => setCauseInput(e.target.value)}
+                                placeholder="Type custom cause..."
+                                className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]"
+                                autoFocus
+                            />
+                            <button
+                                onClick={() => { setIsCustomCauseMode(false); setCauseInput(''); }}
+                                className="p-2 hover:bg-white/10 rounded text-gray-400"
+                                title="Back to list"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="relative">
+                            <select
+                                value={causeInput}
+                                onChange={(e) => {
+                                    if (e.target.value === 'custom_option') {
+                                        setIsCustomCauseMode(true);
+                                        setCauseInput('');
+                                    } else {
+                                        setCauseInput(e.target.value);
+                                    }
+                                }}
+                                className="w-full bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-md py-2 px-3 text-sm text-[var(--dtg-text-primary)] appearance-none outline-none focus:border-[var(--dtg-brand-orange)]"
+                            >
+                                <option value="">-- Select Cause --</option>
+                                {currentCauseList.map(c => (
+                                    <option key={c} value={c}>{c}</option>
                                 ))}
-
-                                {/* Add New Option */}
-                                {isCustomCause && (
-                                    <button
-                                        onClick={() => setIsCauseOpen(false)} // Just closes, input value stays as typed
-                                        className="w-full text-left px-4 py-2 text-sm text-[var(--dtg-brand-orange)] bg-[var(--dtg-brand-orange)]/10 hover:bg-[var(--dtg-brand-orange)]/20 flex items-center gap-2 border-t border-[var(--dtg-border-medium)]"
-                                    >
-                                        <Plus size={14} />
-                                        <span>Use "{causeInput}"</span>
-                                    </button>
-                                )}
-
-                                {filteredCauses.length === 0 && !isCustomCause && (
-                                    <div className="px-4 py-3 text-xs text-[var(--dtg-gray-500)] text-center">
-                                        Start typing to create a new cause...
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                                <option value="custom_option" className="font-semibold text-[var(--dtg-brand-orange)]">+ Add Custom Cause</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
             </div>

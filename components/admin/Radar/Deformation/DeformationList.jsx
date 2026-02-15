@@ -11,6 +11,7 @@ import toast from "react-hot-toast";
 
 const DeformationList = ({
     sensor,
+    alarmRegion=[],
     rawList,
     filtered,
     search,
@@ -121,6 +122,7 @@ const DeformationList = ({
             return (
                 <AddDeformationForm
                     sensor={sensor}
+                    alarmRegion={alarmRegion}
                     crosscheckers={crosscheckers}
                     userID={userID}
                     userName={userName}
@@ -147,7 +149,7 @@ const DeformationList = ({
                         variant='orange'
                         onClick={() => { onClose(), setViewMode('list') }}
                     >
-                        ← View List
+                        ← Back to List
                     </Button>
                 )}
             </div>

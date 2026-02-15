@@ -137,11 +137,11 @@ const AlarmList = ({
 
 
     const renderList = () => {
-        if (alarmRegionList.length === 0) return <div className="text-sm text-gray-500 mt-4">No alarm region set on this radar.</div>;
+        if (alarmRegionList.length === 0) return <div className="text-sm text-[var(--dtg-gray-500)] mt-4">No alarm region set on this radar.</div>;
 
         return (
             <>
-                <div className="sticky top-0 z-10 flex bg-[var(--dtg-bg-card)] items-center gap-4 justify-between p-2 text-sm text-gray-400 border-b border-[var(--dtg-border-medium)]">
+                <div className="sticky top-0 z-10 flex bg-[var(--dtg-bg-card)] items-center gap-4 justify-between p-2 text-sm text-[var(--dtg-gray-400)] border-b border-[var(--dtg-border-medium)]">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
                         <Input
@@ -159,16 +159,16 @@ const AlarmList = ({
                         const percentageValid = totalAlarms > 0 ? (item.valid_count / totalAlarms * 100).toFixed(2) : 0;
                         return (
                             <div key={index}>
-                                <div className={`flex justify-between mb-2 text-${totalAlarms > 0 ? 'white' : 'gray-500'}`}>
+                                <div className={`flex justify-between mb-2 text-${totalAlarms > 0 ? '[var(--dtg-text-primary)]' : '[var(--dtg-gray-500)]'}`}>
                                     <div className="flex gap-3 items-center text-sm">
                                         <span className={`w-3 h-3 rounded-xl ${getAlarmStatusColors(item.priority)}`}></span>
                                         <strong>{item.name}</strong>
                                         {isEditingRegion ? (
-                                            <button onClick={() => handleDeleteAlarmRegion(item.alarm_region_id)} className="p-1 hover:text-red-400 rounded text-gray-400">
+                                            <button onClick={() => handleDeleteAlarmRegion(item.alarm_region_id)} className="p-1 hover:text-red-400 rounded text-[var(--dtg-gray-400)]">
                                                 <Trash2 size={14} />
                                             </button>
                                         ) : (
-                                            <button onClick={() => { setIsAddingAlarm(true); setSelectedRegion({ id: item.alarm_region_id, name: item.name }) }} className="p-1 hover:text-green-400 rounded text-gray-400">
+                                            <button onClick={() => { setIsAddingAlarm(true); setSelectedRegion({ id: item.alarm_region_id, name: item.name }) }} className="p-1 hover:text-green-400 rounded text-[var(--dtg-gray-400)]">
                                                 <CirclePlus size={14} />
                                             </button>
                                         )}

@@ -61,7 +61,7 @@ const FeedbackModal = ({ isOpen, onClose, data, onSubmit, regions }) => {
 
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--dtg-bg-primary)]/80 backdrop-blur-sm overflow-y-auto">
             <div className="bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)] border-[var(--dtg-border-medium)] rounded-lg shadow-xl w-full max-w-2xl p-6 m-4 max-h-[90vh] flex flex-col">
 
                 {/* Header */}
@@ -97,7 +97,7 @@ const FeedbackModal = ({ isOpen, onClose, data, onSubmit, regions }) => {
                                 </label>
                                 <Select
                                     value={itemData[item.id]?.status || 'Modified'}
-                                    onValueChange={(e) => handleItemChange(item.id, 'status', e.target.value)}
+                                    onValueChange={(value) => handleItemChange(item.id, 'status', value)}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Status" />

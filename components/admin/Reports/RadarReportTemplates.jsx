@@ -371,9 +371,8 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
                                                                 width: '10px',
                                                                 height: '10px',
                                                                 backgroundColor: getStatusStyle(item.value).backgroundColor,
-                                                                border: `1px solid ${getStatusStyle(item.value).borderColor}`
-                                                            }} />
-                                                            {item.parameter.name}
+                                                        border: `1px solid ${getStatusStyle(item.value).borderColor}`                                                    
+                                                    }} /><span>{item.parameter.name}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -412,7 +411,7 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
                             ))}
                         </div>
                         {/* Row 2: Actions */}
-                        <div style={{ display: 'flex' }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
                             {STATUS_TYPES.map((status, i) => (
                                 <div key={status} style={{
                                     width: '25%',
@@ -428,7 +427,7 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
                             ))}
                         </div>
                         {/* Row 3: Definitions */}
-                        <div style={{ display: 'flex' }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
                             {STATUS_TYPES.map((status, i) => (
                                 <div key={status} style={{
                                     width: '25%',

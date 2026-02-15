@@ -125,7 +125,7 @@ const GradientTitle = ({ text }) => (
 export const HandoverTemplate = ({ data, reportInfo, exportMode = false, onClose, preloadedNotifications = null }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const currentShift = getShiftMeta(reportInfo.shift);
-    const compactDate = currentShift.date.toISOString().split('T')[0].replaceAll('-', '');
+    const compactDate = currentShift.date.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0].replaceAll('-', '');
     const longDate = currentShift.date.toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
     const header = `${currentShift.label} Handover Report`;
     const fileName = `${header} - ${compactDate}.pdf`;
@@ -230,7 +230,19 @@ ${userName}`;
                 jsPDF: { unit: 'px', format: [1280, 720], orientation: 'landscape' }
             };
 
-            await html2pdf().set(opt).from(element).save();
+            await html2pdf().set(opt).from(element).toPdf().get('pdf').then(function (pdf) {
+                const totalPages = pdf.internal.getNumberOfPages();
+                for (let i = 1; i <= totalPages; i++) {
+                    pdf.setPage(i);
+                    pdf.setFontSize(14); // Font size in px since unit is px
+                    pdf.setTextColor(150);
+                    const pageNumText = `Page ${i} of ${totalPages}`;
+                    const textX = pdf.internal.pageSize.getWidth() - 40; // 40px from right
+                    const textY = pdf.internal.pageSize.getHeight() - 30; // 30px from bottom
+                    pdf.text(pageNumText, textX, textY, { align: 'right' });
+                }
+            }).save();
+
             root.unmount();
             document.body.removeChild(element);
             openOutlookDraft(emailSubject, emailBody, "DTG Engineers", "");

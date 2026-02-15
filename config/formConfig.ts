@@ -145,14 +145,30 @@ const getCleanFindings = (type: string) => {
     }
 }
 
-export const generateEmailSubject = (subject: string, tarp: string, type: any, sensor: string) => {
+export const generateEmailSubject = (subject: string, tarp: string, type: any, sensor: string, alarmRegions: any[] = []) => {
     const cleanType = getCleanFindings(type);
     const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
     const tarpTrigger = match ? `TARP Trigger ${match[1]}:` : "";
 
-    return `[${subject}] ${tarpTrigger} ${cleanType} on ${sensor}`.replace(/\s+/g, ' ').trim();;
-};
+    let alarmPrefix = "";
+    if (alarmRegions && alarmRegions.length > 0) {
+        // 1. Get unique types
+        const types = Array.from(new Set(alarmRegions.map(r => r.type).filter(Boolean)));
 
+        if (types.length > 0) {
+            // 2. Create a formatter for Australian English (or 'en-US', 'en-GB' etc.)
+            const formatter = new Intl.ListFormat('en-AU', { style: 'short', type: 'conjunction' });
+
+            // 3. Format the list and append "Alarms"
+            // This turns ["Red", "Orange"] into "Red and Orange"
+            alarmPrefix = `${formatter.format(types)} Alarms - `;
+        }
+    }
+
+    // Note: I added a dash separator before cleanType based on typical subject line patterns, 
+    // but you can remove the space/dash if you prefer your strict original spacing.
+    return `[${subject}] ${alarmPrefix} ${tarpTrigger} ${cleanType} on ${sensor}`.replace(/\s+/g, ' ').trim();
+};
 
 export const generateEmailBody = (
     formData: any,
@@ -167,7 +183,7 @@ export const generateEmailBody = (
         hour: '2-digit', minute: '2-digit', hour12: false
     }) : "N/A";
 
-      const getVelocityUnit = (vcp: number) => {
+    const getVelocityUnit = (vcp: number) => {
         if (vcp < 1440) return 'mm/h';
         return 'mm/d'
     };
@@ -252,12 +268,21 @@ export const generateEmailBody = (
             : `ℹ️ NOTE: This information has been recorded in the DTG client fall of ground register.`;
     }
 
+    let alarmRegionLine = "";
+
+    if (formData.alarmRegions && formData.alarmRegions.length > 0) {
+        const formatter = new Intl.ListFormat('en-AU', { style: 'short', type: 'conjunction' });
+        const names = Array.from(new Set(formData.alarmRegions.map((r: any) => r.name).filter(Boolean))) as string[];
+        alarmRegionLine = `ALARM REGION(s): ${formatter.format(names)}`;
+    }
+
     // 4. ASSEMBLE THE FINAL EMAIL
     return `
 SENSOR:       ${sensor}
 FINDINGS:     ${getCleanFindings(formData.Type)}
 LOCATION:     ${formData.Location}
 SURFACE AREA: ${formData.SurfaceArea || "-"} m2
+${alarmRegionLine}
 
 ${metricsBlock}
 
@@ -308,13 +333,13 @@ Figure 1. Alarm Mask Recommendation.`
         mainBlock =
             `
 ALARM REGION: ${getRegionNames(formData.alarmRegions)}`
-imageBlock = `
+        imageBlock = `
 
 Figure 1. Alarm Tab.`
     }
     else {
         mainBlock = ''
-        imageBlock= ''
+        imageBlock = ''
     }
 
     return `
