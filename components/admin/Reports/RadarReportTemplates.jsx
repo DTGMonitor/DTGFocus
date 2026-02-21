@@ -340,7 +340,11 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
                                                     </ul>
                                                 ) : (
                                                     <p className="py-1" style={{ color: C.slate900, fontSize: '16px', margin: 0 }}>
-                                                        ➤ {group.name !== 'Alarms' ? `${group.name} setup is optimal.` : 'No alarm applied in the system.'}
+                                                        ➤ {group.name !== 'Alarms'
+                                                            ? `${group.name} setup is optimal.`
+                                                            : group.items.some(i => (i.parameter?.id === 20 || i.parameter?.id === 21) && i.value && i.value.toLowerCase() !== 'n/a')
+                                                                ? 'Alarms setup is optimal.'
+                                                                : 'No alarm applied in the system.'}
                                                     </p>
                                                 )}
                                             </div>
