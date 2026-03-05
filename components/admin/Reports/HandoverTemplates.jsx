@@ -125,7 +125,7 @@ const GradientTitle = ({ text }) => (
 export const HandoverTemplate = ({ data, reportInfo, exportMode = false, onClose, preloadedNotifications = null }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const currentShift = getShiftMeta(reportInfo.shift);
-    const compactDate = currentShift.date.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0].replaceAll('-', '');
+    const compactDate = currentShift.date.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('T')[0].replaceAll('-', '');
     const longDate = currentShift.date.toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
     const header = `${currentShift.label} Handover Report`;
     const fileName = `${header} - ${compactDate}.pdf`;

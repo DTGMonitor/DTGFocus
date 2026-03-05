@@ -8,6 +8,7 @@ import { useUserSite } from '@/components/Reusable/useUserSite';
 import SensorDetail from '@/components/admin/Radar/SensorDetail';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { HandoverTemplate } from "@/components/admin/Reports/HandoverTemplates";
+import toast, { Toaster } from 'react-hot-toast';
 
 
 interface RadarWallFolder {
@@ -106,12 +107,12 @@ function RadarMonitoring() {
   const toggleHourlyCheck = async (ssrIndex: number, hourIndex: number) => {
     if (!userID) {
       console.error('User ID not available:', userID);
-      alert('User ID not available. Please refresh the page.');
+      toast.error('User ID not available. Please refresh the page.');
       return;
     }
 
     if (isCheckboxDisabled(hourIndex)) {
-      alert('This time slot has passed and can no longer be checked.');
+      toast.error('This time slot has passed and can no longer be checked.');
       return;
     }
 
@@ -264,7 +265,7 @@ function RadarMonitoring() {
           sIdx === ssrIndex ? { ...s, hourlychecks: checks } : s
         )
       );
-      alert(`Failed to update checklist: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error(`Failed to update checklist: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -415,7 +416,7 @@ function RadarMonitoring() {
   };
 
   return (
-    <div className="w-full space-y-4 p-6">
+    <div className="w-full space-y-4 p-6"> <Toaster position="top-center" reverseOrder={false} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl text-[var(--dtg-text-primary)]">SSR Monitoring & Hourly Checklist</h1>

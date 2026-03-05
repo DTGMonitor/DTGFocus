@@ -440,7 +440,7 @@ export const getSubjectOptions = (parameter: any) => {
                 label: 'Alarm Configuration Issue',
                 issue: 'Alarm Details',
                 action: 'Review the current alarm configuration.',
-                notes: ''
+                notes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
             },
         ];
     }
@@ -453,7 +453,7 @@ export const getSubjectOptions = (parameter: any) => {
                 label: 'Additional Alarm Mask Recommendation',
                 issue: 'Excessive Unwanted Alarms',
                 action: 'As per the alarm mask recommendation.',
-                notes: ''
+                notes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
             }
         ];
     }

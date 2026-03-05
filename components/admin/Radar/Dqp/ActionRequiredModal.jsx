@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/LandingPage/ui/checkbox";
 import { getSubjectOptions } from "@/config/formConfig";
 import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 
 export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetStatus, alarmRegions = [] }) => {
     const [formData, setFormData] = useState({
@@ -92,12 +93,12 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
 
     const handleSubmit = () => {
         // Basic validation
-        if (!formData.subject || !formData.issue || !formData.action) {
-            alert("Please fill in all general fields.");
+        if (!formData.subject || !formData.issue || !formData.action|| !formData.notes) {
+            toast.error("Please fill in all general fields.");
             return;
         }
         if (isAlarmItem && formData.alarmRegions.length === 0) {
-            alert("Please select at least one Alarm Region.");
+            toast.error("Please select at least one Alarm Region.");
             return;
         }
 
@@ -127,7 +128,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog open={isOpen} onOpenChange={onClose}> <Toaster position="top-center" reverseOrder={false} />
             <DialogContent className="sm:max-w-[500px] bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)] border-[var(--dtg-border-medium)]">
                 <DialogHeader>
                     <DialogTitle>Action Required: {item?.parameter?.name}</DialogTitle>
@@ -220,6 +221,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                         <label>Notes</label>
                         <Input
                             placeholder="Describe the details..."
+                            required
                             value={formData.notes}
                             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                         />
