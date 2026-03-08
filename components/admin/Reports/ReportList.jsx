@@ -6,8 +6,8 @@ import { useUserSite } from '@/components/Reusable/useUserSite';
 import {
     FileText, Download, Calendar, Eye, X, Loader, Search, Trash2
 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 const ReportsList = ({refreshTrigger,reportData}) => {
     const { userSite, loading: siteLoading } = useUserSite();

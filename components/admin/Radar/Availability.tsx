@@ -7,9 +7,9 @@ import {
   Activity, TrendingUp, Clock, Zap, AlertCircle, CheckCircle2,
   Download, Calendar
 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
-import { Progress } from "@/components/LandingPage/ui/progress";
-import { Button } from "@/components/LandingPage/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
 const uptimeData = Array.from({ length: 30 }, (_, i) => ({
   day: i + 1,

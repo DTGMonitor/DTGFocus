@@ -1,29 +1,45 @@
-import React, { useState, useEffect, useRef, useMemo, useContext } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import Header from "@/components/Reusable/Header";
-import FilterDropdown from "@/components/Reusable/FilterButton";
+import FilterDropdown2 from "@/components/Reusable/FilterButton";
 import { DateTime } from "luxon";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, ScatterChart, XAxis, YAxis, ZAxis, Scatter } from 'recharts';
 import { getIconComponent } from "@/components/Reusable/IconMapper";
-import { useAuth } from "@/contexts/AuthContext";
 
 export default function DataQualitySummaryPage() {
-  const { user } = useAuth();
+  const [user, setUser] = useState(null);
   const [dqpValues, setDqpValues] = useState([]);
   const [frequentIssues, setFrequentIssues] = useState([]);
   const [overallData, setOverallData] = useState([]);
-  const [startDate, setStartDate] = useState(
-    DateTime.fromISO("2025-05-01", { zone: "utc" }).toJSDate()
-  );
   const [endDate, setEndDate] = useState(
     DateTime.now().setZone("utc").toJSDate()
   );
+
+  const [startDate, setStartDate] = useState(() => {
+    const end = DateTime.now().setZone("utc");
+    return end.day < 15 ? end.minus({ days: 30 }).toJSDate() : end.startOf("month").toJSDate();
+  });
 
   const [selectedRadar, setSelectedRadar] = useState(["All Radars"]);
   const [selectedArea, setSelectedArea] = useState("All");
 
   const [radarOptions, setRadarOptions] = useState(["All Radars"]);
   const [radarIdMap, setRadarIdMap] = useState({});
+
+  // -------------------- AUTH --------------------
+  useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+
+    };
+    getSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    );
+
+    return () => authListener.subscription.unsubscribe();
+  }, []);
 
   // -------------------- FETCH RADARS --------------------
   useEffect(() => {
@@ -48,13 +64,10 @@ export default function DataQualitySummaryPage() {
 
   // -------------------- LOAD DATA --------------------
   useEffect(() => {
-    console.log("useEffect running. User status:", user ? "Authenticated" : "Not Authenticated");
-    if (user) {
-      console.log("Fetching data for user ID:", user.id);
+    if (user)
       loadData();
-      loadFrequentIssues();
-      loadOverallData();
-    }
+    loadFrequentIssues();
+    loadOverallData();
   }, [user, startDate, endDate, selectedRadar, radarIdMap]);
 
   const loadData = async () => {
@@ -459,8 +472,7 @@ export default function DataQualitySummaryPage() {
   //CONTENT
 
   return (
-    <div style={{ flex: 1, paddingTop: "10px" }}>
-
+   <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       <div style={{
         display: "flex",
         gap: "10px",
@@ -482,12 +494,11 @@ export default function DataQualitySummaryPage() {
             display: "flex",
             flex: 0.7
           }}>
-            <FilterDropdown
+            <FilterDropdown2
               startDate={startDate}
               endDate={endDate}
-              radar={selectedRadar}
+              radar={selectedRadar} // This prop is not used by FilterDropdown2, but keeping it doesn't hurt
               area={selectedArea}
-              radarOptions={radarOptions}
               onApply={({ startDate, endDate, radar, area }) => {
                 setStartDate(startDate);
                 setEndDate(endDate);
@@ -495,10 +506,13 @@ export default function DataQualitySummaryPage() {
                 setSelectedArea(area);
               }}
               onReset={() => {
+                const end = DateTime.now().setZone("utc");
+                setEndDate(end.toJSDate());
                 setStartDate(
-                  DateTime.fromISO("2025-05-01", { zone: "Australia/Perth" }).toJSDate()
+                  end.day < 15
+                    ? end.minus({ days: 30 }).toJSDate()
+                    : end.startOf("month").toJSDate()
                 );
-                setEndDate(DateTime.now().setZone("Australia/Perth").toJSDate());
                 setSelectedRadar(["All Radars"]);
                 setSelectedArea("All");
               }}

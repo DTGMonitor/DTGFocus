@@ -1,7 +1,7 @@
 import React from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell } from 'recharts';
 import { Activity, Clock, AlertCircle, Zap, CheckCircle2 } from 'lucide-react';
-import { Progress } from "@/components/LandingPage/ui/progress";
+import { Progress } from "@/components/ui/progress";
 
 const uptimeData = Array.from({ length: 30 }, (_, i) => ({
   day: i + 1,

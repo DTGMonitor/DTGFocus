@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Tooltip, Legend } from 'recharts';
 import { AlertTriangle, TrendingDown, TrendingUp, Activity, Download, Filter } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/LandingPage/ui/select';
-import { Badge } from '@/components/LandingPage/ui/badge';
-import {Button} from '@/components/LandingPage/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 
 const alarmsByRadarData = [
   { name: 'SSR01', value: 462, color: '#14b8a6' },

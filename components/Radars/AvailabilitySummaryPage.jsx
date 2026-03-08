@@ -8,33 +8,46 @@ import {
   Label,
   ReferenceDot
 } from "recharts";
-import Header from "@/components/Reusable/Header";
-import FilterDropdown from "@/components/Reusable/FilterButton";
+import FilterDropdown2 from "@/components/Reusable/FilterButton";
 import { FaArrowUp, FaArrowDown } from "react-icons/fa";
 import { DateTime } from "luxon";
 import Gauge from "@/components/Reusable/gauge";
-import { useAuth } from "@/contexts/AuthContext";
 
 function AvailabilitySummaryPage() {
-  const { user } = useAuth();
   const [downtimeSummary, setDowntimeSummary] = useState([]);
   const [downtimePerDay, setDowntimePerDay] = useState([]);
   const [longestRecord, setLongestRecord] = useState([])
   const [selectedRadar, setSelectedRadar] = useState(["All Radars"]);
   const [showCumulative, setShowCumulative] = useState("Cumulative");
+  const [user, setUser] = useState(null);
 
-  const [startDate, setStartDate] = useState(
-    DateTime.fromISO("2025-09-01", { zone: "utc" }).toJSDate()
-  );
+  const [startDate, setStartDate] = useState(() => {
+    const end = DateTime.now().setZone("utc");
+    return end.day < 15 ? end.minus({ days: 30 }).toJSDate() : end.startOf("month").toJSDate();
+  });
   const [endDate, setEndDate] = useState(
     DateTime.now().setZone("utc").toJSDate()
   );
 
   const [allData, setAllData] = useState(["All"]);
-  const [selectedArea, setSelectedArea] = useState("All");
-
-  const [radarOptions, setRadarOptions] = useState(["All Radars"]);
   const [radarIdMap, setRadarIdMap] = useState({});
+
+
+  // -------------------- AUTH --------------------
+  useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+
+    };
+    getSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    );
+
+    return () => authListener.subscription.unsubscribe();
+  }, []);
 
   // -------------------- FETCH RADARS --------------------
   useEffect(() => {
@@ -42,11 +55,10 @@ function AvailabilitySummaryPage() {
       const { data, error } = await supabase
         .from("latest_radar_wall_folders")
         .select(`
-        radar: radars (
-          id, 
-          radar_number,
-          site: clients(site_name, timezone)
-        ),
+        id,
+        radar_number,
+        site_name,
+        timezone,
         commenced_at,
         decommissioned_at
       `);
@@ -58,8 +70,8 @@ function AvailabilitySummaryPage() {
         console.log(data);
         const map = {};
         data.forEach(item => {
-          if (item.radar?.radar_number && item.radar?.id) {
-            map[item.radar.radar_number] = item.radar.id;
+          if (item?.radar_number && item?.id) {
+            map[item.radar_number] = item.id;
           }
         });
         setRadarIdMap(map);
@@ -73,7 +85,7 @@ function AvailabilitySummaryPage() {
   const allRadarNames = [
     ...new Set(
       allData
-        .map(item => item.radar?.radar_number) // go into radar object
+        .map(item => item.radar_number) // go into radar object
         .filter(Boolean) // remove null/undefined
     ),
   ];
@@ -81,11 +93,10 @@ function AvailabilitySummaryPage() {
 
   // -------------------- LOAD DATA --------------------
   useEffect(() => {
-    if (user) {
+    if (user)
       loadDowntimeSummary();
-      loadDowntimePerDay();
-      loadLongestRecord();
-    }
+    loadDowntimePerDay();
+    loadLongestRecord();
   }, [user, startDate, endDate, selectedRadar, radarIdMap]);
 
   const loadDowntimeSummary = async () => {
@@ -360,8 +371,8 @@ function AvailabilitySummaryPage() {
     const markers = [];
 
     radarsMeta.forEach(r => {
-      const radarNumber = r.radar?.radar_number;
-      const tz = r.radar?.site?.timezone || "UTC";
+      const radarNumber = r.radar_number;
+      const tz = r?.timezone || "UTC";
 
       // Service commenced marker
       if (r.commenced_at) {
@@ -429,8 +440,8 @@ function AvailabilitySummaryPage() {
         const lookupKey = radarNumberStr.trim().toUpperCase();
 
         // --- get radar meta ---
-        const meta = radarsMeta.find(r => r.radar.radar_number === radarNumberStr);
-        const tz = meta?.radar.site?.timezone || "UTC";
+        const meta = radarsMeta.find(r => r.radar_number === radarNumberStr);
+        const tz = meta?.timezone || "UTC";
 
         const commenced = meta ? DateTime.fromISO(meta.commenced_at, { zone: "utc" }).setZone(tz).startOf("day") : null;
         const decommissioned = meta && meta.decommissioned_at
@@ -483,7 +494,7 @@ function AvailabilitySummaryPage() {
 
       keys.forEach(key => {
         const radarNumber = key.replace(/^radar_/, "");
-        const meta = radarsMeta.find(r => r.radar?.radar_number === radarNumber); // safe optional chaining
+        const meta = radarsMeta.find(r => r.radar_number === radarNumber); // safe optional chaining
 
         const current = DateTime.fromISO(row.record_date);
         const commenced = meta ? DateTime.fromISO(meta.commenced_at) : null;
@@ -564,15 +575,7 @@ function AvailabilitySummaryPage() {
 
 
   // -------------------- THEME --------------------
-  const actualRadarCount = Object.keys(radarIdMap).length;
-
-  const xAxisScale = (
-    // Condition 1: A single specific radar is selected.
-    (selectedRadar.length === 1 && !selectedRadar.includes("All Radars"))
-    ||
-    // Condition 2: 'All Radars' is selected, AND there is only one radar site available overall.
-    (selectedRadar.includes("All Radars") && actualRadarCount === 1)
-  )
+  const xAxisScale = selectedRadar.length === 1 && !selectedRadar.includes("All Radars")
     ? "band"
     : "point";
   const ssrPointPadding = selectedRadar.length === 1 && !selectedRadar.includes("All Radars") ? 0 : showAllRadars ? 50
@@ -717,7 +720,7 @@ function AvailabilitySummaryPage() {
   };
 
   return (
-    <div style={{ flex: 1, paddingTop: "10px" }}>
+<div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       <div style={{
         display: "flex",
         gap: "10px",
@@ -738,26 +741,25 @@ function AvailabilitySummaryPage() {
             display: "flex",
             flex: 0.7
           }}>
-            <FilterDropdown
+            <FilterDropdown2
               startDate={startDate}
               endDate={endDate}
-              radar={selectedRadar}
-              area={selectedArea}
-              radarOptions={radarOptions}
-              onApply={({ startDate, endDate, radar, area }) => {
-                setStartDate(startDate);
-                setEndDate(endDate);
-                setSelectedRadar(radar);
-                setSelectedArea(area);
+              onApply={({ startDate: newStart, endDate: newEnd, radar }) => {
+                setStartDate(newStart);
+                setEndDate(newEnd);
+                setSelectedRadar(radar && radar.length ? radar : ["All Radars"]);
               }}
               onReset={() => {
+                const end = DateTime.now().setZone("utc");
+                setEndDate(end.toJSDate());
                 setStartDate(
-                  DateTime.fromISO("2025-05-01", { zone: "Australia/Perth" }).toJSDate()
+                  end.day < 15
+                    ? end.minus({ days: 30 }).toJSDate()
+                    : end.startOf("month").toJSDate()
                 );
-                setEndDate(DateTime.now().setZone("Australia/Perth").toJSDate());
                 setSelectedRadar(["All Radars"]);
-                setSelectedArea("All");
               }}
+              onCancel={() => { }}
             />
 
           </div>
@@ -1159,7 +1161,7 @@ function AvailabilitySummaryPage() {
                     style={{ fill: "#ccc", fontSize: "12px" }}
                   />
                 </YAxis>
-                <Tooltip content={<CustomLineTooltip markers={markers} />} />
+                <Tooltip content={<CustomLineTooltip markers={markers}/>} />
                 {allRadars.map(radar => (
                   <Line
                     key={`${radar}-radar`}
@@ -1209,7 +1211,7 @@ function AvailabilitySummaryPage() {
                     style={{ fill: "#ccc", fontSize: "12px" }}
                   />
                 </YAxis>
-                <Tooltip content={<CustomLineTooltip markers={markers} />} />
+                <Tooltip content={<CustomLineTooltip markers={markers}/>} />
                 {allRadars.map(radar => (
                   <Line
                     key={`${radar}-monitoring`}

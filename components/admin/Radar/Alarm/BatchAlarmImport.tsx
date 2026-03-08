@@ -3,8 +3,8 @@ import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import { supabase } from "@/lib/supabaseClient";
 import { X, Upload, AlertTriangle, Trash2, Copy } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
 
 // --- 1. STRICT TYPES ---

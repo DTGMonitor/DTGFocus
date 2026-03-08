@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getStatusColor, getRiskColor, getOverallColor } from "@/config/statusConfig";
-import { Button } from "@/components/LandingPage/ui/button";
+import { Button } from "@/components/ui/button";
 import {
     X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert,
     Wrench, Check, Plus

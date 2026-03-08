@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabaseClient';
 import {
     Bell, Clock, MapPin, User, X, Download
 } from 'lucide-react';
-import { Button } from '@/components/LandingPage/ui/button';
+import { Button } from '@/components/ui/button';
 import { formatFromUTC } from "@/utils/timezoneUtils";
 import Head from 'next/head';
 

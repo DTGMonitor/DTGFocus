@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getCardColors, getStatusDotColors } from "@/config/statusConfig";
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
     Calendar, Search, Trash2
 } from 'lucide-react';

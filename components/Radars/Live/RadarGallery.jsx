@@ -61,18 +61,18 @@ const overallstatusColor = (val) => {
 // Alarm scale
 const alarmstatusColor = (val) => {
   switch ((val || "").toLowerCase()) {
-    case "alarm standby":
-      return COLORS.green;
-    case "yellow alarm triggered":
+    case "n/a":
+      return COLORS.grey;
+    case "yellow":
       return COLORS.yellow;
-    case "orange alarm triggered":
+    case "orange":
       return COLORS.orange;
-    case "red alarm triggered":
+    case "red":
       return COLORS.red;
-    case "false alarm":
+    case "false":
       return "#fff";
     default:
-      return COLORS.grey;
+      return COLORS.green;
   }
 };
 
@@ -122,20 +122,14 @@ const ConnectionBars = ({ connection }) => {
 // RiskRating scale
 const riskColor = (val) => {
   switch ((val || "").toLowerCase()) {
-    case "regressive":
-    case "no significant":
+    case "tarp 1":
       return COLORS.green;
-    case "linear long-term":
+    case "tarp 2":
       return COLORS.yellow;
-    case "linear":
+    case "tarp 3":
       return COLORS.orange;
-    case "progressive":
+    case "tarp 4":
       return COLORS.red;
-    case "rapid movement":
-      return COLORS.purple;
-    case "failure pattern":
-    case "material detachment":
-      return "#fff";
     default:
       return COLORS.grey;
   }
@@ -143,14 +137,8 @@ const riskColor = (val) => {
 
 const riskGlow = (val) => {
   switch ((val || "").toLowerCase()) {
-    case "progressive":
+    case "tarp 4":
       return `drop-shadow(0 0 6px ${COLORS.red})`;
-    case "rapid movement":
-      return `drop-shadow(0 0 8px ${COLORS.purple})`;
-    case "failure pattern":
-    case "material detachment":
-      return `drop-shadow(0 0 10px ${COLORS.orange})
-              drop-shadow(0 0 15px ${COLORS.orange})`;
     default:
       return "none";
   }
@@ -172,7 +160,13 @@ const getGlowColor = (text) => {
   if (lower.includes("critical")) {
     return "0 0 10px 6px rgba(183,28,28,0.6)";
   }
-  if (lower.includes("[action required]")) {
+  if (lower.includes("sub-optimal")) {
+    return "0 0 10px 6px rgba(233,133, 50, 0.6)";
+  }
+  if (lower.includes("action required")) {
+    return "0 0 10px 6px rgba(255, 255, 0, 0.6)";
+  }
+  if (lower.includes("acceptable")) {
     return "0 0 10px 6px rgba(255, 255, 0, 0.6)";
   }
   if (lower.includes("lost connection")) {
@@ -208,35 +202,44 @@ const getRadarImage = (radarName) => {
   return suffix === "XT" ? "/images/radar/3DRAR.png" :
     suffix === "FX" ? "/images/radar/2DRAR.png" :
       suffix === "NI" ? "/images/radar/2DRAR.png" :
-        "/images/radar/PS2000.png";
+        "/PS2000.png";
 };
+
+const getOverallNotes = (status, quality, risk) => {
+  const normalisedStatus = status?.toLowerCase();
+  const normalisedQuality = quality?.toLowerCase();
+  const normalisedRisk = risk?.toLowerCase();
+
+  if (normalisedStatus === 'archive' || normalisedStatus === 'lost connection') return 'Lost Connection';
+  if (normalisedStatus === 'link down' || normalisedRisk === 'tarp 4') return 'Critical';
+  if (normalisedQuality !== 'optimal') return `Data Quality ${normalisedQuality}`;
+  return 'N/A'
+}
 
 /* --------------------------------------------------
    RadarCard
 -------------------------------------------------- */
 const RadarCard = ({
   name,
-  brand,
   BrandColor,
   updated,
   status,
   image,
   Overall,
   Notes,
-  Action,
   RiskRating,
   Alarms,
-  onExplore,
-  connection
+  onExplore
 }) => {
   const isOff = status === "OFF SERVICE";
+  const mappedConnection = status?.toLowerCase() === "off service" ? "Lost" : "Optimal";
   const radarImgSrc = image ?? getRadarImage(name);
 
   const cardStyle = {
-    backgroundColor: isOff ? "#3A3A3A" : "#262626",
+    backgroundColor: isOff ? "var(--dtg-bg-hover)" : "var(--dtg-bg-card)",
     borderRadius: 32,
     padding: 32,
-    color: "#fff",
+    color: "var(--dtg-text-primary)",
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -294,17 +297,17 @@ const RadarCard = ({
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h3 style={{ margin: 0, fontSize: 32, lineHeight: 1 }}>
-          <span style={{ color: isOff ? "#ccc" : BrandColor || "#ccc", fontWeight: "bold" }}>
+          <span style={{ color: isOff ? "var(--dtg-text-muted)" : BrandColor || "var(--dtg-text-secondary)", fontWeight: "bold" }}>
             {prefix}
           </span>
-          <span style={{ color: isOff ? "#ccc" : "#fff" }}>{model}</span>
+          <span style={{ color: isOff ? "var(--dtg-text-muted)" : "var(--dtg-text-primary)" }}>{model}</span>
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <FaSyncAlt color={isOff ? "#777" : "#009688"} />
           <p
             style={{
               fontSize: 12,
-              color: "#b4b2b2ff",
+              color: "var(--dtg-text-secondary)",
               fontStyle: "italic",
               margin: "4px 0 0 0",
             }}
@@ -322,7 +325,7 @@ const RadarCard = ({
           color: "#fff",
         }}
       >
-        <strong>{Notes}</strong> {Action || "N/A"}
+        <strong>{Notes}</strong>
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 24 }}>
@@ -342,7 +345,7 @@ const RadarCard = ({
               <StatusBadge status={status} disabled={isOff} />
               <div style={{ display: "flex", justifyContent: "space-between", flex: 1, alignItems: "center" }}>
                 <PiPresentationChartBold color={isOff ? COLORS.grey : overallCol} size="20%" />
-                <ConnectionBars connection={connection} />
+                <ConnectionBars connection={mappedConnection} />
               </div>
             </div>
 
@@ -353,14 +356,14 @@ const RadarCard = ({
                   size="3em"
                   style={{ filter: riskGlow(RiskRating) }}
                 />
-                <p style={{ marginTop: 5, marginBottom: 0, fontSize: "10px", color: "#BFBFBF" }}>{RiskRating}</p>
+                <p style={{ marginTop: 5, marginBottom: 0, fontSize: "10px", color: "var(--dtg-text-muted)" }}>{RiskRating}</p>
               </div>
               <div style={{ display: "flex", flex: 1, flexDirection: "column", alignItems: "center", border: `2px solid ${isOff ? COLORS.grey : alarmCol}`, borderRadius: "10px", padding: "10px 0" }}>
                 <FaRegBell color={isOff ? COLORS.grey : alarmCol}
                   size="3em"
                   style={{ filter: alarmGlow(Alarms) }}
                 />
-                <p style={{ marginTop: 5, marginBottom: 0, fontSize: "10px", color: "#BFBFBF" }}>
+                <p style={{ marginTop: 5, marginBottom: 0, fontSize: "10px", color: "var(--dtg-text-muted)" }}>
                   {Alarms && Alarms.includes("Alarm Triggered")
                     ? "Alarm Triggered"
                     : Alarms || "N/A"
@@ -425,21 +428,6 @@ const mapStatus = (status) => {
   return "OFFLINE"; // fallback
 };
 
-const mapNotes = (notes, overall) => {
-  if (!notes) return "";
-  const n = notes.toLowerCase();
-  if (n.includes("dqp")) return "[" + notes + " " + overall + "]";
-  if (n.includes("optimal")) return "";
-  return "[" + notes + "]";
-};
-
-const mapAction = (notes, overallcomments, action) => {
-  if (!notes) return "";
-  const n = notes.toLowerCase();
-  if (n.includes("dqp")) return overallcomments;
-  return action;
-};
-
 /* ---------- main gallery (fetch real data) ---------- */
 const RadarGallery = ({ statusFilter, onExplore }) => {
   const [rawRecords, setRawRecords] = useState([]);
@@ -449,53 +437,52 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const { data: assessments, error: error1 } = await supabase
-          .from("live_assessments")
+        const { data: latestWall, error: error1 } = await supabase
+          .from("latest_radar_wall_folders")
           .select(`
-            id, radar_id, wall_folder_id, assessment_date, risk_rating, tarp, alarm_status, connection, notes, action,
-            radar:radars(radar_number, brand:brand(brand,color),site:clients(site_name,company)),
-            wall_folder:radar_wall_folders!live_assessments_wall_folder_id_fkey(type,name)
+            id, radar_number, site_id, site_name, timezone, brand, wallfolder_id, type, area, risk, status, quality, dqp_record_id, created_time, alarm_triggered
           `)
-          .order("assessment_date", { ascending: false });
+          .order("id", { ascending: true });
 
         if (error1) throw error1;
-        if (!assessments?.length) {
+        if (!latestWall?.length) {
           setRawRecords([]);
           return;
         }
 
-        const latestMap = {};
-        assessments.forEach((a) => {
-          if (
-            !latestMap[a.radar_id] ||
-            new Date(latestMap[a.radar_id].assessment_date) < new Date(a.assessment_date)
-          ) {
-            latestMap[a.radar_id] = a;
-          }
-        });
-        const latestAssessments = Object.values(latestMap);
+        // Manual fetch for wall folders since view relationship is missing
+        const wallIds = [...new Set(latestWall.map((r) => r.wallfolder_id).filter(Boolean))];
+        const { data: wallFolders, error: errorWF } = await supabase
+          .from("radar_wall_folders")
+          .select("id, name")
+          .in("id", wallIds);
 
-        const assessmentIds = latestAssessments.map((a) => a.id);
+        if (errorWF) throw errorWF;
+        const wallMap = (wallFolders || []).reduce((acc, wf) => ({ ...acc, [wf.id]: wf }), {});
+
+        const assessmentIds = latestWall.map((a) => a.dqp_record_id);
         // inside loadData(), replace your assessment_values fetch + pivot logic with this:
 
         // fetch both level 1 & 2 with the fields we need
         const { data: allValues, error: error2 } = await supabase
-          .from("assessment_values")
+          .from("dqp_values")
           .select(`
-    assessment_id,
-    value_text,
-    comments,
+    dqp_record_id,
+    value,
+    notes,
+    appendix,
+    image:client_images(image_url),
     parameters!inner(id, name, level, parent_id)
   `)
-          .in("assessment_id", assessmentIds)
-          .in("parameters.level", [1, 2]);
+          .in("dqp_record_id", assessmentIds)
+          .in("parameters.level", [0, 1, 2]);
 
         if (error2) throw error2;
 
-        // group rows by assessment_id
+        // group rows by dqp_record_id
         const grouped = {};
         (allValues || []).forEach((row) => {
-          const aid = row.assessment_id;
+          const aid = row.dqp_record_id;
           grouped[aid] = grouped[aid] || [];
           grouped[aid].push(row);
         });
@@ -511,27 +498,33 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
             metaById[p.id] = metaById[p.id] || { id: p.id, name: p.name, level: p.level, parent_id: p.parent_id };
           });
 
-          // keyed by cleaned name (remove spaces so you can keep using rec.parameters.Overall)
+          // keyed by cleaned name (e.g. "ScanArea")
           const paramsByKey = {};
-          const emptyChildren = []; // track children with empty value_text (helpful to debug)
+          const emptyChildren = []; // track children with empty value (helpful to debug)
 
-          // create level-1 entries (if present)
+          // create level-0 and level-1 entries
           rows.forEach((r) => {
             const p = r.parameters;
-            if (p.level === 1) {
+            if (p.level === 0 || p.level === 1) {
               const key = p.name;
-              paramsByKey[key] = paramsByKey[key] || {
-                id: p.id,
-                name: p.name,
-                value: r.value_text || "",
-                comments: r.comments || "",
-                level: 1,
-                children: []
-              };
+              if (!paramsByKey[key]) {
+                paramsByKey[key] = {
+                  id: p.id,
+                  name: p.name,
+                  value: r.value || "",
+                  comments: r.notes || "",
+                  level: p.level,
+                  children: p.level === 1 ? [] : undefined,
+                };
+              }
 
               // prefer non-empty values if multiple rows exist
-              if (!paramsByKey[key].value && r.value_text) paramsByKey[key].value = r.value_text;
-              if (!paramsByKey[key].comments && r.comments) paramsByKey[key].comments = r.comments;
+              if (!paramsByKey[key].value && r.value) {
+                paramsByKey[key].value = r.value;
+              }
+              if (!paramsByKey[key].comments && r.notes) {
+                paramsByKey[key].comments = r.notes;
+              }
             }
           });
 
@@ -557,53 +550,69 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
               const child = {
                 id: p.id,
                 name: p.name,
-                value: r.value_text || "",
-                comments: r.comments || "",
+                value: r.value || "",
+                comments: r.notes || "",
+                appendix: r.appendix || null,
+                image: r.image || null,
                 level: 2,
                 parent_id: p.parent_id
               };
 
               paramsByKey[parentKey].children.push(child);
 
-              if (!r.value_text) {
+              if (!r.value) {
                 emptyChildren.push({
                   id: p.id,
                   name: p.name,
                   parent_id: p.parent_id,
-                  assessment_id: aid
+                  dqp_record_id: aid
                 });
               }
             }
           });
 
           pivoted[aid] = {
-            assessment_id: aid,
+            dqp_record_id: aid,
             parameters: paramsByKey,
             _emptyChildren: emptyChildren
           };
         }
 
         // now build merged records (keeps your earlier shape and also attaches counts + missing list)
-        const merged = latestAssessments.map((a) => {
-          const paramTree = pivoted[a.id]?.parameters || {};
-          const emptyChildren = pivoted[a.id]?._emptyChildren || [];
+        const merged = latestWall.map((a) => {
+          const paramTree = pivoted[a.dqp_record_id]?.parameters || {};
+          const emptyChildren = pivoted[a.dqp_record_id]?._emptyChildren || [];
+          const mappedConnection = (connection) => {
+            const cleanConnection = connection?.toLowerCase();
+            switch (cleanConnection) {
+              case "lost connection":
+              case "off service":
+              case "archive":
+                return "Lost"
+              default:
+                return "Optimal";
+            }
+          };
+
 
           return {
-            radar: a.radar?.radar_number,
-            Site: a.radar?.site.site_name,
+            radar: a.radar_number,
+            Site: a.site_name,
             Company: a.radar?.site.company,
-            brand: a.radar?.brand.brand,
-            BrandColor: a.radar?.brand.color,
-            AssessmentDate: a.assessment_date,
-            RiskRating: a.risk_rating,
-            TARP: a.tarp,
-            ALARMS: a.alarm_status,
+            brand: a.brand,
+            BrandColor: a.brand.color,
+            AssessmentDate: a.created_time,
+            RiskRating: a.risk,
+            TARP: a.risk,
+            ALARMS: a.alarm_triggered,
             Connection: a.connection,
-            Status: a.wall_folder?.type || "N/A",
-            WallFolder: a.wall_folder?.name || "N/A",
-            Notes: a.notes,
+            Quality: a.quality,
+            Status: a.status || "N/A",
+            WallFolder: a.wallfolder_id || "N/A",
+            WallName: wallMap[a.wallfolder_id]?.name || "N/A",
+            Notes: getOverallNotes(a.status, a.quality, a.risk),
             Action: a.action,
-
+            Connection: mappedConnection(a.status),
             // nested
             parameters: paramTree,
 
@@ -615,6 +624,7 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
         });
 
         setRawRecords(merged);
+        console.log(merged);
       } catch (err) {
         console.error("Error loading data:", err);
         setError("Failed to load data.");
@@ -635,9 +645,7 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
   const latestRecords = useMemo(() => {
     return rawRecords.map((rec) => ({
       ...rec,
-      _mappedStatus: mapStatus(rec.Status),
-      _mappedNotes: mapNotes(rec.Notes, rec.parameters.Overall?.value),
-      _mappedAction: mapAction(rec.Notes, rec.parameters.Overall?.comments, rec.Action)
+      _mappedStatus: mapStatus(rec.Status)
     }));
   }, [rawRecords]);
 
@@ -685,12 +693,10 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
           BrandColor={rec.BrandColor}
           updated={formatDateDisplay(rec.AssessmentDate)}
           status={rec._mappedStatus}
-          Overall={rec.parameters.Overall?.value}
-          Notes={rec._mappedNotes}
-          Action={rec._mappedAction}
+          Overall={rec.Quality}
+          Notes={rec.Notes}
           Alarms={rec.ALARMS}
           RiskRating={rec.RiskRating}
-          connection={rec.Connection}
           onExplore={() => handleExplore(rec.radar)}
         />
       ))}

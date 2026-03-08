@@ -18,7 +18,7 @@ import {
   CheckCircle2,
   ArrowRight
 } from 'lucide-react';
-import {Button} from '@/components/LandingPage/ui/button';
+import {Button} from '@/components/ui/button';
 
 
 interface TarpDocumentViewProps {

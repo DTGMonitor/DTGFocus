@@ -3,7 +3,7 @@ import {
   FileBarChart, FileText, Calendar, Clock, CheckCircle,
   AlertTriangle, TrendingUp, RefreshCw
 } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button";
+import { Button } from "@/components/ui/button";
 import { ReportTemplate } from "@/components/reports/ReportTemplate";
 import { AlarmReportPreview } from '../../reports/AlarmReportPreview';
 import { DataQualityReportPreview } from '../../reports/DataQualityReportPreview';

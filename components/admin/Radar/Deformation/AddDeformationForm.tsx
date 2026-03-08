@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from "@/lib/supabaseClient";
 import { Loader2, Save } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
-import { Checkbox } from '@/components/LandingPage/ui/checkbox';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
 

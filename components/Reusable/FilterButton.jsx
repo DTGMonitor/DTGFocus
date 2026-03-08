@@ -39,12 +39,10 @@ export default function FilterDropdown2({
             const { data, error } = await supabase
                 .from("latest_radar_wall_folders")
                 .select(`
-          radar: radars (
             id,
             radar_number,
-            site: clients (site_name),
-            brand: brand (brand)
-          ),
+            site_name,
+            brand,
           commenced_at,
           type,
           area
@@ -57,7 +55,7 @@ export default function FilterDropdown2({
 
                 setSiteOptions([
                     "All",
-                    ...new Set(data.map((d) => d.radar.site?.site_name).filter(Boolean)),
+                    ...new Set(data.map((d) => d?.site_name).filter(Boolean)),
                 ]);
 
             }
@@ -75,7 +73,7 @@ export default function FilterDropdown2({
                 allData
                     .filter(
                         (d) =>
-                            (site === "All" || d.radar.site?.site_name === site)
+                            (site === "All" || d?.site_name === site)
                     )
                     .map((d) => d.area)
             )
@@ -90,10 +88,10 @@ export default function FilterDropdown2({
                 allData
                     .filter(
                         (d) =>
-                            (site === "All" || d.radar.site?.site_name === site) &&
+                            (site === "All" || d?.site_name === site) &&
                             (area === "All" || d.area === area)
                     )
-                    .map((d) => d.radar.brand?.brand)
+                    .map((d) => d?.brand)
             )
         ).filter(Boolean),
     ];
@@ -107,11 +105,11 @@ export default function FilterDropdown2({
                 allData
                     .filter(
                         (d) =>
-                            (site === "All" || d.radar.site?.site_name === site) &&
+                            (site === "All" || d?.site_name === site) &&
                             (area === "All" || d.area === area) &&
-                            (brand === "All" || d.radar.brand?.brand === brand)
+                            (brand === "All" || d?.brand === brand)
                     )
-                    .map((d) => d.radar.radar_number)
+                    .map((d) => d.radar_number)
             )
         ).filter(Boolean),
     ];

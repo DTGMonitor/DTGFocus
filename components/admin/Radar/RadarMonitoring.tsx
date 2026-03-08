@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getRiskColor, getStatusColor, getQualityColor } from "@/config/statusConfig";
 import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader } from 'lucide-react';
-import { Checkbox } from "@/components/LandingPage/ui/checkbox";
-import { Button } from "@/components/LandingPage/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from '@/components/Reusable/useUserSite';
 import SensorDetail from '@/components/admin/Radar/SensorDetail';

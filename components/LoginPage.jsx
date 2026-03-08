@@ -1,28 +1,98 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { MdShield } from "react-icons/md";
-import { TbActivityHeartbeat } from "react-icons/tb";
-import { SlTarget } from "react-icons/sl";
-import { BsExclamationLg } from "react-icons/bs";
-import PulsatingCircles from "@/components/Reusable/PulsatingCircles";
-import SplashScreen from "@/components/WelcomePage";
+import { motion, AnimatePresence } from 'motion/react';
+import {
+    User,
+    Lock,
+    Eye,
+    EyeOff,
+    Loader2,
+    ChevronRight,
+    ShieldCheck,
+    Signal,
+    Cpu,
+    Activity,
+    Crosshair
+} from 'lucide-react';
+import { FocusLogo } from "./Reusable/FocusLogo";
 import { useAuth } from "@/contexts/AuthContext";
+import { MissionButton } from "./Reusable/MissionButton";
+import { TransitionScreen } from "./TransitionScreen";
+
+const MovingLines = () => (
+    <div className="absolute inset-0 opacity-[0.15] pointer-events-none mix-blend-screen overflow-hidden">
+        <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <motion.path
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: [0, 1, 0] }}
+                transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                d="M-100,200 C150,150 300,350 1100,250"
+                stroke="#DAF1DE" strokeWidth="0.5"
+            />
+            <motion.path
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: [0, 0.8, 0] }}
+                transition={{ duration: 20, repeat: Infinity, ease: "linear", delay: 2 }}
+                d="M-100,800 C400,750 600,850 1100,700"
+                stroke="#8EB69B" strokeWidth="0.5"
+            />
+            <motion.path
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: [0, 0.5, 0] }}
+                transition={{ duration: 12, repeat: Infinity, ease: "linear", delay: 5 }}
+                d="M200,-100 C250,300 150,700 300,1100"
+                stroke="#DAF1DE" strokeWidth="0.3"
+            />
+            <motion.path
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: [0, 0.5, 0] }}
+                transition={{ duration: 18, repeat: Infinity, ease: "linear", delay: 8 }}
+                d="M800,-100 C750,400 850,600 700,1100"
+                stroke="#8EB69B" strokeWidth="0.3"
+            />
+        </svg>
+    </div>
+);
+
+// 2. SYSTEM PERIMETER - Reduced to icons only
+const SystemPerimeter = () => (
+    <div className="absolute inset-0 p-12 pointer-events-none z-20 select-none overflow-hidden opacity-30">
+        <div className="absolute top-10 left-10">
+            <div className="w-1.5 h-1.5 bg-[#DAF1DE] rounded-full animate-pulse" />
+        </div>
+        <div className="absolute top-10 right-10 flex gap-2">
+            <div className="w-1 h-1 bg-white/20 rounded-full" />
+            <div className="w-1 h-1 bg-white/40 rounded-full" />
+            <div className="w-1 h-1 bg-[#DAF1DE] rounded-full" />
+        </div>
+        <div className="absolute bottom-10 left-10">
+            <Activity size={12} className="text-[#DAF1DE]/40" />
+        </div>
+        <div className="absolute bottom-10 right-10">
+            <div className="w-8 h-8 rounded-full border border-white/5 flex items-center justify-center">
+                <Crosshair size={10} className="text-[#DAF1DE]/40" />
+            </div>
+        </div>
+    </div>
+);
 
 const LoginPage = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const router = useRouter();
-
-    const [showSplash, setShowSplash] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [showTransition, setShowTransition] = useState(false);
+    const [targetPath, setTargetPath] = useState("");
 
     // --- 👇 NEW: Add a loading state ---
     const { loading: authLoading } = useAuth();
 
     const handleLogin = async () => {
         setError("");
-
+        setIsLoading(true);
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
@@ -30,6 +100,7 @@ const LoginPage = () => {
 
         if (error) {
             setError(error.message);
+            setIsLoading(false);
             return;
         }
 
@@ -57,196 +128,161 @@ const LoginPage = () => {
 
         await supabase.auth.refreshSession();
 
-        // --- This part will now work correctly ---
-        setShowSplash(true);
-
         if (isAdmin) {
-            setTimeout(() => {
-                router.replace(`/admin/Radar`);
-            }, 3000);
+            setTargetPath("/admin/Radar");
+            setShowTransition(true);
         } else {
             const firstClient = sites[0]?.stock_code;
             if (!firstClient) {
                 setError("Login successful, but no sites are assigned.");
-                setShowSplash(false);
                 await supabase.auth.signOut();
+                setIsLoading(false);
                 return;
             }
-            setTimeout(() => {
-                router.replace(`/tools/${firstClient}/home`);
-            }, 3000);
+            setTargetPath(`/tools/${firstClient}/home`);
+            setShowTransition(true);
         }
     };
 
-    // --- 👇 UPDATED: Show splash while checking session OR after login ---
-    if (authLoading || showSplash) {
-        return <SplashScreen />;
-    }
-
-    const inputStyle = {
-        margin: "10px 0",
-        padding: "10px",
-        borderRadius: "6px",
-        border: "1px solid #7F7F7F",
-        background: "rgba(23,23,23,0.8)",
-        color: "#7F7F7F"
-    };
-
-    const buttonStyle = {
-        marginTop: "10px",
-        padding: "10px",
-        width: "100%",
-        background: "linear-gradient(to bottom, #00554A, #007D6E, #009684)",
-        border: "none",
-        borderRadius: "6px",
-        cursor: "pointer",
-        color: "#fff",
-        fontWeight: "bold"
-    };
-
     return (
-        <div
-            style={{
-                width: "100vw",
-                height: "100vh",
-                boxSizing: "border-box",
-                padding: "100px",
-                overflowY: "auto",
-                backgroundImage: `url("/background/radarBackground.png")`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                color: "#f5f5f5",
-                fontFamily: "Inter, sans-serif",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px",
-            }}
-        >
-            <div
-                style={{
-                    position: "absolute",
-                    bottom: 10,
-                    fontStyle: "italic",
-                    color: "#aaa",
-                    fontSize: "14px",
-                }}
-            >
-                © 2025 DTG Project | All rights reserved
+        <div className="min-h-screen w-full bg-[#010808] flex flex-col items-center justify-center relative overflow-hidden font-sans selection:bg-[#DAF1DE]/20">
+            {showTransition && <TransitionScreen onComplete={() => router.replace(targetPath)} />}
+
+            {/* BACKGROUND WITH GRADATION & PLAIN AREAS */}
+            <div className="absolute inset-0 z-0">
+
+                {/* Main Gradation: From Bioluminescent Forest-Teal to Pure Black */}
+                <div className="absolute inset-0 bg-gradient-to-br from-[#0B2B26]/60 via-[#010808]/90 to-[#010808]" />
+
+                {/* Radial Depth */}
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_0%,#010808_95%)]" />
+
+                {/* Atmosphere Highlight */}
+                <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-[#DAF1DE]/5 blur-[150px] rounded-full" />
             </div>
 
-            {/* Main Login Box */}
-            <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                    <PulsatingCircles />
-                </div>
+            <MovingLines />
+            <SystemPerimeter />
 
-                {/*MIDDLE  SECTION*/}
-                <div style={{ display: "flex", padding: "100px", flexDirection: "column", justifyContent: "space-between", height: "100%" }}>
-                    <div>
-                        <span
-                            style={{
-                                background: "radial-gradient(circle, #00CED1, #15BCA9, #6EA4BF)",
-                                WebkitBackgroundClip: "text",
-                                WebkitTextFillColor: "transparent",
-                                fontSize: "60px",
-                                fontWeight: "bold"
-                            }}
-                        >
-                            DTG FOCUS
-                        </span>
-                        <p style={{ color: "#ccc", fontSize: "20px", marginBottom: 0 }}>Advanced geotechnical monitoring with real-time analysis</p>
+            {/* CORE INTERFACE */}
+            {!showTransition && (
+            <div className="relative z-30 w-full flex flex-col items-center px-6">
+
+                {/* BRANDING HUB */}
+                <motion.div
+                    initial={{ opacity: 0, y: -15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                    className="flex flex-col items-center mb-8 text-center"
+                >
+                    <div className="relative mb-8 transform scale-90 md:scale-100">
+                        <div className="absolute inset-0 bg-[#DAF1DE]/5 blur-[60px] rounded-full" />
+                        <FocusLogo size="xl" showTagline={false} />
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                        <div style={{ display: "flex", alignItems: "center" }}>
-                            {/* Label */}
-                            <div
-                                style={{
-                                    borderRadius: "20px",
-                                    fontWeight: "bold",
-                                    textAlign: "center",
-                                    border: "1px solid #00E0D9",
-                                    padding: "5px 15px",
-                                    color: "white",
-                                }}
-                            >
-                                Key Features
+
+                    <div className="space-y-3">
+                        <h1 className="block text-[10px] md:text-[11px] font-bold uppercase tracking-[1em] text-[#DAF1DE]/60 leading-none mr-[-1em]">
+                            Geotechnical Foresight,
+                        </h1>
+                        <h2 className="block text-[10px] md:text-[11px] font-bold uppercase tracking-[1em] text-[#8EB69B]/60 leading-none mr-[-1em]">
+                            Driven by Intelligence.
+                        </h2>
+                    </div>
+                </motion.div>
+
+                {/* REFINED AUTH CONSOLE - Wider and Proportional (Less Tall) */}
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.99 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className="w-full max-w-[440px]"
+                >
+                    <div className="relative group">
+                        {/* Soft Edge Glow */}
+                        <div className="absolute -inset-[1px] bg-gradient-to-b from-white/10 via-transparent to-white/5 rounded-[2.5rem] opacity-20 transition-opacity" />
+
+                        <div className="bg-[#0B2B26]/30 backdrop-blur-[40px] border border-white/5 rounded-[2.5rem] p-8 md:p-10 shadow-[0_60px_100px_-30px_rgba(0,0,0,0.8)] relative overflow-hidden">
+                            <div className="grid grid-cols-1 gap-6">
+                                {/* Field: Identity */}
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between px-2">
+                                        {/* Lower opacity on the label to make it "glow" less than the text */}
+                                        <label className="text-[9px] font-bold uppercase tracking-[0.4em] text-[#DAF1DE]/40">Identity</label>
+                                        <Signal className="w-3 h-3 text-[#DAF1DE]/60" />
+                                    </div>
+                                    <div className="relative">
+                                        <User className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-[#DAF1DE]/20" />
+                                        <input
+                                            type="text"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            placeholder="ID_SIGN"
+                                            className="w-full bg-[#051612] border border-[#DAF1DE]/10 rounded-2xl py-4.5 pl-15 pr-6 text-[13px] font-bold tracking-[0.1em] text-[#DAF1DE]/90 placeholder:text-[#DAF1DE]/20 focus:outline-none focus:border-[#DAF1DE]/30 focus:bg-[#08201b] transition-all appearance-none autofill:shadow-[0_0_0_30px_#051612_inset] [selection-color:#DAF1DE]"
+                                            style={{ WebkitTextFillColor: '#DAF1DE' }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Field: Security */}
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between px-2">
+                                        <span className="text-[9px] font-bold uppercase tracking-[0.4em] text-[#DAF1DE]/40">Security</span>
+                                        <ShieldCheck className="w-3 h-3 text-[#DAF1DE]/60" />
+                                    </div>
+                                    <div className="relative group/field">
+                                        <Lock className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-[#DAF1DE]/20 group-focus-within/field:text-[#DAF1DE]/50 transition-colors" />
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            placeholder="••••••••"
+                                            className="w-full bg-[#051612] border border-[#DAF1DE]/10 rounded-2xl py-4.5 pl-15 pr-15 text-[13px] font-bold tracking-[0.6em] text-[#DAF1DE]/90 placeholder:text-[#DAF1DE]/20 focus:outline-none focus:border-[#DAF1DE]/30 focus:bg-[#08201b] transition-all appearance-none autofill:shadow-[0_0_0_30px_#051612_inset]"
+                                            style={{ WebkitTextFillColor: '#DAF1DE' }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-6 top-1/2 -translate-y-1/2 text-[#DAF1DE]/20 hover:text-[#DAF1DE]/60 transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* Line */}
-                            <div
-                                style={{
-                                    flexGrow: 1,
-                                    height: "2px",
-                                    background: "linear-gradient(to right, #00E0D9, transparent)"
-                                }}
+                            {error && (
+                                <div className="text-orange-500 text-[10px] font-bold uppercase tracking-[0.3em] text-center">
+                                    {error}
+                                </div>
+                            )}
+
+                            <MissionButton
+                                label="INITIALIZE"
+                                loading={isLoading}
+                                type="submit"
+                                className="w-full mt-10"
+                                onClick={handleLogin}
                             />
-                        </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", padding: "10px" }}>
-                            <div>
-                                <div style={{ border: "1px solid #fff", borderRadius: "50%", alignItems: "center", display: "flex", justifyContent: "center", width: 35, height: 35 }}>
-                                    <TbActivityHeartbeat size={30} />
-                                </div>
-                                <p style={{ fontSize: "14px", color: "#ccc" }}>Real-Time Monitoring</p>
-                            </div>
-                            <div>
-                                <div style={{ border: "1px solid #fff", borderRadius: "50%", alignItems: "center", display: "flex", justifyContent: "center", width: 35, height: 35 }}>
-                                    <SlTarget size={30} />
-                                </div>
-                                <p style={{ fontSize: "14px", color: "#ccc" }}>Precision Analysis</p>
-                            </div>
-                            <div>
-                                <div style={{ border: "1px solid #fff", borderRadius: "50%", alignItems: "center", display: "flex", justifyContent: "center", width: 35, height: 35 }}>
-                                    <BsExclamationLg size={30} />
-                                </div>
-                                <p style={{ fontSize: "14px", color: "#ccc" }}>Safety Critical</p>
+                            {/* ACTION LINKS */}
+                            <div className="mt-10 pt-8 border-t border-white/5 flex items-center justify-center px-2 opacity-30">
+                                <button
+                                    onClick={() => router.push("/forgot-password")}
+                                    className="text-[9px] font-bold uppercase tracking-[0.4em] text-[#DAF1DE]/70 hover:text-[#DAF1DE] transition-colors text-right">Credential Help</button>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div style={{ display: "flex", minWidth: "350px", padding: "20px", flexDirection: "column", gap: 20, justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(2,78,76,0.3)", border: "1px solid #007573", borderRadius: 20 }}>
-                    <div style={{ backgroundColor: "#007573", borderRadius: "5px", padding: "5px", width: 50, height: 50, alignItems: "center", justifyContent: "center", display: "flex" }}>
-                        <MdShield color="#fff" size={40} />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
-                        <h2 style={{ fontSize: "18px", margin: 0 }}>SECURE ACCESS</h2>
-                        <p style={{ color: "#aaa", margin: 10, fontSize: "12px" }}>Enter your credentials to continue</p>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-                        <p style={{ margin: 0, fontSize: "14px" }}>Username</p>
-                        <input
-                            type="email"
-                            placeholder="Enter your email/username"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            style={inputStyle}
-                        />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-                        <p style={{ margin: 0, fontSize: "14px" }}>Password</p>
-                        <input
-                            type="password"
-                            placeholder="Enter your password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            style={inputStyle}
-                        />
-                    </div>
-                    <button onClick={handleLogin} style={buttonStyle}>
-                        LOG IN
-                    </button>
-
-                    {error && <p style={{ color: "red", marginTop: 10 }}>{error}</p>}
-                    <p
-                        style={{ marginTop: 20, fontSize: 12, color: "#03716E", cursor: "pointer", textDecoration: "underline" }}
-                        onClick={() => router.push("/forgot-password")}
-                    >
-                        Forgot Password?
-                    </p>
-                </div>
+                </motion.div>
             </div>
+            )}
+
+            {/* AMBIENT SIGNAL PULSE */}
+            {!showTransition && (
+            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 opacity-10">
+                <div className="w-1.5 h-1.5 bg-[#DAF1DE] rounded-full animate-ping shadow-[0_0_10px_#DAF1DE]" />
+            </div>
+            )}
+
         </div>
     );
 };

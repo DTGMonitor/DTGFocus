@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import React from "react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell,
@@ -8,15 +9,17 @@ import {
   Label, LabelList,
   ReferenceDot
 } from "recharts";
-import Header from "@/components/Reusable/Header";
-import FilterButton from "@/components/Reusable/FilterButton";
+import FilterDropdown2 from "@/components/Reusable/FilterButton";
+import { DateTime } from "luxon";
 
 
 function AlarmSummaryPage() {
-  const [data, setData] = useState([]);
-  const [selectedYear, setSelectedYear] = useState("All");
-  const [selectedMonth, setSelectedMonth] = useState("All");
+  const [alarmByRadars, setAlarmByRadars] = useState([]);
+  const [alarmsByReason, setAlarmsByReason] = useState([]);
+  const [alarmsByRegion, setAlarmsByRegion] = useState([]);
   const [selectedRadar, setSelectedRadar] = useState(["All Radars"]);
+  const [alarmsPerRadarPerDay, setAlarmsPerRadarPerDay] = useState([]);
+  const [alarmsPerRegionPerDay, setAlarmsPerRegionPerDay] = useState([]);
   const [showCumulative, setShowCumulative] = useState("Cumulative");
   const [viewMode, setViewMode] = useState("Total");
   const [reasonFilter, setReasonFilter] = useState("All");
@@ -24,218 +27,376 @@ function AlarmSummaryPage() {
     return localStorage.getItem("selectedArea") || "All";
   });
 
+  const [user, setUser] = useState(null);
+
+  const [endDate, setEndDate] = useState(
+    DateTime.now().setZone("utc").toJSDate()
+  );
+
+  const [startDate, setStartDate] = useState(() => {
+    const end = DateTime.now().setZone("utc");
+    return end.day < 15 ? end.minus({ days: 30 }).toJSDate() : end.startOf("month").toJSDate();
+  });
+
+  const [allData, setAllData] = useState(["All"]);
+  const [radarIdMap, setRadarIdMap] = useState({});
+
+
+  // -------------------- AUTH --------------------
   useEffect(() => {
-    // Disable horizontal scrolling globally
-    document.body.style.overflowX = "hidden";
-    document.documentElement.style.overflowX = "hidden";
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
 
-    const fetchData = async () => {
-      if (selectedMonth === "All") {
-        const url = `${import.meta.env.BASE_URL}data/RADAR/Alarm/Alarm_All.json`; // ✅ works in dev + prod
-        // typically becomes "/Alarm_All.json"
-        ;
+    };
+    getSession();
 
-        try {
-          const res = await fetch(url);
-          if (!res.ok) {
-            console.warn("Alarm_All.json not found");
-            setData([]);
-            return;
-          }
-          const json = await res.json();
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    );
 
-          setData(Array.isArray(json) ? json : []);
-        } catch (err) {
-          console.error("Error fetching Alarm_All.json:", err.message);
-          setData([]);
-        }
+    return () => authListener.subscription.unsubscribe();
+  }, []);
 
+  // -------------------- FETCH RADARS --------------------
+  useEffect(() => {
+    const fetchRadars = async () => {
+      const { data, error } = await supabase
+        .from("latest_radar_wall_folders")
+        .select(`
+          id,
+          radar_number,
+          site_name,
+          timezone,
+          commenced_at,
+          decommissioned_at
+        `);
+
+      if (error) {
+        console.error("Error fetching radars:", error);
       } else {
-        // fetch individual month
-        const selectedMonthNumber = new Date(`${selectedMonth} 1, ${selectedYear}`).getMonth() + 1;
-        const formattedMonth = `${selectedYear}-${selectedMonthNumber.toString().padStart(2, '0')}`;
-        const url = `${import.meta.env.BASE_URL}data/RADAR/Alarm/Alarm_${formattedMonth}.json`;
-
-        try {
-          const res = await fetch(url);
-          if (!res.ok) {
-            console.warn(`File not found: ${formattedMonth}`);
-            setData([]);
-            return;
+        setAllData(data);
+        console.log(data);
+        const map = {};
+        data.forEach(item => {
+          if (item?.radar_number && item?.id) {
+            map[item.radar_number] = item.id;
           }
-          const json = await res.json();
-          setData(Array.isArray(json) ? json : []);
-        } catch (err) {
-          console.error(`Error fetching ${formattedMonth}:`, err.message);
-          setData([]);
-        }
+        });
+        setRadarIdMap(map);
+
       }
     };
 
-    fetchData();
-  }, [selectedYear, selectedMonth]);
+    fetchRadars();
+  }, []); // runs once
+
+  const allRadarNames = [
+    ...new Set(
+      allData
+        .map(item => item.radar_number) // go into radar object
+        .filter(Boolean) // remove null/undefined
+    ),
+  ];
+
+  useEffect(() => {
+    if (user)
+      loadRadarAlarms();
+    loadReasonAlarms();
+    loadRegionAlarms();
+    loadRegionAlarmsPerDay();
+    loadRadarAlarmsPerDay();
+  }, [user, startDate, endDate, selectedRadar, radarIdMap, reasonFilter]);
+
+  const loadRadarAlarms = async () => {
+    const startISODate = DateTime.fromJSDate(startDate)
+      .setZone("utc") // send UTC to RPC
+      .toISO(); // keep timestamp, not just date
+
+    const endISODate = DateTime.fromJSDate(endDate)
+      .setZone("utc")
+      .toISO();
+
+    // Pick selected radars (skip "All Radars")
+    const picked = Array.isArray(selectedRadar)
+      ? selectedRadar.filter(r => r && r !== "All Radars")
+      : [];
+    const radarIdsToQuery = picked.map(rr => radarIdMap[rr]).filter(Boolean);
+
+    const { data, error } = await supabase.rpc("get_radar_alarm_stats", {
+      p_start_date: startISODate,
+      p_end_date: endISODate,
+      p_radars: radarIdsToQuery.length ? radarIdsToQuery : null,
+      p_reasons: reasonFilter === "All" ? ["Valid", "False"] : [reasonFilter],
+    });
 
 
-  const filteredData = data.filter(item => {
-    const createdDate = new Date(item.AlarmTriggeredTime);
-    if (isNaN(createdDate)) return false;
-
-    const itemYear = createdDate.getFullYear();
-    const itemMonth = createdDate.toLocaleString("default", { month: "long" });
-
-    const matchesYear = selectedYear === "All" || itemYear === parseInt(selectedYear);
-    const matchesMonth = selectedMonth === "All" || itemMonth === selectedMonth;
-    const matchesRadar = selectedRadar.includes("All Radars") || selectedRadar.includes(item.field_1);
-
-
-    const hasAlarm = item.AlarmTriggeredTime && item.AlarmTriggeredTime.trim() !== "";
-
-    return hasAlarm && matchesYear && matchesMonth && matchesRadar;
-  });
-
-  const ssrCounts = {};
-  const filteredReasonSource = reasonFilter === "All"
-    ? filteredData
-    : filteredData.filter(item =>
-      reasonFilter === "Valid" ? item.field_9 === "Valid" : item.field_9 !== "Valid"
-    );
-
-  const reasonCounts = {};
-  filteredReasonSource.forEach(item => {
-    const reason = item.field_10 || "Unspecified";
-    reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
-  });
-
-  //TOP REASON
-  const [topReason, topCount] = Object.entries(reasonCounts)
-    .reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["", 0]);
-
-  const allRadarNames = [...new Set(
-    filteredReasonSource.map(item => item.field_1).filter(Boolean)
-  )];
-
-  const radarDateCounts = {};
-
-  filteredReasonSource.forEach(item => {
-    const ssr = item.field_1 || "Unknown";
-    ssrCounts[ssr] = (ssrCounts[ssr] || 0) + 1;
-
-    const reason = item.field_10 || "Unspecified";
-
-
-    const utcDate = new Date(item.AlarmTriggeredTime);
-    const localDate = new Date(utcDate.getTime() + 7 * 60 * 60 * 1000); // UTC+8
-    const date = localDate.toISOString().split("T")[0]; // Correct date in UTC+8
-
-    const radar = item.field_1 || "Unknown";
-
-    if (!radarDateCounts[date]) {
-      radarDateCounts[date] = {};
-      allRadarNames.forEach(name => {
-        radarDateCounts[date][name] = 0;
-      });
+    if (error) {
+      console.error("Error fetching alarm stats:", error);
+      setAlarmByRadars([]);
+    } else {
+      setAlarmByRadars(data ?? []);
     }
-
-    radarDateCounts[date][radar]++;
-  });
-
-  // Only filter if specific radars are selected (not "All Radars")
-  const isAllRadarsSelected = selectedRadar === "All Radars" ||
-    (Array.isArray(selectedRadar) && selectedRadar.includes("All Radars"));
-  // Alarm Regions
-  const selectedRadarRegionCounts = {};
-
-  filteredReasonSource.forEach(item => {
-    const region = item.field_8 || "Unspecified";
-    const radar = item.field_1;
-
-    if (isAllRadarsSelected || selectedRadar.includes(radar)) {
-      selectedRadarRegionCounts[region] = (selectedRadarRegionCounts[region] || 0) + 1;
-    }
-  });
-
-  // Bar Chart Data
-  const regionBarChartData = Object.entries(selectedRadarRegionCounts).map(([region, value]) => ({
-    name: region,
-    value
-  }));
-
-  //TOP REGION
-  const [topRegion, topRegionCount] = Object.entries(selectedRadarRegionCounts)
-    .reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["", 0]);
-
-  // Pie Chart Data
-  const totalRegionAlarms = Object.values(selectedRadarRegionCounts).reduce((sum, v) => sum + v, 0);
-
-  const regionPieChartData = Object.entries(selectedRadarRegionCounts).map(([region, count]) => {
-    const percentage = parseFloat(((count / totalRegionAlarms) * 100).toFixed(1));
-    return {
-      name: region,
-      count,
-      percentage
-    };
-  });
-
-
-  // Total alarms
-  const totalAlarms = filteredReasonSource.length;
-
-  // Valid alarms
-  const validAlarms = filteredReasonSource.filter(item => item.field_9 === "Valid").length;
-  const percentageValid = totalAlarms > 0 ? Math.round((validAlarms / totalAlarms) * 100) : 0;
-
-  // False alarms
-  const falseAlarms = filteredReasonSource.filter(item => item.field_9 === "False").length;
-  const percentageFalse = totalAlarms > 0 ? Math.round((falseAlarms / totalAlarms) * 100) : 0;
-
-  const ssrChartData = Object.entries(ssrCounts)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const reasonChartData = Object.entries(reasonCounts).map(([name, value]) => ({ name, value }));
-  const lineChartData = Object.entries(radarDateCounts).map(([date, radars]) => ({
-    name: date,
-    ...radars
-  }));
-
-  //TOP RADAR
-  const [topRadar, topRadarCount] = Object.entries(ssrCounts)
-    .reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["", 0]);
-
-  //Priority Chart
-  const priorityLevelMap = {
-    "Red Alarm": { label: "1", color: "#EF4444" },     // Red
-    "Orange Alarm": { label: "2", color: "#F97316" },  // Orange
-    "Yellow Alarm": { label: "3", color: "#EAB308" },  // Yellow
-    "Purple Alarm": { label: "4", color: "#A855F7" },  // Purple
-    "Blue Alarm": { label: "5", color: "#3B82F6" }     // Blue
   };
 
-  const colorByLevel = Object.values(priorityLevelMap).reduce((acc, { label, color }) => {
-    acc[label] = color;
+  const loadReasonAlarms = async () => {
+    const startISODate = DateTime.fromJSDate(startDate)
+      .setZone("utc") // send UTC to RPC
+      .toISO(); // keep timestamp, not just date
+
+    const endISODate = DateTime.fromJSDate(endDate)
+      .setZone("utc")
+      .toISO();
+
+    // Pick selected radars (skip "All Radars")
+    const picked = Array.isArray(selectedRadar)
+      ? selectedRadar.filter(r => r && r !== "All Radars")
+      : [];
+    const radarIdsToQuery = picked.map(rr => radarIdMap[rr]).filter(Boolean);
+
+    const { data, error } = await supabase.rpc("get_reason_alarm_stats", {
+      p_start_date: startISODate,
+      p_end_date: endISODate,
+      p_radars: radarIdsToQuery.length ? radarIdsToQuery : null,
+      p_reasons: reasonFilter === "All" ? ["Valid", "False"] : [reasonFilter],
+    });
+
+
+    if (error) {
+      console.error("Error fetching alarm stats:", error);
+      setAlarmsByReason([]);
+    } else {
+
+      setAlarmsByReason(data ?? []);
+    }
+  };
+
+  const loadRegionAlarms = async () => {
+    const startISODate = DateTime.fromJSDate(startDate)
+      .setZone("utc") // send UTC to RPC
+      .toISO(); // keep timestamp, not just date
+
+    const endISODate = DateTime.fromJSDate(endDate)
+      .setZone("utc")
+      .toISO();
+
+    // Pick selected radars (skip "All Radars")
+    const picked = Array.isArray(selectedRadar)
+      ? selectedRadar.filter(r => r && r !== "All Radars")
+      : [];
+    const radarIdsToQuery = picked.map(rr => radarIdMap[rr]).filter(Boolean);
+
+    const { data, error } = await supabase.rpc("get_region_alarm_stats", {
+      p_start_date: startISODate,
+      p_end_date: endISODate,
+      p_radars: radarIdsToQuery.length ? radarIdsToQuery : null,
+      p_reasons: reasonFilter === "All" ? ["Valid", "False"] : [reasonFilter],
+    });
+
+
+    if (error) {
+      console.error("Error fetching alarm stats:", error);
+      setAlarmsByRegion([]);
+    } else {
+
+      setAlarmsByRegion(data ?? []);
+      console.log("Alarms by Region:", data);
+    }
+  };
+
+  const loadRegionAlarmsPerDay = async () => {
+    const startISODate = DateTime.fromJSDate(startDate)
+      .setZone("utc") // send UTC to RPC
+      .toISO(); // keep timestamp, not just date
+
+    const endISODate = DateTime.fromJSDate(endDate)
+      .setZone("utc")
+      .toISO();
+
+    // Pick selected radars (skip "All Radars")
+    const picked = Array.isArray(selectedRadar)
+      ? selectedRadar.filter(r => r && r !== "All Radars")
+      : [];
+    const radarIdsToQuery = picked.map(rr => radarIdMap[rr]).filter(Boolean);
+
+    const { data, error } = await supabase.rpc("get_alarm_per_region_per_day", {
+      p_start_date: startISODate,
+      p_end_date: endISODate,
+      p_radars: radarIdsToQuery.length ? radarIdsToQuery : null,
+      p_reasons: reasonFilter === "All" ? ["Valid", "False"] : [reasonFilter],
+    });
+
+
+    if (error) {
+      console.error("Error fetching alarm stats:", error);
+      setAlarmsPerRegionPerDay([]);
+    } else {
+
+      setAlarmsPerRegionPerDay(data ?? []);
+      console.log("Alarms Per Day by Region:", data);
+    }
+  };
+
+  const loadRadarAlarmsPerDay = async () => {
+    const startISODate = DateTime.fromJSDate(startDate)
+      .setZone("utc") // send UTC to RPC
+      .toISO(); // keep timestamp, not just date
+
+    const endISODate = DateTime.fromJSDate(endDate)
+      .setZone("utc")
+      .toISO();
+
+    // Pick selected radars (skip "All Radars")
+    const picked = Array.isArray(selectedRadar)
+      ? selectedRadar.filter(r => r && r !== "All Radars")
+      : [];
+    const radarIdsToQuery = picked.map(rr => radarIdMap[rr]).filter(Boolean);
+
+    const { data, error } = await supabase.rpc("get_alarm_per_radar_per_day", {
+      p_start_date: startISODate,
+      p_end_date: endISODate,
+      p_radars: radarIdsToQuery.length ? radarIdsToQuery : null,
+      p_reasons: reasonFilter === "All" ? ["Valid", "False"] : [reasonFilter],
+    });
+
+
+    if (error) {
+      console.error("Error fetching alarm stats:", error);
+      setAlarmsPerRadarPerDay([]);
+    } else {
+
+      setAlarmsPerRadarPerDay(data ?? []);
+      console.log("Alarms Per Day by Radar:", data);
+    }
+  };
+
+  // This is used to check if there is data to display.
+  const filteredReasonSource = alarmByRadars ?? [];
+
+  // --- Data for "Alarms by Radar" chart ---
+  const ssrChartData = (alarmByRadars ?? []).map(item => ({
+    name: item.radar_number || "Unknown",
+    value: Number(item.total_count),
+    percentage: Number(item.percentage)
+  }));
+
+  const reasonChartData = (alarmsByReason ?? []).map(item => ({
+    name: item.cause,
+    value: Number(item.total_count),
+    percentage: Number(item.percentage)
+  }));
+
+  const priorityTotals = (alarmsByReason ?? []).reduce((acc, item) => {
+    acc.red += Number(item.red) || 0;
+    acc.orange += Number(item.orange) || 0;
+    acc.yellow += Number(item.yellow) || 0;
+    acc.purple += Number(item.purple) || 0;
+    acc.blue += Number(item.blue) || 0;
     return acc;
-  }, {});
+  }, { red: 0, orange: 0, yellow: 0, purple: 0, blue: 0 });
 
-  // fixed levels we care about
-  const priorityOrder = ["1", "2", "3", "4", "5"];
+  const priorityChartData = [
+    { name: '1', value: priorityTotals.red, fill: '#EF4444' },
+    { name: '2', value: priorityTotals.orange, fill: '#F97316' },
+    { name: '3', value: priorityTotals.yellow, fill: '#EAB308' },
+    { name: '4', value: priorityTotals.purple, fill: '#A855F7' },
+    { name: '5', value: priorityTotals.blue, fill: '#3B82F6' }
+  ];
 
-  // derive: raw -> level (helper)
-  const levelByRaw = Object.entries(priorityLevelMap).reduce((acc, [raw, { label }]) => {
-    acc[raw] = label;
-    return acc;
-  }, {});
+  // --- Data for "Total Alarms" card ---
+  const totalAlarms = (alarmByRadars ?? []).reduce((sum, item) => sum + Number(item.total_count), 0);
 
-  // now count from data
-  const counts = filteredReasonSource.reduce((acc, item) => {
-    const level = levelByRaw[item.field_7]; // map "Red Alarm" -> "1"
-    if (level) acc[level] = (acc[level] || 0) + 1;
-    return acc;
-  }, {});
+  // --- TOP RADAR for "Frequent Alarm" card ---
+  const [topRadar, topRadarCount] = Object.entries(
+    ssrChartData.reduce((acc, curr) => ({ ...acc, [curr.name]: curr.value }), {})
+  ).reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["", 0]);
 
-  // build full chart data (includes zeros)
-  const priorityChartData = priorityOrder.map((level) => ({
-    name: level,
-    value: counts[level] || 0,
-    fill: colorByLevel[level] || "#9CA3AF",
+  const [topReason, topCount] = Object.entries(
+    alarmsByReason.reduce((acc, curr) => ({ ...acc, [curr.cause]: curr.total_count }), {})
+  ).reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["", 0]);
+
+  const isAllRadarsSelected = selectedRadar === "All Radars" ||
+    (Array.isArray(selectedRadar) && selectedRadar.includes("All Radars"));
+
+  const [topRegion, topRegionCount] = Object.entries(
+    (alarmsByRegion ?? []).reduce((acc, curr) => ({ ...acc, [curr.region || curr.name]: curr.total_count }), {})
+  ).reduce((max, curr) => (curr[1] > max[1] ? curr : max), ["N/A", 0]);
+
+  // --- Process Line Chart Data ---
+  const processLineData = (data, keyProp, valProp) => {
+    if (!data || data.length === 0) return [];
+    const grouped = {};
+    data.forEach(item => {
+      const date = item.alarm_date;
+      if (!grouped[date]) grouped[date] = { name: date };
+      grouped[date][item[keyProp]] = Number(item[valProp]);
+    });
+    return Object.values(grouped).sort((a, b) => new Date(a.name) - new Date(b.name));
+  };
+
+  const processMarkers = (data, keyProp) => {
+    if (!data || data.length === 0) return [];
+    const markers = [];
+    data.forEach(item => {
+      const date = item.alarm_date;
+      const key = item[keyProp];
+      if (item.modified_count > 0) markers.push({ date, [keyProp === 'radar_number' ? 'radar' : 'region']: key, status: "Modified", count: item.modified_count });
+      if (item.awaiting_feedback_count > 0) markers.push({ date, [keyProp === 'radar_number' ? 'radar' : 'region']: key, status: "Awaiting Feedback", count: item.awaiting_feedback_count });
+      if (item.not_implemented_count > 0) markers.push({ date, [keyProp === 'radar_number' ? 'radar' : 'region']: key, status: "Not Implemented", count: item.not_implemented_count });
+    });
+    return markers;
+  };
+
+  const lineChartData = processLineData(alarmsPerRadarPerDay, 'radar_number', 'daily_count');
+  const cumulativeLineChartData = processLineData(alarmsPerRadarPerDay, 'radar_number', 'cumulative_count');
+
+  const regionLineChartData = processLineData(alarmsPerRegionPerDay, 'region_name', 'daily_count');
+  const cumulativeRegionLineChartData = processLineData(alarmsPerRegionPerDay, 'region_name', 'cumulative_count');
+
+  const radarArray = Array.isArray(selectedRadar) ? selectedRadar : [selectedRadar];
+  const isMultipleRadars = radarArray.length > 1 || isAllRadarsSelected;
+
+  const improvementMarkers = isMultipleRadars
+    ? processMarkers(alarmsPerRadarPerDay, 'radar_number')
+    : processMarkers(alarmsPerRegionPerDay, 'region_name');
+
+  const regionBarChartData = (alarmsByRegion ?? []).map(item => ({
+    name: item.region || item.name || "Unknown",
+    value: Number(item.total_count)
+  }));
+
+  const totalRegionAlarms = (alarmsByRegion ?? []).reduce((sum, item) => sum + Number(item.total_count), 0);
+
+  const regionPieChartData = (alarmsByRegion ?? []).map(item => ({
+    name: item.region || item.name || "Unknown",
+    count: Number(item.total_count),
+    percentage: totalRegionAlarms > 0 ? ((Number(item.total_count) / totalRegionAlarms) * 100).toFixed(1) : 0
+  }));
+
+  const validAlarms = (alarmsByReason ?? []).filter(item => item.reason === "Valid");
+  const falseAlarms = (alarmsByReason ?? []).filter(item => item.reason === "False");
+  const percentageValid = (validAlarms ?? []).reduce((sum, item) => sum + Number(item.percentage), 0).toFixed(1);
+  const percentageFalse = (falseAlarms ?? []).reduce((sum, item) => sum + Number(item.percentage), 0).toFixed(1);
+
+  // --- Alarms per day calculation ---
+  const diffInDays = DateTime.fromJSDate(endDate).diff(DateTime.fromJSDate(startDate), 'days').toObject().days;
+  const alarmsPerDay = totalAlarms > 0 && diffInDays >= 1 ? (totalAlarms / diffInDays).toFixed(1) : 0;
+
+  const radarColors = [
+    "#156082", "#E97132", "#196B24", "#0F9ED5", "#A02B93", "#EC4899", "#EF4444", "#8B5CF6"
+  ];
+
+  const fullRadarColorMap = {};
+  allRadarNames.forEach((radar, index) => {
+    fullRadarColorMap[radar] = radarColors[index % radarColors.length];
+  });
+
+  // --- Data for "% Share" pie chart ---
+  const ssrPercentageData = (alarmByRadars ?? []).map(item => ({
+    name: item.radar_number,
+    value: Number(item.total_count),
+    percentage: Number(item.percentage),
+    fill: fullRadarColorMap[item.radar_number] || "#888"
   }));
 
   const PriorityLevelsBox = ({ data }) => {
@@ -273,7 +434,7 @@ function AlarmSummaryPage() {
               }}
             />
             <Bar dataKey="value" barSize={dynamicssrBarSize} radius={[5, 5, 0, 0]}>
-              {priorityChartData.map((d, i) => (
+              {data.map((d, i) => (
                 <Cell key={i} fill={d.fill} />
               ))}
               <LabelList
@@ -281,7 +442,7 @@ function AlarmSummaryPage() {
                 position="top"
                 style={{ fontSize: 10, fontWeight: "bold" }}
                 content={({ x, y, width, value, index }) => {
-                  const color = priorityChartData[index].fill;
+                  const color = data[index].fill;
                   return (
                     <text
                       x={x + width / 2}
@@ -303,79 +464,20 @@ function AlarmSummaryPage() {
     );
   };
 
-  // Cumulative Radars
-  const cumulativeDataMap = {};
-  const sortedDates = Object.keys(radarDateCounts).sort();
-
-  const cumulativeLineChartData = sortedDates.map(date => {
-    const entry = { name: date };
-    for (let radar of allRadarNames) {
-      const dailyCount = radarDateCounts[date]?.[radar] || 0;
-      cumulativeDataMap[radar] = (cumulativeDataMap[radar] || 0) + dailyCount;
-      entry[radar] = cumulativeDataMap[radar];
-    }
-    return entry;
-  });
-
-  //Cumulative Regions
-  const regionDateMap = {};
-
-  filteredReasonSource.forEach(item => {
-    if (!selectedRadar.includes(item.field_1)) return;
-
-    const utcDate = new Date(item.AlarmTriggeredTime);
-    const localDate = new Date(utcDate.getTime() + 7 * 60 * 60 * 1000); // UTC+8
-    const date = localDate.toISOString().split("T")[0]; // Correct date in UTC+8
-
-    const region = item.field_8 || "Unspecified";
-
-    if (!regionDateMap[date]) regionDateMap[date] = {};
-    regionDateMap[date][region] = (regionDateMap[date][region] || 0) + 1;
-  });
-
-  const allRegions = [...new Set(Object.values(regionDateMap).flatMap(r => Object.keys(r)))];
-
-  const regionLineChartData = Object.entries(regionDateMap)
-    .sort(([a], [b]) => new Date(a) - new Date(b))
-    .map(([date, counts]) => {
-      const entry = { name: date };
-      allRegions.forEach(region => {
-        entry[region] = counts[region] || 0;
-      });
-      return entry;
-    });
-
-  const cumulativeMap = {};
-  const cumulativeRegionLineChartData = regionLineChartData.map(entry => {
-    const cumEntry = { name: entry.name };
-    allRegions.forEach(region => {
-      cumulativeMap[region] = (cumulativeMap[region] || 0) + (entry[region] || 0);
-      cumEntry[region] = cumulativeMap[region];
-    });
-    return cumEntry;
-  });
-
-  const radarArray = Array.isArray(selectedRadar) ? selectedRadar : [selectedRadar];
+  
 
   const isSingleRadar = radarArray.length === 1 && !isAllRadarsSelected;
 
-  const isMultipleRadars = radarArray.length > 1 || isAllRadarsSelected;
+  
 
   const chartDataToUse = isMultipleRadars
     ? (showCumulative ? cumulativeLineChartData : lineChartData)
     : (showCumulative ? cumulativeRegionLineChartData : regionLineChartData);
 
 
-  const radarColors = [
-    "#156082", "#E97132", "#196B24", "#0F9ED5", "#A02B93", "#EC4899", "#EF4444", "#8B5CF6"
-  ];
-
-  const fullRadarColorMap = {};
-  allRadarNames.forEach((radar, index) => {
-    fullRadarColorMap[radar] = radarColors[index % radarColors.length];
-  });
 
   // Choose chart keys
+  const allRegions = [...new Set((alarmsPerRegionPerDay ?? []).map(item => item.region_name || "Unknown"))];
   const chartKeys = isMultipleRadars
     ? allRadarNames
     : allRegions;
@@ -388,78 +490,6 @@ function AlarmSummaryPage() {
   allRegions.forEach((region, index) => {
     regionColorMap[region] = regionColors[index % regionColors.length];
   });
-
-
-  // Alarms per day
-  let monthDays;
-
-  if (selectedMonth === "All") {
-    const uniqueYearMonthSet = new Set(
-      filteredReasonSource.map(item => {
-        const d = new Date(item.AlarmTriggeredTime);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      })
-    );
-
-    let total = 0;
-    uniqueYearMonthSet.forEach(ym => {
-      const [year, month] = ym.split("-");
-      const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
-      total += daysInMonth;
-    });
-
-    monthDays = total;
-  } else {
-    const monthIndex = new Date(`${selectedMonth} 1, ${selectedYear}`).getMonth();
-    monthDays = new Date(selectedYear, monthIndex + 1, 0).getDate();
-  }
-  const alarmsPerDay = totalAlarms > 0 ? Number(totalAlarms / monthDays).toFixed(1) : 0;
-
-  // %Share (Radar)
-  const ssrPercentageData = ssrChartData.map(item => {
-    const percentage = parseFloat(((item.value / totalAlarms) * 100).toFixed(1));
-    return {
-      name: item.name,
-      value: item.value,                // raw count
-      percentage,                       // for tooltip and legend
-      fill: fullRadarColorMap[item.name] || "#888"
-    };
-  });
-
-  // Alarm Improvement Status
-  const improvementStatusCounts = {
-    Modified: 0,
-    "Awaiting Feedback": 0,
-    "Not Implemented": 0
-  };
-
-  filteredReasonSource.forEach(item => {
-    const status = String(item.AlarmImprovementStatus0 || "").trim();
-    ;
-    if (improvementStatusCounts.hasOwnProperty(status)) {
-      improvementStatusCounts[status]++;
-    }
-  });
-
-  const dtgTotal = Object.values(improvementStatusCounts).reduce((sum, val) => sum + val, 0);
-
-  const improvementMarkers = filteredReasonSource
-    .filter(item => {
-      const status = String(item.AlarmImprovementStatus0 || "").trim();
-      return status !== "";
-    })
-    .map(item => {
-      const utcDate = new Date(item.AlarmTriggeredTime);
-      const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000); // UTC+8
-      const date = localDate.toISOString().split("T")[0]; // Correct date in UTC+8
-
-      return {
-        date,
-        radar: item.field_1 || "Unknown",
-        region: item.field_8 || "Unspecified",
-        status: String(item.AlarmImprovementStatus0).trim()
-      };
-    });
 
   const statusColorMap = {
     "Modified": "#22C55E",           // Green
@@ -504,38 +534,6 @@ function AlarmSummaryPage() {
     marginTop: 0
   };
 
-  const yearOptions = [
-    "All",
-    ...new Set(
-      data
-        .map(item => {
-          const date = new Date(item.AlarmTriggeredTime);
-          return isNaN(date) ? null : date.getFullYear();
-        })
-        .filter(Boolean)
-    ).values()
-  ].sort((a, b) => {
-    if (a === "All") return -1;
-    if (b === "All") return 1;
-    return b - a; // descending for years
-  });
-
-  const monthOptions = [
-    "All",
-    ...new Set(
-      data
-        .map(item => {
-          const date = new Date(item.AlarmTriggeredTime);
-          return isNaN(date)
-            ? null
-            : date.toLocaleString("default", { month: "long" });
-        })
-        .filter(Boolean)
-    )
-  ];
-
-  const radarOptions = ["All Radars", ...new Set(data.map(d => d.field_1).filter(Boolean))];
-
   const cardStyle = {
     flex: "1",
     minWidth: "200px",
@@ -565,7 +563,7 @@ function AlarmSummaryPage() {
   const CustomTooltip = ({ active, payload, label, markers }) => {
     if (!active || !payload || !payload.length) return null;
 
-    const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
+    const sortedPayload = [...payload].sort((a, b) => b.name - a.name);
 
     // Filter improvement markers for current label (date)
     const markersForDate = markers?.filter(marker => marker.date === label) || [];
@@ -694,7 +692,7 @@ function AlarmSummaryPage() {
     return null;
   };
 
-  const totalReason = reasonChartData.reduce((sum, entry) => sum + entry.value, 0);
+  const totalReason = 0; // Placeholder
   const sortedReasonChartData = [...reasonChartData].sort((a, b) => b.value - a.value);
 
   const ssrChartCount = ssrChartData.length;
@@ -815,7 +813,7 @@ function AlarmSummaryPage() {
               </PieChart>
             </div>
 
-            <div style={{ minWidth: "200px", maxWidth: "300px", overflowWrap: "break-word" }}>
+            <div style={{ minWidth: "200px", maxWidth: "300px", maxHeight: "250px", overflowY: "scroll", overflowWrap: "break-word" }}>
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {ssrChartData.map((entry, index) => {
                   const percentage = ((entry.value / totalReason) * 100).toFixed(1);
@@ -967,7 +965,7 @@ function AlarmSummaryPage() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div style={{ minWidth: "200px", maxWidth: "300px", overflowWrap: "break-word" }}>
+          <div style={{ minWidth: "200px", maxWidth: "300px", maxHeight: "250px", overflowY: "scroll", overflowWrap: "break-word" }}>
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {regionPieChartData.map((entry, index) => {
                 return (
@@ -1026,7 +1024,7 @@ function AlarmSummaryPage() {
 
 
   return (
-  <div style={{ flex: 1, paddingTop: "10px" }}>
+    <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
 
       <div style={{
         display: "flex",
@@ -1049,35 +1047,28 @@ function AlarmSummaryPage() {
             display: "flex",
             flex: 0.7
           }}>
-            <FilterButton
-              year={selectedYear}
-              month={selectedMonth}
-              radar={selectedRadar}
+            <FilterDropdown2
+              startDate={startDate}
+              endDate={endDate}
+              radar={selectedRadar} // This prop is not used by FilterDropdown2, but keeping it doesn't hurt
               area={selectedArea}
-              yearOptions={yearOptions}
-              monthOptions={monthOptions}
-              radarOptions={radarOptions}
-              onApply={({ year, month, radar, area }) => {
-                setSelectedYear(year);
-                setSelectedMonth(month);
+              onApply={({ startDate, endDate, radar, area }) => {
+                setStartDate(startDate);
+                setEndDate(endDate);
                 setSelectedRadar(radar);
-                setSelectedArea(area)
+                setSelectedArea(area);
               }}
-
               onReset={() => {
-                setSelectedYear("All");
-                setSelectedMonth("All");
+                const end = DateTime.now().setZone("utc");
+                setEndDate(end.toJSDate());
+                setStartDate(
+                  end.day < 15
+                    ? end.minus({ days: 30 }).toJSDate()
+                    : end.startOf("month").toJSDate()
+                );
                 setSelectedRadar(["All Radars"]);
                 setSelectedArea("All");
               }}
-              onCancel={() => {
-                setTmpYear(selectedYear);
-                setTmpMonth(selectedMonth);
-                setTmpRadar(selectedRadar);
-              }}
-              top={0}
-              right={0}
-              iconSize={14}
             />
           </div>
 
@@ -1086,7 +1077,7 @@ function AlarmSummaryPage() {
             <p style={{ ...cardTitleStyle, fontWeight: "bold" }}>Total Alarms</p>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: "40px", color: "#EC834E", fontWeight: "bold" }}> {filteredReasonSource.length}</h2>
+                <h2 style={{ margin: 0, fontSize: "40px", color: "#EC834E", fontWeight: "bold" }}> {totalAlarms}</h2>
                 <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0 }}>{alarmsPerDay} alarms/day</p>
               </div>
               <div style={{ display: "block", color: "#ccc" }}>
@@ -1232,10 +1223,9 @@ function AlarmSummaryPage() {
                       />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div style={{ marginLeft: "20px" }}>
+                  <div style={{ marginLeft: "20px", maxHeight: "250px", overflowY: "scroll" }}>
                     <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                       {sortedReasonChartData.map((entry, index) => {
-                        const percentage = ((entry.value / totalReason) * 100).toFixed(1);
                         return (
                           <li key={`legend-${index}`} style={{
                             display: "flex",
@@ -1260,7 +1250,7 @@ function AlarmSummaryPage() {
 
                             {/* Right side: value + percentage */}
                             <div style={{ minWidth: "80px", textAlign: "right", fontSize: "12px", fontWeight: "bold" }}>
-                              {entry.value} ({percentage}%)
+                              {entry.value} ({entry.percentage}%)
                             </div>
                           </li>
                         );
@@ -1354,12 +1344,6 @@ function AlarmSummaryPage() {
                           />
                         ))
                         : improvementMarkers
-                          .filter(m =>
-                            Array.isArray(selectedRadar)
-                              ? selectedRadar.includes(m.radar)
-                              : m.radar === selectedRadar
-                          )
-
                           .map((m, index) => (
                             <ReferenceDot
                               key={`dot-${index}`}
@@ -1367,7 +1351,7 @@ function AlarmSummaryPage() {
                               y={
                                 showCumulative
                                   ? cumulativeRegionLineChartData.find(d => d.name === m.date)?.[m.region] || 0
-                                  : regionDateMap[m.date]?.[m.region] || 0
+                                  : regionLineChartData.find(d => d.name === m.date)?.[m.region] || 0
                               }
                               r={6}
                               fill={statusColorMap[m.status] || "#ccc"}
@@ -1410,7 +1394,3 @@ function AlarmSummaryPage() {
   );
 }
 export default AlarmSummaryPage;
-
-
-
-

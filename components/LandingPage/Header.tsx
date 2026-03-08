@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import Image from "next/image";
 // 1. Import theme hooks and state handlers
 import { useTheme } from "next-themes";

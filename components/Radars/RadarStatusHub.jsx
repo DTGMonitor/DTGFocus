@@ -1,6 +1,5 @@
 // pages/Sensors/Radars/Live/RadarStatusHub.jsx
 import { useState } from "react";
-import Header from "@/components/Reusable/Header";
 import RadarGallery from "@/components/Radars/Live/RadarGallery";
 import RadarDetail from "@/components/Radars/Live/RadarDetail"; // import detail page
 import ToggleGroup from "@/components/Reusable/ToggleGroup";
@@ -27,8 +26,7 @@ function RadarStatusHub() {
   };
 
   return (
-    <div style={{ flex: 1 }}>
-
+ <div className="bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       {/* Status filter toggle only visible in gallery mode */}
       {!selectedRadar && (
         <ToggleGroup

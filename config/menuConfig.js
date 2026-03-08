@@ -11,14 +11,9 @@ export const insarMenuItems = [
 ];
 
 export const homeMenuItems = [
-  { label: 'Dashboard', icon: "FaHome", path: `/tools/:client/device` },
-  { label: 'Sensor Network', icon: "LuNetwork", path: `/tools/:client/home` },
-  { label: 'Risk Management', icon: "MdOutlineShield" },
-  { label: 'AI Analytics', icon: "LuBrain" },
-  { label: 'Reports', icon: "FaChartBar" },
-  { label: 'Operations', icon: "LuUsers" },
-  { label: 'Maintenance', icon: "LuWrench" },
-
+  { label: 'LIVE VIEW', icon: "FaHome", path: `/client/Live/LiveView` },
+  { label: 'SUMMARY VIEW', icon: "LuNetwork", path: `/client/Summary/Radar` },
+  { label: 'REPORT COLLECTION', icon: "HiOutlineDocumentChartBar", path: `/client/Reports/Reports`},
 ];
 
 export const adminMenuItems = [

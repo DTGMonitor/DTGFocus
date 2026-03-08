@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from "@/lib/supabaseClient";
 import { X, Loader2 } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
 import { CAUSE_OPTIONS } from "@/config/formConfig";
 

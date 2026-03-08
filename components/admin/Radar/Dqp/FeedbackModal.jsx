@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from '@/components/LandingPage/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/LandingPage/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const FeedbackModal = ({ isOpen, onClose, data, onSubmit, regions }) => {
     const [itemData, setItemData] = useState({});

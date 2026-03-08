@@ -19,6 +19,7 @@ export default function UserDropdown({
     onClose,
     user,
     site,
+    initial,
     logo,
     anchorColor = "#0B514E",
     panelColor = "#1B1B1B",
@@ -107,11 +108,12 @@ export default function UserDropdown({
                 position: "absolute",
                 top: `${pos.top}px`,
                 left: `${pos.left}px`,
-                backgroundColor: "rgba(42, 42, 42, 1)",
+                backgroundColor: "var(--dtg-bg-card)",
+                color: "var(--dtg-text-primary)",
                 padding: "2px",
                 minWidth: "220px",
                 borderRadius: "8px",
-                border: "1px solid #3a3a3a",
+                border: "1px solid var(--dtg-border-medium)",
                 boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
                 zIndex: 999,
                 fontSize: "12px",
@@ -122,6 +124,44 @@ export default function UserDropdown({
             role="dialog"
             aria-modal="false"
         >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px" }}>
+                <div
+                    style={{
+                        borderRadius: "50%",
+                        padding: "5px",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        width: "30px",
+                        height: "30px",
+                        backgroundColor: logo ? "var(--dtg-text-primary)" : "#14b8a6"
+                    }}
+                >
+                    {logo ? (
+                        <img
+                            src={logo}
+                            alt="Logo"
+                            style={{
+                                width: "20px",
+                                height: "20px",
+                                objectFit: "contain",
+                            }}
+                        />) : (
+                        <h1 style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--dtg-text-primary)', margin: 0 }}>{initial}</h1>
+                    )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                    <h4 className="text-[var(--dtg-text-primary)]" style={{ fontSize: "0.9rem" }}>
+                        {user.displayname}
+                    </h4>
+                    <p className="text-[var(--dtg-text-muted)]" style={{ fontSize: "0.8rem" }}>
+                        {user.site?.site_name
+                            ? `${user.site.site_name}, ${user.site.company}`
+                            : "Administrator"}
+                    </p>
+                </div>
+            </div>
+            <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[#3a3a3a] w-full"></div>
             <button
                 type="button"
                 disabled
@@ -130,11 +170,11 @@ export default function UserDropdown({
                     await supabase.auth.signOut();
                     router.push("/");
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#333333")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(42, 42, 42, 0.5)")}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--dtg-bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--dtg-bg-card)")}
                 style={{
                     bg: "transparent",
-                    color: "#fff",
+                    color: "var(--dtg-text-primary)",
                     display: "flex",
                     border: "none",
                     borderRadius: "8px",
@@ -144,7 +184,7 @@ export default function UserDropdown({
                     gap: 10
                 }}
             >
-                <FiUser color="#aaa" size={18}/>
+                <FiUser color="#aaa" size={18} />
                 Profile Settings
             </button>
             <button
@@ -155,11 +195,11 @@ export default function UserDropdown({
                     await supabase.auth.signOut();
                     router.push("/");
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#333333")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(42, 42, 42, 0.5)")}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--dtg-bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--dtg-bg-card)")}
                 style={{
                     bg: "transparent",
-                    color: "#fff",
+                    color: "var(--dtg-text-primary)",
                     display: "flex",
                     border: "none",
                     borderRadius: "8px",
@@ -169,7 +209,7 @@ export default function UserDropdown({
                     gap: 10
                 }}
             >
-                <FiSettings color="#aaa" size={18}/>
+                <FiSettings color="#aaa" size={18} />
                 Preferences
             </button>
             <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[#3a3a3a] w-full"></div>
@@ -180,8 +220,8 @@ export default function UserDropdown({
                     await supabase.auth.signOut();
                     router.push("/login");
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(100, 28, 28, 0.5)",e.currentTarget.style.color="#fff")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(42, 42, 42, 0.5)",e.currentTarget.style.color="rgba(235, 68, 68, 1)")}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(100, 28, 28, 0.5)", e.currentTarget.style.color = "var(--dtg-text-primary)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--dtg-bg-card)", e.currentTarget.style.color = "rgba(235, 68, 68, 1)")}
                 style={{
                     bg: "transparent",
                     color: "rgba(235, 68, 68, 1)",

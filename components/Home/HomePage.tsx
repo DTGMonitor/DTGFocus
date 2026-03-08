@@ -64,9 +64,9 @@ import {
   X,
   Crosshair
 } from 'lucide-react';
-import { Badge } from '@/components/LandingPage/ui/badge';
-import { Button } from '@/components/LandingPage/ui/button';
-import { Card } from '@/components/LandingPage/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import pitImage from '@/src/images/pit/c395f9408d7dd0db6ddf017d784ae3d83d89623e.png';
 import Image from 'next/image';
 

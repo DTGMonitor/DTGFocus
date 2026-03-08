@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Download, Mail, Printer, Calendar, User, Building } from 'lucide-react';
-import { Button } from "@/components/LandingPage/ui/button";
+import { Button } from "@/components/ui/button";
 
 interface ReportTemplateProps {
   type: 'alarm' | 'data-quality' | 'availability' | 'safety';

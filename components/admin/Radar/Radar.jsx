@@ -2,14 +2,9 @@ import React, { useState, useMemo } from "react";
 import LogoSection from "@/components/Reusable/HeaderComponents/LogoSection";
 import NavSection from "@/components/Reusable/HeaderComponents/NavSection"; 
 import { adminMenuItems } from "@/config/menuConfig";
-
 import RadarMonitoring from "./RadarMonitoring";
-import AlarmSummary from "@/components/admin/Radar/AlarmSummary";
-import Availability from "@/components/admin/Radar/Availability";
-import DataQuality from "@/components/admin/Radar/DataQuality";
 import Notifications from "@/components/admin/Radar/Notifications";
 import Reports from "@/components/admin/Radar/Reports";
-
 import '../adminpagestyle.css';
 
 

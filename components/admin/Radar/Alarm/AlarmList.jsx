@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient"; // Adjust path as needed
 import { getAlarmStatusColors } from "@/config/statusConfig"; // Adjust path as needed
-import { Button } from "@/components/LandingPage/ui/button";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Search, Trash2, CirclePlus } from 'lucide-react';
 import AddAlarmForm from "./AddAlarmForm";
 import { BatchAlarmImport } from "./BatchAlarmImport";

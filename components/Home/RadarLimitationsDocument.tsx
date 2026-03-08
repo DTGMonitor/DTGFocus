@@ -16,8 +16,8 @@ import {
   Clock,
   Users
 } from 'lucide-react';
-import { Button } from '@/components/LandingPage/ui/button';
-import { Checkbox } from '@/components/LandingPage/ui/checkbox';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import limitationImage1 from '@/src/images/limitation/b9ae0251babd4dc0a02187b15f93c633f2b5e87f.png';
 import limitationImage2 from '@/src/images/limitation/693a7d2dd100963ec5d6d68ba6759a0c2f97213d.png';
 import limitationImage3 from '@/src/images/limitation/fa6702655fe189fe070e2d1a0fda9a29fc9bcf52.png';

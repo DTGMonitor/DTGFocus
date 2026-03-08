@@ -1,9 +1,10 @@
 import UserDropdown from "../User";
 import React, { useState, useRef } from "react";
 // 👇 Import usePathname
-import { useRouter, useParams, usePathname } from "next/navigation"; 
+import { useRouter, useParams, usePathname } from "next/navigation";
 import { useUserSite } from "../useUserSite";
 import { FiUser, FiChevronDown } from "react-icons/fi";
+import { FocusLogo } from "@/components/Reusable/FocusLogo";
 
 function LogoSection({ Subtitle = [] }) {
     const { user, userSite, loading } = useUserSite();
@@ -12,82 +13,38 @@ function LogoSection({ Subtitle = [] }) {
     const router = useRouter();
     const { client } = useParams(); // Keep this for the client-side redirect
     const pathname = usePathname(); // e.g., '/admin/home' or '/tools/GGP/home'
+    const getInitial = (name) => {
+        if (!name) return "";
+        return name.split(' ')
+            .filter(Boolean)
+            .slice(0, 2)
+            .map(word => word[0].toUpperCase())
+            .join('');
+    }
+    
+    const getLogoPath = (path) => {
+        if (!path) return "";
+        return path.replace(/^\.\./, '/logo');
+    }
 
     // 👇 NEW: This function routes to the correct home page
     const handleLogoClick = () => {
-      if (pathname.startsWith("/admin")) {
-        // If we are anywhere in the admin section, go to admin home
-        router.push("/admin/home");
-      } else {
-        // Otherwise, we must be in the client section, so use the client param
-        router.push(`/tools/${client}/home`);
-      }
+        if (pathname.startsWith("/admin")) {
+            // If we are anywhere in the admin section, go to admin home
+            router.push("/admin/home");
+        } else {
+            // Otherwise, we must be in the client section, so use the client param
+            router.push(`/tools/${client}/home`);
+        }
     };
 
     return (
-        <div className="flex justify-between items-center bg-[image:var(--dtg-bg-header)] p-5">
+        <div className="flex justify-between items-center bg-[image:var(--dtg-bg-header)] py-2 px-5">
             <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", padding: "5px 10px", flex: "0 0 auto" }}>
-                    <button
-                        type="button"
-                        title="Home"
-                        disabled
-                        onClick={handleLogoClick} // 👈 USE THE NEW FUNCTION HERE
-                        style={{
-                            backgroundColor: "transparent",
-                            border: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            color: "#fff",
-                            outline: "none"
-                        }}
-                    >
-                        <div>
-                            <img
-                                src="/logo/DTG/DTG Focus.png"
-                                alt="DTG"
-                                style={{
-                                    width: 60,
-                                    height: 60,
-                                    objectFit: "contain",
-                                    filter: "drop-shadow(0 0 5px rgba(255,255,255,1))",
-                                }}
-                            />
-                        </div>
-                    </button>
-                </div>
-                {/* ... rest of your component is perfect ... */}
-                <div>
-                    <p
-                        style={{
-                            background: "linear-gradient(180deg, #00CED1, #15BCA9, #6EA4BF)",
-                            WebkitBackgroundClip: "text",
-                            WebkitTextFillColor: "transparent",
-                            fontSize: "40px",
-                            fontWeight: "bold"
-                        }}
-                    >
-                        DTG FOCUS
-                    </p>
-                    <p
-                        className="text-[var(--dtg-text-light)]"
-                    >
-                        Geotechnical Monitoring Dashboard - {Subtitle}
-                    </p>
-                </div>
+                <FocusLogo size="xs" orientation="horizontal" />
             </div>
             {!loading && userSite && (
                 <div style={{ display: "flex", alignItems: "center", padding: "0 10px", flex: "0 0 auto", gap: 20 }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                        <h4 className="text-white">
-                            {userSite.displayname}
-                        </h4>
-                        <p className="text-white">
-                            {userSite.site?.site_name
-                                ? `${userSite.site.site_name}, ${userSite.site.company}`
-                                : "Administrator"}
-                        </p>
-                    </div>
                     <button
                         ref={userBtnRef}
                         type="button"
@@ -95,7 +52,7 @@ function LogoSection({ Subtitle = [] }) {
                         onClick={() => {
                             setShowUserMenu((v) => !v);
                         }}
-                        className="flex items-center p-2 bg-[var(--dtg-bg-card)] hover:bg-[var(--dtg-bg-hover)]"
+                        className="flex items-center gap-1 bg-transparent hover:bg-[var(--dtg-bg-hover)] rounded-full pr-2"
                     >
                         <div
                             style={{
@@ -104,22 +61,22 @@ function LogoSection({ Subtitle = [] }) {
                                 display: "flex",
                                 justifyContent: "center",
                                 alignItems: "center",
-                                width: "100%",
-                                height: "100%",
+                                width: "30px",
+                                height: "30px",
                                 backgroundColor: userSite.site?.logo_path ? "#fff" : "#14b8a6"
                             }}
                         >
                             {userSite.site?.logo_path ? (
                                 <img
-                                    src= "/logo/CompanyLogo/LogoOnly/user.png"
+                                    src={getLogoPath(userSite.site.logo_path)}
                                     alt="Logo"
                                     style={{
-                                        width: "24px",
-                                        height: "24px",
+                                        width: "20px",
+                                        height: "20px",
                                         objectFit: "contain",
                                     }}
                                 />) : (
-                                <FiUser size={24} color="#fff" />
+                                <h1 style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', margin: 0 }}>{getInitial(userSite.displayname)}</h1>
                             )}
                         </div>
                         <FiChevronDown size={20} color="#ccc" />
@@ -131,9 +88,10 @@ function LogoSection({ Subtitle = [] }) {
                     open={showUserMenu}
                     anchorRef={userBtnRef}
                     onClose={() => setShowUserMenu(false)}
-                    user={user}
+                    user={userSite}
+                    initial={getInitial(userSite?.displayname)}
                     site={userSite?.site?.site_name}
-                    logo={userSite?.site?.logo_path || "../logo/CompanyLogo/LogoOnly/user.png"}
+                    logo={getLogoPath(userSite?.site?.logo_path)}
                 />
             )}
         </div>

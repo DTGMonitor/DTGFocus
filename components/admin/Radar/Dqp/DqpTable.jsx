@@ -1,9 +1,9 @@
 // DqpTable.jsx
 import { useMemo, Fragment, useState } from "react";
-import { Checkbox } from "@/components/LandingPage/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getRiskColorSolid } from "@/config/statusConfig";
 import { PARAMETER_CONFIG } from "@/config/parameterConfig";
-import { Input } from "@/components/LandingPage/ui/input";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { ExternalLink, X, Loader } from 'lucide-react';
 

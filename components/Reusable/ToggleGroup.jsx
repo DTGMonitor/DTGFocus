@@ -9,7 +9,7 @@ const ToggleGroup = ({ options = [], activeValue, onChange }) => {
     background: isActive
       ? "linear-gradient(180deg, #682200 0%, #983503 75%, #B54107 100%)"
       : "transparent",
-    color: "#fff",
+    color: isActive? "#fff" : "var(--dtg-text-primary)",
     cursor: "pointer",
     transition: "all 0.3s ease",
     fontWeight: isActive ? "bold" : "normal",

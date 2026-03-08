@@ -1,7 +1,7 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { Database, Camera, Scan, Shield, CheckCircle, TrendingUp } from 'lucide-react';
-import { Progress } from "@/components/LandingPage/ui/progress";
+import { Progress } from "@/components/ui/progress";
 
 const radarQualityData = [
   {

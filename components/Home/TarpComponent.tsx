@@ -15,9 +15,9 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
-import { Badge } from '@/components/LandingPage/ui/badge';
-import {Button} from '@/components/LandingPage/ui/button';
-import { Card } from '@/components/LandingPage/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { TarpDocumentView } from './TarpDocumentView';
 
 // Import the TARP image

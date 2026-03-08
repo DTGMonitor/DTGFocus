@@ -4,10 +4,10 @@ import {
   AlertTriangle, Bell, WifiOff, CheckCircle, Settings, TrendingUp,
   Filter, Search, Clock, MapPin, User, X, ChevronDown, Activity, Zap
 } from 'lucide-react';
-import { Input } from '@/components/LandingPage/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/LandingPage/ui/select';
-import { Badge } from '@/components/LandingPage/ui/badge';
-import { Button } from '@/components/LandingPage/ui/button';
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { getCatConfig, getSeverityConfig } from '@/config/statusConfig';
 import { supabase } from '@/lib/supabaseClient';
 import { formatFromUTC } from "@/utils/timezoneUtils";
