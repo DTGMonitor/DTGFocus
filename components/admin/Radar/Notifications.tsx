@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { formatFromUTC } from "@/utils/timezoneUtils";
 import { AddWorkLog } from '@/components/admin/Radar/Notifications/AddWorkLogModal';
 import { useUserSite } from '@/components/Reusable/useUserSite';
+import toast, { Toaster } from 'react-hot-toast';
 
 interface Notification {
   id: string;
@@ -77,7 +78,7 @@ export default function Notifications() {
       setNotifications(prev => prev.filter(n => n.id !== id));
     } catch (error: any) {
       console.error("Error deleting notification:", error);
-      alert(`Failed to delete notification: ${error.message}`);
+      toast.error(`Failed to delete notification: ${error.message}`);
     }
   };
 

@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useUserSite } from "../../Reusable/useUserSite";
 import { createReportRecord } from '../../../src/app/actions/reportActions';
 import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 
 const AdminUpload = ({ onClose }) => {
     const { user, userSite, loading: authLoading } = useUserSite();
@@ -216,12 +217,12 @@ const AdminUpload = ({ onClose }) => {
         e.preventDefault();
 
         if (!selectedClientId) {
-            alert('Please select a Client/Site.');
+            toast.error('Please select a Client/Site.');
             return;
         }
 
         if (files.length === 0) {
-            alert('Please select at least one file.');
+            toast.error('Please select at least one file.');
             return;
         }
 
@@ -338,9 +339,9 @@ const AdminUpload = ({ onClose }) => {
             const failCount = results.filter(r => !r.success).length;
 
             if (failCount === 0) {
-                alert(`Successfully uploaded ${successCount} file(s)!`);
+                toast.success(`Successfully uploaded ${successCount} file(s)!`);
             } else {
-                alert(`Uploaded ${successCount} file(s). Failed: ${failCount}\n\nFailed files:\n${results.filter(r => !r.success).map(r => `- ${r.filename}: ${r.error}`).join('\n')}`);
+                toast.error(`Uploaded ${successCount} file(s). Failed: ${failCount}\n\nFailed files:\n${results.filter(r => !r.success).map(r => `- ${r.filename}: ${r.error}`).join('\n')}`);
             }
 
             // Reset form
@@ -354,7 +355,7 @@ const AdminUpload = ({ onClose }) => {
 
         } catch (error) {
             console.error('Error uploading:', error);
-            alert('Error uploading files: ' + error.message);
+            toast.error('Error uploading files: ' + error.message);
         } finally {
             setUploading(false);
         }
@@ -398,6 +399,7 @@ const AdminUpload = ({ onClose }) => {
             className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5"
             onClick={onClose}
         >
+            <Toaster position="top-center" reverseOrder={false} />
             <div
                 className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}

@@ -1,33 +1,46 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Plus, Maximize2, X } from 'lucide-react';
+import { Plus, Maximize2, X, Calendar } from 'lucide-react';
+import { DateTime } from 'luxon';
+
 
 interface Sensor {
   id: string;
   label: string;
   tarp: 1 | 2 | 3 | 4;
   type: 'Radar' | 'Prism' | 'Piezometer' | 'InSAR';
+  latest_timestamp?: string;
 }
 
 interface SensorAnalysisProps {
   sensor: Sensor;
   tarpColor: string;
   onFullScreen?: () => void;
+  historyData?: any[];
   allSensors?: Sensor[];
   comparisonSensors?: Sensor[];
   onAddComparison?: (sensor: Sensor) => void;
   onRemoveComparison?: (sensorId: string) => void;
+  dateRange: { start: string | null, end: string | null };
+  setDateRange: (range: { start: string | null, end: string | null }) => void;
 }
 
 // Generate time-series data for sensor analysis
-const generateSensorTimeSeriesData = (sensorId: string, tarp: number) => {
+const generateSensorTimeSeriesData = (sensorId: string, tarp: number, latestTimestamp?: string) => {
   const data = [];
-  const now = Date.now();
+  let end = DateTime.now();
+  if (latestTimestamp) {
+    // Handle timestamps that might use a space instead of 'T'
+    const parsedEnd = DateTime.fromISO(latestTimestamp.replace(' ', 'T'));
+    if (parsedEnd.isValid) {
+      end = parsedEnd;
+    }
+  }
   const hoursBack = 168; // 7 days
   
-  for (let i = hoursBack; i >= 0; i -= 4) {
-    const timestamp = new Date(now - i * 60 * 60 * 1000);
-    const timeStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  for (let i = hoursBack; i >= 0; i -= 0.5) { // Changed from 4 hours to 30 minutes for more realistic mock data
+    const dt = end.minus({ hours: i });
+    const timeStr = dt.toFormat("MMM d, h:mm a");
     
     let deformation = 0;
     let velocity = 0;
@@ -52,7 +65,7 @@ const generateSensorTimeSeriesData = (sensorId: string, tarp: number) => {
     
     data.push({
       time: timeStr,
-      timestamp: timestamp.getTime(),
+      timestamp: dt.toMillis(),
       deformation: Number(deformation.toFixed(2)),
       velocity: Number(velocity.toFixed(2)),
       inverseVelocity: Number(inverseVelocity.toFixed(3)),
@@ -107,19 +120,52 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
   onFullScreen, 
   allSensors = [], 
   comparisonSensors = [], 
-  onAddComparison, 
-  onRemoveComparison 
+  onAddComparison,
+  onRemoveComparison,
+  historyData,
+  dateRange,
+  setDateRange
 }) => {
-  const [showSensorPicker, setShowSensorPicker] = React.useState(false);
+  const [showSensorPicker, setShowSensorPicker] = useState(false);
+
+  // Local state for the inputs to avoid triggering refetch on every keystroke.
+  const [localStartDate, setLocalStartDate] = useState('');
+  const [localEndDate, setLocalEndDate] = useState('');
+
+  useEffect(() => {
+    if (dateRange.start && dateRange.end) {
+      setLocalStartDate(DateTime.fromISO(dateRange.start).toISODate() ?? '');
+      setLocalEndDate(DateTime.fromISO(dateRange.end).toISODate() ?? '');
+    }
+  }, [dateRange]);
+
+  const handleDateChange = () => {
+    setDateRange({
+      start: DateTime.fromISO(localStartDate).startOf('day').toISO(),
+      end: DateTime.fromISO(localEndDate).endOf('day').toISO(),
+    });
+  };
   
-  const primaryData = React.useMemo(() => generateSensorTimeSeriesData(sensor.id, sensor.tarp), [sensor.id, sensor.tarp]);
+  const latestSensorTimestamp = sensor.latest_timestamp 
+    ? DateTime.fromISO(sensor.latest_timestamp.replace(' ', 'T')) 
+    : DateTime.now();
+
+  const sliderMin = latestSensorTimestamp.minus({ years: 1 }).toMillis();
+  const sliderMax = latestSensorTimestamp.toMillis();
+  const currentSliderValue = dateRange.end ? DateTime.fromISO(dateRange.end).toMillis() : sliderMax;
+
+  const primaryData = React.useMemo(() => 
+    historyData && historyData.length > 0 
+      ? historyData 
+      : generateSensorTimeSeriesData(sensor.id, sensor.tarp, sensor.latest_timestamp), 
+    [sensor.id, sensor.tarp, sensor.latest_timestamp, historyData]);
   
   // Merge all sensor data into unified dataset
   const mergedData = React.useMemo(() => {
     const baseData: TimeSeriesDataPoint[] = primaryData.map(d => ({ ...d }));
     
     comparisonSensors.forEach((compSensor) => {
-      const compData = generateSensorTimeSeriesData(compSensor.id, compSensor.tarp);
+      const compData = generateSensorTimeSeriesData(compSensor.id, compSensor.tarp, compSensor.latest_timestamp);
       compData.forEach((cd, idx) => {
         if (baseData[idx]) {
           baseData[idx][`deformation_${compSensor.id}`] = cd.deformation;
@@ -221,6 +267,54 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
             <span className="text-[9px] font-black uppercase tracking-wider text-white/70">Deep Analysis</span>
           </button>
         )}
+      </div>
+
+      {/* Date Selection UI */}
+      <div className="space-y-3 bg-black/10 border border-white/10 p-4 rounded-2xl">
+        <div className="flex items-center gap-2">
+          <Calendar size={12} className="text-white/50" />
+          <h4 className="text-[10px] font-black uppercase tracking-wider text-white/70">Date Range</h4>
+        </div>
+        <div className="flex items-end justify-between gap-4">
+          <div className="flex-1">
+            <label htmlFor="startDate" className="text-[9px] font-bold text-white/60 uppercase">Start Date</label>
+            <input
+              type="date"
+              id="startDate"
+              value={localStartDate}
+              onChange={(e) => setLocalStartDate(e.target.value)}
+              onBlur={handleDateChange}
+              className="w-full mt-1 bg-black/20 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white"
+            />
+          </div>
+          <div className="flex-1">
+            <label htmlFor="endDate" className="text-[9px] font-bold text-white/60 uppercase">End Date</label>
+            <input
+              type="date"
+              id="endDate"
+              value={localEndDate}
+              onChange={(e) => setLocalEndDate(e.target.value)}
+              onBlur={handleDateChange}
+              className="w-full mt-1 bg-black/20 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white"
+            />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="date-slider" className="text-[9px] font-bold text-white/60 uppercase">End Date</label>
+          <input
+            id="date-slider"
+            type="range"
+            min={sliderMin}
+            max={sliderMax}
+            value={currentSliderValue}
+            onChange={(e) => {
+              const newEnd = DateTime.fromMillis(parseInt(e.target.value, 10));
+              const newStart = newEnd.minus({ days: 7 });
+              setDateRange({ start: newStart.toISO(), end: newEnd.toISO() });
+            }}
+            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mt-2"
+          />
+        </div>
       </div>
 
       {/* Graphs Container with better spacing */}

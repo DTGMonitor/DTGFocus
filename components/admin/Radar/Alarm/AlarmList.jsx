@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Trash2, CirclePlus } from 'lucide-react';
 import AddAlarmForm from "./AddAlarmForm";
 import { BatchAlarmImport } from "./BatchAlarmImport";
+import toast, { Toaster } from 'react-hot-toast';
 
 const AlarmList = ({
     sensor,
@@ -84,7 +85,7 @@ const AlarmList = ({
         if (!error) {
             await fetchAlarmRegions();
         } else {
-            alert("Error deleting alarm region");
+            toast.error("Error deleting alarm region");
             console.error(error);
         }
     };
@@ -93,7 +94,7 @@ const AlarmList = ({
     // Handle Create New (RPC Call)
     const handleNewAlarmRegion = async () => {
         if (!newTypeInput || !newRegionInput) {
-            alert("Please enter both Alarm Type and Region");
+            toast.error("Please enter both Alarm Type and Region");
             return;
         }
 
@@ -105,7 +106,7 @@ const AlarmList = ({
             });
 
         if (!error) {
-            alert(`Alarm "${newRegionInput}" region created successfully!`);
+            toast.success(`Alarm "${newRegionInput}" region created successfully!`);
             setNewRegionInput("");
             setNewTypeInput(""); // Reset area
             setShowAddAlarmRegion(false);
@@ -113,7 +114,7 @@ const AlarmList = ({
             await fetchAlarmRegions();
         } else {
             console.error(error);
-            alert("Error adding region. Check console.");
+            toast.error("Error adding region. Check console.");
         }
     };
 
@@ -142,6 +143,7 @@ const AlarmList = ({
         return (
             <>
                 <div className="sticky top-0 z-10 flex bg-[var(--dtg-bg-card)] items-center gap-4 justify-between p-2 text-sm text-[var(--dtg-gray-400)] border-b border-[var(--dtg-border-medium)]">
+                   <Toaster position="top-center" reverseOrder={false} />
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
                         <Input

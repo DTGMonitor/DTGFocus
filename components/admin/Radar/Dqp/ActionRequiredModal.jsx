@@ -16,6 +16,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
         action: "",
         alarmRegions: [], // Array of IDs
         notes: "",
+        tempnotes: "",
         alarmMask: "",
         appendix: ""
     });
@@ -54,7 +55,9 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
             // If the config has an issue/action, use it. Otherwise, keep existing or clear it.
             issue: selectedOption?.issue || "",
             action: selectedOption?.action || "",
-            notes: selectedOption?.notes || ""
+            notes: selectedOption?.notes || "",
+            tempnotes: selectedOption?.tempnotes || "",
+            appendix: selectedOption?.notes || "",
         });
     };
 
@@ -223,7 +226,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                             placeholder="Describe the details..."
                             required
                             value={formData.notes}
-                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, notes: e.target.value, appendix:e.target.value })}
                         />
                     </div>
 

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import toast, { Toaster } from 'react-hot-toast';
 
 const ReportsList = ({refreshTrigger,reportData}) => {
     const { userSite, loading: siteLoading } = useUserSite();
@@ -83,7 +84,7 @@ const ReportsList = ({refreshTrigger,reportData}) => {
             URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Error downloading:', error);
-            alert('Error downloading file: ' + error.message);
+           toast.error('Error downloading file: ' + error.message);
         }
     };
 
@@ -99,7 +100,7 @@ const ReportsList = ({refreshTrigger,reportData}) => {
             setPreviewUrl(data.signedUrl);
         } catch (error) {
             console.error('Error generating preview:', error);
-            alert('Could not generate preview: ' + error.message);
+            toast.error('Could not generate preview: ' + error.message);
         }
     };
     
@@ -136,7 +137,7 @@ const ReportsList = ({refreshTrigger,reportData}) => {
 
         } catch (error) {
             console.error('Error deleting report:', error);
-            alert('Error deleting report: ' + error.message);
+            toast.error('Error deleting report: ' + error.message);
         }
     };
 
@@ -200,6 +201,7 @@ const ReportsList = ({refreshTrigger,reportData}) => {
         <>
             {/* Search and Filter */}
             <div className="flex items-center gap-4">
+                <Toaster position="top-center" reverseOrder={false} />
                 <div className="flex-1 relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--dtg-gray-500)]" />
                     <Input

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
+import toast, { Toaster } from 'react-hot-toast';
 
 interface UserProfile {
     id: string;
@@ -523,7 +524,7 @@ const AddDeformationForm = ({
 
         } catch (err: any) {
             console.error(err);
-            alert("Error: " + err.message);
+            toast.error("Error: " + err.message);
         } finally {
             setIsLoading(false);
         }
@@ -546,6 +547,7 @@ const AddDeformationForm = ({
 
     return (
         <div className="flex flex-col h-full">
+            <Toaster position="top-center" reverseOrder={false} />
             {/* Header */}
             <div className="flex justify-between items-center p-4 border-b">
                 <h2 className="text-lg font-bold">New Deformation Record</h2>

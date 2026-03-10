@@ -2,12 +2,14 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { X, Download, Calendar } from 'lucide-react';
+import { DateTime } from 'luxon';
 
 interface Sensor {
   id: string;
   label: string;
   tarp: 1 | 2 | 3 | 4;
   type: 'Radar' | 'Prism' | 'Piezometer' | 'InSAR';
+  latest_timestamp?: string;
 }
 
 interface DeepAnalysisModalProps {
@@ -20,14 +22,21 @@ interface DeepAnalysisModalProps {
 }
 
 // Generate time-series data for sensor analysis (Fallback if no real data)
-const generateSensorTimeSeriesData = (sensorId: string, tarp: number) => {
+const generateSensorTimeSeriesData = (sensorId: string, tarp: number, latestTimestamp?: string) => {
   const data = [];
-  const now = Date.now();
+  let end = DateTime.now();
+  if (latestTimestamp) {
+    // Handle timestamps that might use a space instead of 'T'
+    const parsedEnd = DateTime.fromISO(latestTimestamp.replace(' ', 'T'));
+    if (parsedEnd.isValid) {
+      end = parsedEnd;
+    }
+  }
   const hoursBack = 168; // 7 days
   
-  for (let i = hoursBack; i >= 0; i -= 4) {
-    const timestamp = new Date(now - i * 60 * 60 * 1000);
-    const timeStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  for (let i = hoursBack; i >= 0; i -= 0.5) { // Changed from 4 hours to 30 minutes for more realistic mock data
+    const dt = end.minus({ hours: i });
+    const timeStr = dt.toFormat("MMM d, h:mm a");
     
     let deformation = 0;
     let velocity = 0;
@@ -52,7 +61,7 @@ const generateSensorTimeSeriesData = (sensorId: string, tarp: number) => {
     
     data.push({
       time: timeStr,
-      timestamp: timestamp.getTime(),
+      timestamp: dt.toMillis(),
       deformation: Number(deformation.toFixed(2)),
       velocity: Number(velocity.toFixed(2)),
       inverseVelocity: Number(inverseVelocity.toFixed(3)),
@@ -116,13 +125,13 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
     // Use real history data if available, otherwise fallback to mock
     const primaryData = historyData && historyData.length > 0 
       ? historyData 
-      : generateSensorTimeSeriesData(primarySensor.id, primarySensor.tarp);
+      : generateSensorTimeSeriesData(primarySensor.id, primarySensor.tarp, primarySensor.latest_timestamp);
       
     const baseData: TimeSeriesDataPoint[] = primaryData.map(d => ({ ...d }));
     
     // For comparison sensors, we still use mock data for now as we only fetch history for selected
     comparisonSensors.forEach((compSensor) => {
-      const compData = generateSensorTimeSeriesData(compSensor.id, compSensor.tarp);
+      const compData = generateSensorTimeSeriesData(compSensor.id, compSensor.tarp, compSensor.latest_timestamp);
       compData.forEach((cd, idx) => {
         if (baseData[idx]) {
           baseData[idx][`deformation_${compSensor.id}`] = cd.deformation;

@@ -37,6 +37,7 @@ import {
 import { SensorAnalysisView } from './SensorAnalysisView';
 import { DeepAnalysisModal } from './DeepAnalysisModal';
 import { ToolBarProps } from '../../Reusable/HeaderComponents/ToolBar';
+import { DateTime } from 'luxon';
 import PitMap, { Sensor as PitMapSensor } from './PitMap';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -98,6 +99,7 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
   const [sensorHistory, setSensorHistory] = useState<any[]>([]);
+  const [dateRange, setDateRange] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
   const [sensorView, setSensorView] = useState<'DETAILS' | 'ANALYSIS'>('DETAILS');
   const [comparisonSensors, setComparisonSensors] = useState<Sensor[]>([]);
   const [isDeepAnalysisOpen, setIsDeepAnalysisOpen] = useState(false);
@@ -151,12 +153,17 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
   };
 
   // Fetch history from Supabase
-  const fetchSensorHistory = async (sensorId: string) => {
+  const fetchSensorHistory = async (sensorId: string, startDate: string, endDate: string) => {
+    if (!startDate || !endDate) return;
+
     const { data, error } = await supabase
       .from('sensor_readings')
       .select('timestamp, deformation')
       .eq('sensor_id', sensorId)
-      .order('timestamp', { ascending: true });
+      .gte('timestamp', startDate)
+      .lte('timestamp', endDate)
+      .order('timestamp', { ascending: false }) // 1. Fetch newest first to beat the limit
+      .limit(15000); // Try to grab as much as the server allows
 
     if (error) {
       console.error('Error fetching history:', error);
@@ -164,42 +171,57 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
     }
 
     if (data) {
-      // Process data to calculate velocity and format for Recharts
-      const processedData = data.map((reading: any, index: number) => {
+      // 2. Flip the array right-side up for Recharts
+      // Using the spread operator [...] creates a copy so we don't mutate the original data
+      const chronologicalData = [...data].reverse();
+
+      // 3. Map over the correctly ordered data
+      const processedData = chronologicalData.map((reading: any, index: number) => {
         const currentDef = reading.deformation;
-        const currentTime = new Date(reading.timestamp).getTime();
+        const dt = DateTime.fromISO(reading.timestamp);
+        const currentTime = dt.toMillis();
         let velocity = 0;
 
-        // Simple velocity calc (mm/day) based on previous point
+        // Your existing velocity calc works perfectly here because 
+        // the array is already back in chronological order!
         if (index > 0) {
-          const prev = data[index - 1];
+          // IMPORTANT: Update this variable to reference chronologicalData, not 'data'
+          const prev = chronologicalData[index - 1];
           const prevDef = prev.deformation;
-          const prevTime = new Date(prev.timestamp).getTime();
+          const prevTime = DateTime.fromISO(prev.timestamp).toMillis();
           const timeDiffDays = (currentTime - prevTime) / (1000 * 3600 * 24);
+
           if (timeDiffDays > 0) {
             velocity = (currentDef - prevDef) / timeDiffDays;
           }
         }
 
         return {
-          time: new Date(reading.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          time: dt.toFormat("MMM d, h:mm a"),
           timestamp: currentTime,
           deformation: Number(currentDef.toFixed(2)),
           velocity: Number(velocity.toFixed(2)),
-          // Mocking other fields if they don't exist in DB yet
           inverseVelocity: velocity !== 0 ? Number((1 / velocity).toFixed(3)) : 0,
-          scanTime: 5 // Mock scan time
+          scanTime: 5
         };
       });
+
       setSensorHistory(processedData);
     }
   };
+
+  useEffect(() => {
+    if (selectedSensor && dateRange.start && dateRange.end) {
+      setSensorHistory([]); // Clear old history while new one is fetching
+      fetchSensorHistory(selectedSensor.id, dateRange.start, dateRange.end);
+    }
+  }, [selectedSensor?.id, dateRange]);
 
   const handleSensorClick = (pitMapSensor: PitMapSensor) => {
     // Adapt PitMap sensor to LiveView Sensor interface
     // We assume the DB sensor has enough info, or we provide defaults
     const sensor: Sensor = {
-     ...pitMapSensor,
+      ...pitMapSensor,
       label: pitMapSensor.label || `Sensor ${pitMapSensor.id}`,
       type: pitMapSensor.type || 'Prism',
       tarp: pitMapSensor.tarp || 1,
@@ -219,8 +241,17 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
       ...pitMapSensor
     };
 
+    // When sensor changes, reset date range to its default
+    let end = DateTime.now();
+    if (sensor.latest_timestamp) {
+      const parsedEnd = DateTime.fromISO(sensor.latest_timestamp.replace(' ', 'T'));
+      if (parsedEnd.isValid) {
+        end = parsedEnd;
+      }
+    }
+    const start = end.minus({ days: 7 }); // Default to 7 days
+    setDateRange({ start: start.toISO(), end: end.toISO() });
     setSelectedSensor(sensor);
-    fetchSensorHistory(sensor.id);
 
     // Auto-set view based on active section
     if (activeView === 'ANALYSIS') {
@@ -251,7 +282,7 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
             className="absolute inset-0 z-[5] pointer-events-none"
           >
             <svg className="w-full h-full">
-               {/* ... (Keep existing SVG defs/gradients for visual flair if desired, or remove if not matching real data) ... */}
+              {/* ... (Keep existing SVG defs/gradients for visual flair if desired, or remove if not matching real data) ... */}
             </svg>
           </motion.div>
         )}
@@ -267,20 +298,20 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className="absolute right-0 top-0 bottom-0 w-[420px] z-[150] p-8"
           >
-             {/* ... (Keep existing Drawer Content) ... */}
-             <GlassPanel className="h-full rounded-[3rem] flex flex-col">
-                <div className="p-8 pb-4 border-b border-white/5 flex items-center justify-between">
-                    <div>
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/70">AI Analytics Engine</h3>
-                        <h2 className="text-[18px] font-black uppercase text-white mt-1">Network Intelligence</h2>
-                    </div>
-                    <button onClick={() => setIsDrawerOpen(false)} className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 transition-colors">
-                        <X size={18} />
-                    </button>
+            {/* ... (Keep existing Drawer Content) ... */}
+            <GlassPanel className="h-full rounded-[3rem] flex flex-col">
+              <div className="p-8 pb-4 border-b border-white/5 flex items-center justify-between">
+                <div>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/70">AI Analytics Engine</h3>
+                  <h2 className="text-[18px] font-black uppercase text-white mt-1">Network Intelligence</h2>
                 </div>
-                {/* Placeholder content for drawer */}
-                <div className="p-8 text-white/50 text-sm">AI Insights loading...</div>
-             </GlassPanel>
+                <button onClick={() => setIsDrawerOpen(false)} className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              {/* Placeholder content for drawer */}
+              <div className="p-8 text-white/50 text-sm">AI Insights loading...</div>
+            </GlassPanel>
           </motion.div>
         )}
       </AnimatePresence>
@@ -424,6 +455,9 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
                         comparisonSensors={comparisonSensors}
                         onAddComparison={handleAddComparison as any}
                         onRemoveComparison={handleRemoveComparison}
+                        historyData={sensorHistory}
+                        dateRange={dateRange}
+                        setDateRange={setDateRange}
                       />
                     </div>
                   )}
@@ -455,10 +489,10 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
             exit={{ y: 100, opacity: 0 }}
             className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto"
           >
-             {/* ... (Keep existing Legend) ... */}
-             <GlassPanel className={`rounded-2xl transition-all ${isLegendMinimized ? 'p-2.5 w-[240px]' : 'p-5 w-[420px]'}`}>
-                <div className="flex items-center justify-center text-white/50 text-xs">Legend Controls</div>
-             </GlassPanel>
+            {/* ... (Keep existing Legend) ... */}
+            <GlassPanel className={`rounded-2xl transition-all ${isLegendMinimized ? 'p-2.5 w-[240px]' : 'p-5 w-[420px]'}`}>
+              <div className="flex items-center justify-center text-white/50 text-xs">Legend Controls</div>
+            </GlassPanel>
           </motion.div>
         )}
       </AnimatePresence>

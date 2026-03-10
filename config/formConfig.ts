@@ -351,6 +351,7 @@ ${mainBlock}
 CONTEXT & NOTES
 --------------------------------------------------
 ${formData.notes ? formData.notes : "No additional notes provided."}
+${formData.tempnotes ? formData.tempnotes : ""}
 
 ${imageBlock}
 
@@ -433,14 +434,16 @@ export const getSubjectOptions = (parameter: any) => {
                 label: 'Alarm Since Time Adjustment',
                 issue: 'Deformation Alarm Details',
                 action: 'Adjustment of the `Since Time` metric proposed by DTG Engineer — awaiting confirmation from site engineer before implementation.',
-                notes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
+                notes: '',
+                tempnotes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
             },
             {
                 value: 'Alarm Configuration',
                 label: 'Alarm Configuration Issue',
                 issue: 'Alarm Details',
                 action: 'Review the current alarm configuration.',
-                notes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
+                notes: '',
+                tempnotes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
             },
         ];
     }
@@ -453,7 +456,8 @@ export const getSubjectOptions = (parameter: any) => {
                 label: 'Additional Alarm Mask Recommendation',
                 issue: 'Excessive Unwanted Alarms',
                 action: 'As per the alarm mask recommendation.',
-                notes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
+                notes: '',
+                tempnotes: 'DTG engineers will continue to monitor alarm settings configuration for appropriateness and advise accordingly.'
             }
         ];
     }
@@ -473,7 +477,7 @@ export const getSubjectOptions = (parameter: any) => {
                 label: 'Service Impacted',
                 issue: 'Significant impact on data quality',
                 action: 'Apply additional site controls as required.',
-                notes: 'Weather/atmospheric conditions are significantly impacting data quality. The effectiveness of the radar for risk mitigation may be affected.'
+                notes: 'Weather/atmospheric conditions are significantly impacting data quality. The effectiveness of the radar for risk mitigation may be affected.'
             }
         ];
     }

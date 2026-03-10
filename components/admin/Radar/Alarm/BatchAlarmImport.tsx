@@ -6,6 +6,7 @@ import { X, Upload, AlertTriangle, Trash2, Copy } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
+import toast, { Toaster } from 'react-hot-toast';
 
 // --- 1. STRICT TYPES ---
 type ReasonType = 'False' | 'Valid';
@@ -354,7 +355,7 @@ export const BatchAlarmImport = ({
         } catch (error) {
             // FIX: Cast Error type
             const err = error as Error;
-            alert("Error: " + err.message);
+            toast.error("Error: " + err.message);
         } finally {
             setIsSubmitting(false);
         }
@@ -362,7 +363,7 @@ export const BatchAlarmImport = ({
     // --- RENDER ---
     return (
         <div className="flex flex-col h-full">
-
+            <Toaster position="top-center" reverseOrder={false} />
             {/* Header */}
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-[var(--dtg-text-primary)]">

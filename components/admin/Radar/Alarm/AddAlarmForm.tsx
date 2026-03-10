@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
 import { CAUSE_OPTIONS } from "@/config/formConfig";
+import toast, { Toaster } from 'react-hot-toast';
 
 // Define what the 'selectedRegion' object looks like
 interface RegionData {
@@ -70,7 +71,7 @@ const AddAlarmForm = ({
     // --- SUBMIT HANDLER ---
     const handleSubmit = async () => {
         if (!triggeredAt || !location || !causeInput) {
-            alert("Please fill in all required fields.");
+            toast.error("Please fill in all required fields.");
             return;
         }
 
@@ -120,14 +121,14 @@ const AddAlarmForm = ({
                 console.warn("Failed to create work log, but alarms were saved.", logErr);
             }
 
-            alert("Alarm record saved successfully!");
+            toast.success("Alarm record saved successfully!");
             if (onSuccess) onSuccess();
 
         } catch (error) {
             // Fix #5: Error Type Assertion
             const err = error as Error;
             console.error("Error saving alarm:", err);
-            alert("Failed to save record. " + err.message);
+            toast.error("Failed to save record. " + err.message);
         } finally {
             setIsLoading(false);
         }
@@ -135,6 +136,7 @@ const AddAlarmForm = ({
 
     return (
         <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
+            <Toaster position="top-center" reverseOrder={false} />
             {/* HEADER */}
             <div className="sticky top-0 z-10  flex items-center gap-4 justify-between p-2 text-sm text-gray-400 border-b border-[var(--dtg-border-medium)]">
                 <div>
