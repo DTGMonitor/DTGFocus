@@ -644,6 +644,7 @@
   --dtg-primary-teal-dark: #1f3423;
   --dtg-primary-teal-light: #68DCD2;
   --dtg-accent-orange: #e67e22;
+  --dtg-brand-orange: #e67e22;
   --dtg-accent-orange-light: #f39c12;
   --dtg-accent-orange-dark: #d35400;
   --dtg-success-green: #27ae60;
@@ -807,6 +808,7 @@ html.dark {
   --dtg-primary-teal-dark: #68DCD2;
   --dtg-primary-teal-light: #1f3423;
   --dtg-accent-orange: #e67e22;
+  --dtg-brand-orange: #e67e22;
   --dtg-accent-orange-light: #f39c12;
   --dtg-accent-orange-dark: #d35400;
   --dtg-success-green: #27ae60;

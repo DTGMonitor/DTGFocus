@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
+import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
 import toast, { Toaster } from 'react-hot-toast';
 
 interface UserProfile {
@@ -28,6 +29,11 @@ interface AddDeformationFormProps {
     crosscheckers: UserProfile[];
     onClose: () => void;
     onSuccess?: () => void;
+    // --- Update (archive + precursor) flow support (Requirement 11) ---
+    // When `precursor` is provided, the original record is archived (isactive='No')
+    // and the new record is inserted with precursor set to it, compensating on failure.
+    precursor?: string | number | null;
+    initialValues?: Partial<FormDataState>;
 }
 
 const openOutlookDraft = (
@@ -84,10 +90,14 @@ const AddDeformationForm = ({
     clientTimezone,
     crosscheckers,
     onClose,
-    onSuccess
+    onSuccess,
+    precursor = null,
+    initialValues
 }: AddDeformationFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [withAlarm, setWithAlarm] = useState(false);
+    const [withAlarm, setWithAlarm] = useState(
+        Boolean(initialValues?.alarmRegions && initialValues.alarmRegions.length > 0)
+    );
 
     // 1. Unified Form State
     const [formData, setFormData] = useState<FormDataState>({
@@ -105,7 +115,9 @@ const AddDeformationForm = ({
         SurfaceArea: "",
         Vmax1: "",
         Vmax2: "",
-        triggeredTimes: {}
+        triggeredTimes: {},
+        // Pre-fill from the record being "updated" (Requirement 11.3)
+        ...(initialValues || {})
     });
 
     // Helper to render the 3-column "Velocity Group" row
@@ -464,16 +476,43 @@ const AddDeformationForm = ({
             });
 
             // 3. Send to Supabase (Option 1: JSONB approach)
-            const { data: insertedRecord, error } = await supabase
-                .from('def_records') // Your table name
-                .insert([{
-                    ...fixedColumns,
-                    properties: properties // All the conditional stuff goes here
-                }])
-                .select('id')
-                .single();
+            let insertedRecord: { id: any } | null = null;
 
-            if (error) throw error;
+            if (precursor !== null && precursor !== undefined) {
+                // --- UPDATE FLOW: archive original + insert with precursor + compensate ---
+                const flow = await performDeformationUpdateFlow(supabase, precursor, {
+                    ...fixedColumns,
+                    properties,
+                });
+
+                if (!flow.ok) {
+                    if (flow.stage === 'insert') {
+                        toast.error(
+                            'Archive succeeded but new record could not be created. The original record has been restored.'
+                        );
+                    } else {
+                        toast.error('Failed to archive the original record. No changes were made.');
+                    }
+                    setIsLoading(false);
+                    return;
+                }
+
+                insertedRecord = flow.inserted;
+                toast.success('Deformation record updated.');
+            } else {
+                // --- STANDARD FLOW: plain insert ---
+                const { data, error } = await supabase
+                    .from('def_records') // Your table name
+                    .insert([{
+                        ...fixedColumns,
+                        properties: properties // All the conditional stuff goes here
+                    }])
+                    .select('id')
+                    .single();
+
+                if (error) throw error;
+                insertedRecord = data;
+            }
 
             // 4. Insert Linked Alarm Records
             if (formData.alarmRegions.length > 0 && insertedRecord) {

@@ -11,8 +11,11 @@ import { QualityTable } from "./Dqp/DqpTable";
 import { ActionRequiredModal } from "./Dqp/ActionRequiredModal";
 import FeedbackModal from "./Dqp/FeedbackModal";
 import { Spinner, PageLoader } from "@/components/Reusable/Spinner";
-import DeformationList from "./Deformation/DeformationList";
-import AlarmList from "./Alarm/AlarmList";
+import Tab_Container from "./Tabs/Tab_Container";
+import DeformationTab from "./Tabs/DeformationTab";
+import AlarmTab from "./Tabs/AlarmTab";
+import DQPTab from "./Tabs/DQPTab";
+import DowntimeTab from "./Tabs/DowntimeTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
@@ -94,6 +97,9 @@ const SensorDetail = ({
     const userName = userSite?.displayname;
     const [activeView, setActiveView] = useState('default');
 
+    // --- Tabbed navigation (Requirement 1) ---
+    const [activeTab, setActiveTab] = useState('deformation');
+
     // --- Data States ---
     const [deformationList, setDeformationList] = useState([]);
     const [dqpList, setDqpList] = useState([]);
@@ -149,6 +155,9 @@ const SensorDetail = ({
         if (sensor.id !== prevSensorIdRef.current) {
             prevSensorIdRef.current = sensor.id;
             lastEditTimeRef.current = 0; // Reset edit timer
+
+            // Property 1: reset to the Deformation tab whenever the sensor changes.
+            setActiveTab('deformation');
 
             setLocalStatus(sensor.status);
             setLocalRisk(sensor.risk);
@@ -336,6 +345,16 @@ const SensorDetail = ({
         };
         fetchUsers();
     }, []);
+
+    // --- Re-fetch data when the active tab changes (Requirement 14) ---
+    // Alarm/Downtime tabs own their fetches (triggered via the activeTab prop).
+    useEffect(() => {
+        if (activeTab === 'deformation') {
+            fetchDeformationRecords();
+        } else if (activeTab === 'dqp') {
+            if (sensor?.dqp_record_id) fetchDataQuality();
+        }
+    }, [activeTab, fetchDeformationRecords, fetchDataQuality, sensor?.dqp_record_id]);
 
     // --- 2. Action Handlers for Wrench ---
 
@@ -1528,97 +1547,61 @@ const SensorDetail = ({
                 {/* --- CONTENT BODY --- */}
                 <div className="flex-1 overflow-y-auto p-6 bg-[var(--dtg-bg-primary)]">
                     {isLoading ? <PageLoader /> : (
-                        <div className="max-w-5xl mx-auto space-y-6">
+                        <div className="max-w-5xl mx-auto">
+                            {/* Tab headers (Requirement 1) */}
+                            <Tab_Container activeTab={activeTab} onTabChange={setActiveTab} />
 
-                            <div className="flex gap-6 overflow-hidden">
-                                <AnimatePresence mode="popLayout">
-                                    {/* DEFORMATION SECTION */}
-                                    {(activeView === 'default' || activeView === 'deformation') && (
-                                        <motion.div
-                                            key="deformation-panel"
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 0.95 }}
-                                            transition={{
-                                                type: "spring",
-                                                stiffness: 300,
-                                                damping: 30,
-                                                opacity: { duration: 0.2 }
-                                            }}
-                                            className="flex-1"
-                                        >
-                                            <DeformationList
-                                                sensor={sensor}
-                                                alarmRegion={sharedRegions}
-                                                search={searchDeformation}
-                                                rawList={deformationList}
-                                                filtered={filteredDeformation}
-                                                onSearchChange={(e) => setSearchDeformation(e.target.value)}
-                                                crosscheckers={crosscheckers}
-                                                userSite={userSite}
-                                                isExpanded={activeView === 'deformation'}
-                                                onNewRecordClick={() => setActiveView('deformation')}
-                                                onClose={() => setActiveView('default')}
-                                                onSuccess={() =>
-                                                    fetchDeformationRecords()
-                                                }
-                                            />
-                                        </motion.div>
-                                    )}
+                            {/* Active tab content panel */}
+                            <div className="mt-4 bg-[var(--dtg-bg-card)] rounded-lg border border-[var(--dtg-border-medium)] min-h-[300px]">
+                                {activeTab === 'deformation' && (
+                                    <DeformationTab
+                                        sensor={sensor}
+                                        timezone={timezone}
+                                        crosscheckers={crosscheckers}
+                                        userSite={userSite}
+                                        alarmRegions={sharedRegions}
+                                        activeTab={activeTab}
+                                    />
+                                )}
 
-                                    {/* ALARM SECTION */}
-                                    {(activeView === 'default' || activeView === 'alarm') && (
-                                        <motion.div
-                                            key="alarm-panel"
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 0.95 }}
-                                            transition={{
-                                                type: "spring",
-                                                stiffness: 300,
-                                                damping: 30,
-                                                opacity: { duration: 0.2 }
-                                            }}
-                                            className="flex-1"
-                                        >
-                                            <AlarmList
-                                                sensor={sensor}
-                                                shift={shift}
-                                                timezone={timezone}
-                                                userID={userID}
-                                                crosscheckers={crosscheckers}
-                                                isExpanded={activeView === 'alarm'}
-                                                onBatchInsertClick={() => setActiveView('alarm')}
-                                                onClose={() => setActiveView('default')}
-                                                onRegionsLoaded={handleRegionsLoaded}
-                                            />
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
+                                {activeTab === 'alarm' && (
+                                    <AlarmTab
+                                        sensor={sensor}
+                                        shift={shift}
+                                        timezone={timezone}
+                                        crosscheckers={crosscheckers}
+                                        userSite={userSite}
+                                        userID={userID}
+                                        onRegionsLoaded={handleRegionsLoaded}
+                                        activeTab={activeTab}
+                                    />
+                                )}
 
-                            {/* DQP TABLES */}
-                            <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
-                                <h2 className="text-xl font-medium border-b border-[var(--dtg-border-medium)] mb-4 pb-2">Data Quality</h2>
-                                <QualityTable data={dqpList} onUpdate={handleStatusRequest} />
-                                {/* The Modal */}
-                                <ActionRequiredModal
-                                    isOpen={isDQPModalOpen}
-                                    onClose={() => setIsDQPModalOpen(false)}
-                                    onSubmit={handleModalSubmit}
-                                    item={pendingUpdate?.item}
-                                    targetStatus={pendingUpdate?.newValue}
-                                    alarmRegions={sharedRegions} // Pass the list fetched in AlarmList
-                                />
-                                <FeedbackModal
-                                    isOpen={isFeedbackModalOpen}
-                                    onClose={handleFeedbackCancel}
-                                    data={feedbackModalData}
-                                    onSubmit={handleFeedbackSubmit}
-                                    regions={sharedRegions}
-                                />
+                                {activeTab === 'dqp' && (
+                                    <DQPTab
+                                        dqpList={dqpList}
+                                        onUpdate={handleStatusRequest}
+                                        isDQPModalOpen={isDQPModalOpen}
+                                        pendingUpdate={pendingUpdate}
+                                        onDQPModalClose={() => setIsDQPModalOpen(false)}
+                                        onDQPModalSubmit={handleModalSubmit}
+                                        sharedRegions={sharedRegions}
+                                        isFeedbackModalOpen={isFeedbackModalOpen}
+                                        feedbackModalData={feedbackModalData}
+                                        onFeedbackSubmit={handleFeedbackSubmit}
+                                        onFeedbackCancel={handleFeedbackCancel}
+                                        sensor={sensor}
+                                    />
+                                )}
+
+                                {activeTab === 'downtime' && (
+                                    <DowntimeTab
+                                        sensor={sensor}
+                                        timezone={timezone}
+                                        crosscheckers={crosscheckers}
+                                        activeTab={activeTab}
+                                    />
+                                )}
                             </div>
                         </div>
                     )}

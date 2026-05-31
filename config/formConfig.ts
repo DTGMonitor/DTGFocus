@@ -89,6 +89,11 @@ export const TYPE_MATRIX: Record<string, TypeConfig> = {
         fields: [
         ]
     },
+    "Blast Event": {
+        tarp: "TARP 2",
+        fields: [
+        ]
+    },
     "Rapid Movement": {
         tarp: "",
         fields: [
@@ -199,6 +204,7 @@ export const generateEmailBody = (
     // Case A: Double Failure (Has two sets of velocities)
     if (formData.Type === "Failure") {
         metricsBlock = `
+
 > SHORT VCP
   - Max Velocity (1): ${formData.Vmax1 || "-"} ${getVelocityUnit(formData.VCP1) || "-"}
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
@@ -208,26 +214,32 @@ export const generateEmailBody = (
   - Max Velocity (2): ${formData.Vmax2 || "-"} ${getVelocityUnit(formData.VCP2) || "-"}
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
-        `.trim();
+       
+  `.trim();
     }
     // Case B: Progressive / Linear Acc (Has Min & Max)
     else if (["Progressive", "Linear Accelerating"].includes(formData.Type)) {
         metricsBlock = `
+
   - Vmin: ${formData.Vmin || "-"} ${getVelocityUnit(formData.VCP) || "-"}
   - Vmax: ${formData.Vmax || "-"} ${getVelocityUnit(formData.VCP) || "-"}
   - VCP:  ${formData.VCP || "-"}
-        `.trim();
+        
+  `.trim();
     }
     // Case C: Standard (Linear, etc.)
     else if (["Linear"].includes(formData.Type)) {
         metricsBlock = `
+
   - Velocity: ${formData.AverageVelocity || "-"} ${getVelocityUnit(formData.VCP) || "-"}
   - VCP: ${formData.VCP || "-"}
-        `.trim();
+        
+  `.trim();
     }
 
     else if (["Forecast"].includes(formData.Type)) {
         metricsBlock = `
+
 > SHORT VCP
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
@@ -237,11 +249,13 @@ export const generateEmailBody = (
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
   - Forecast Result (2): ${fmt(formData.ForecastResult2) || "-"}
-        `.trim();
+        
+  `.trim();
     }
 
     else if (["Forecast"].includes(formData.Type)) {
         metricsBlock = `
+
 > SHORT VCP
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
@@ -251,12 +265,15 @@ export const generateEmailBody = (
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
   - Forecast Result (2): ${fmt(formData.ForecastResult2) || "-"}
-        `.trim();
+        
+  `.trim();
     }
 
     // 3. ACTION / NOTIFICATION BLOCK
     // Change tone based on whether it was a "CRITICAL" subject or just "NOTIFICATION"
     const isCritical = subjectPrefix.includes("CRITICAL") || subjectPrefix.includes("RISK");
+    const isFallofGround = formData.Type === "Failure" || formData.Type === "Rock Fall" || formData.Type === "Material Detachment";
+    const isBlast = formData.Type === "Blast Event";
 
     let actionBlock = "";
     if (formData.NotificationTime) {
@@ -265,7 +282,11 @@ export const generateEmailBody = (
         // If critical but no notification, add a warning label
         actionBlock = isCritical
             ? '⚠️ ATTENTION: Multiple phone calls have been attempted, however it was unreachable.'
-            : `ℹ️ NOTE: This information has been recorded in the DTG client fall of ground register.`;
+            : isFallofGround
+                ? `ℹ️ REGISTER: This information has been recorded in the DTG client fall of ground register.`
+                : isBlast
+                    ? '⚠️ ATTENTION: Constant close attention to velocity for the next 24hrs.'
+                    : '';
     }
 
     let alarmRegionLine = "";
@@ -276,14 +297,19 @@ export const generateEmailBody = (
         alarmRegionLine = `ALARM REGION(s): ${formatter.format(names)}`;
     }
 
+    let timeEventLine = "";
+    timeEventLine = isBlast || isFallofGround
+        ? `TIME: ${fmt(formData.Start)}`
+        : '';
+
     // 4. ASSEMBLE THE FINAL EMAIL
     return `
 SENSOR:       ${sensor}
 FINDINGS:     ${getCleanFindings(formData.Type)}
 LOCATION:     ${formData.Location}
 SURFACE AREA: ${formData.SurfaceArea || "-"} m2
+${timeEventLine}
 ${alarmRegionLine}
-
 ${metricsBlock}
 
 CONTEXT & NOTES

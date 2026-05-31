@@ -41,6 +41,16 @@ export const getRiskColor = (level: string) => {
   }
 };
 
+export const getRiskBorderColor = (level: string) => {
+  switch (level) {
+    case 'TARP 4': case 'Critical': return 'border-red-500/30';
+    case 'TARP 3': case 'Sub-Optimal': return 'border-orange-500/30';
+    case 'TARP 2': case 'Acceptable': return 'border-yellow-500/30';
+    case 'TARP 1': case 'Optimal': return 'border-green-500/30';
+    default: return 'border-gray-500/30';
+  }
+};
+
 export const getRiskColorSolid = (level: string) => {
   switch (level) {
     case 'TARP 4': case 'Critical': return 'bg-red-500/40 border-red-500';
@@ -84,6 +94,7 @@ export const getCardColors = (val = "") => {
   if (lower.includes("failure")) return "bg-red-700/20";
   if (lower.includes("forecast")) return "bg-red-700/20";
   if (lower.includes("rock fall")) return "bg-red-700/20";
+  if (lower.includes("blast")) return "bg-yellow-500/20"
   return "bg-green-500/20";
 };
 
@@ -215,8 +226,9 @@ export const getOverallColor = (status: string, quality: string, risk: string) =
 export const getStatusDefinition = (status: string) => {
   const normalisedStatus = status.toLowerCase();
   switch (normalisedStatus) {
-    case 'optimal': return { action: 'No action is required', definition: 'The system settings and data are optimal to monitor and manage risk, utilising the technology to its maximum capability.', summary:'No significant quality-related concerns affect slope stability monitoring.' }
-    case 'acceptable': return { action: 'No urgent action is required', definition: 'The system settings and data are satisfactory to monitor and manage risk, utilising the technology to its maximum capability.', summary:'Minor limitations are present, but monitoring effectiveness is maintained.' }
-    case 'sub-optimal': return {action: 'Some action is required due to an apparent unacceptable risk', definition: 'Require client action or confirmation that risk is managed adequately with site controls or other.', summary: 'Monitoring performance is reduced, limiting risk management confidence.'}
-    case 'critical' : return {action:'Obvious and/or urgent need for action/response', definition:'A condition exists where the radar or sensor is not functional and hence completely incapable of providing meaningful data.', summary: 'Monitoring capability is lost or unreliable.'}
-  }};
+    case 'optimal': return { action: 'No action is required', definition: 'The system settings and data are optimal to monitor and manage risk, utilising the technology to its maximum capability.', summary: 'No significant quality-related concerns affect slope stability monitoring.' }
+    case 'acceptable': return { action: 'No urgent action is required', definition: 'The system settings and data are satisfactory to monitor and manage risk, utilising the technology to its maximum capability.', summary: 'Minor limitations are present, but monitoring effectiveness is maintained.' }
+    case 'sub-optimal': return { action: 'Some action is required due to an apparent unacceptable risk', definition: 'Require client action or confirmation that risk is managed adequately with site controls or other.', summary: 'Monitoring performance is reduced, limiting risk management confidence.' }
+    case 'critical': return { action: 'Obvious and/or urgent need for action/response', definition: 'A condition exists where the radar or sensor is not functional and hence completely incapable of providing meaningful data.', summary: 'Monitoring capability is lost or unreliable.' }
+  }
+};
