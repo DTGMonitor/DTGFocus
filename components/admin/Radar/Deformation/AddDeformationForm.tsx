@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from "@/lib/supabaseClient";
 import { Loader2, Save } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
 import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
+import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
 
 interface UserProfile {
@@ -18,6 +19,14 @@ interface AlarmRegion {
     id: number;
     name: string;
 }
+
+// Pattern Recognition Summary type (Requirement 9.1, 9.2)
+type PRSummary = {
+    vcps: any[];
+    fukuzono: any[];
+    slo: any[];
+    stage_summary: any[];
+};
 
 interface AddDeformationFormProps {
     sensor: any;
@@ -34,6 +43,8 @@ interface AddDeformationFormProps {
     // and the new record is inserted with precursor set to it, compensating on failure.
     precursor?: string | number | null;
     initialValues?: Partial<FormDataState>;
+    // --- Pattern Recognition auto-fill support (Requirements 9.1–9.5) ---
+    patternRecognitionSummary?: PRSummary | null;
 }
 
 const openOutlookDraft = (
@@ -92,12 +103,20 @@ const AddDeformationForm = ({
     onClose,
     onSuccess,
     precursor = null,
-    initialValues
+    initialValues,
+    patternRecognitionSummary = null
 }: AddDeformationFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
     const [withAlarm, setWithAlarm] = useState(
         Boolean(initialValues?.alarmRegions && initialValues.alarmRegions.length > 0)
     );
+
+    // Tracks whether the user has manually edited any field after auto-fill (Requirement 9.4)
+    // Resets to false whenever the form is opened fresh (initialValues changes / component mounts)
+    const hasManualEdits = useRef(false);
+    useEffect(() => {
+        hasManualEdits.current = false;
+    }, [initialValues]);
 
     // 1. Unified Form State
     const [formData, setFormData] = useState<FormDataState>({
@@ -403,6 +422,10 @@ const AddDeformationForm = ({
 
     // --- Handle Input Change ---
     const handleChange = (key: string, value: any) => {
+        // Mark that the user has manually edited a field after auto-fill (Requirement 9.4)
+        if (initialValues) {
+            hasManualEdits.current = true;
+        }
         setFormData(prev => ({ ...prev, [key]: value }));
     };
 
@@ -474,6 +497,11 @@ const AddDeformationForm = ({
                     properties[fieldKey] = rawValue;
                 }
             });
+
+            // Merge pattern_recognition_summary only when auto-fill was used and no manual edits
+            // were made (Requirements 9.4, 9.5). The key is completely absent when not applicable.
+            // Shared helper is the single source of truth (covered by Property 6 + Task 15.3).
+            mergeSummaryIntoProperties(properties, patternRecognitionSummary, hasManualEdits.current);
 
             // 3. Send to Supabase (Option 1: JSONB approach)
             let insertedRecord: { id: any } | null = null;

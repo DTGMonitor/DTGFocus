@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls scripts/)",
+      "Bash(find app/api/pattern-recognition -type f)",
+      "Bash(ls components/admin/Radar/PatternRecognition/)",
+      "Bash(ls utils/patternRecognitionMapper.ts)",
+      "Bash(find . -path ./node_modules -prune -o -name \"*.test.*\" -print)",
+      "Bash(ls jest.config* jest.setup*)"
+    ]
+  }
+}

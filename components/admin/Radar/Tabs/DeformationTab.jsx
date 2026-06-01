@@ -6,6 +6,7 @@ import DeformationList from '@/components/admin/Radar/Deformation/DeformationLis
 import AddDeformationForm from '@/components/admin/Radar/Deformation/AddDeformationForm';
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import EditModal from '@/components/admin/Radar/shared/EditModal';
+import PatternRecognitionPopup from '@/components/admin/Radar/PatternRecognition/PatternRecognitionPopup';
 import { resolveDetectedBy, isoToDatetimeLocal, resolveTimelineChain } from '@/utils/tabHelpers';
 import { TYPE_MATRIX, FIELD_DEFINITIONS, getConfigForType } from '@/config/formConfig';
 import toast from 'react-hot-toast';
@@ -57,6 +58,12 @@ export default function DeformationTab({
   const [updateTarget, setUpdateTarget] = useState(null);
   const [pendingPrecursor, setPendingPrecursor] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // ── Pattern Recognition state (Requirements 1.1–1.6) ──────────────────────────
+  const [showPRPrompt, setShowPRPrompt] = useState(false);
+  const [showPRP, setShowPRP] = useState(false);
+  const [prpAutoFillValues, setPrpAutoFillValues] = useState(null);
+  const [prpSummary, setPrpSummary] = useState(null);
 
   // ── Timeline state ──────────────────────────────────────────────────────────────
   const [timelineRecord, setTimelineRecord] = useState(null);
@@ -262,11 +269,40 @@ export default function DeformationTab({
   const handleUpdateConfirm = () => {
     if (!updateTarget) return;
     setPendingPrecursor(updateTarget.id);
-    setShowAddForm(true);
     setUpdateTarget(null);
+    setShowPRPrompt(true); // NEW: show PR prompt instead of directly opening form (Requirement 1.1)
   };
 
   const handleUpdateCancel = () => setUpdateTarget(null);
+
+  // ── PR Prompt handlers (Requirements 1.2–1.5) ─────────────────────────────────
+
+  /** User chose "Open Pattern Recognition" — open PRP instead of form (Requirement 1.4) */
+  const handlePRPromptOpenPRP = () => {
+    setShowPRPrompt(false);
+    setShowPRP(true);
+  };
+
+  /** User chose "Fill Form Directly" or dismissed via Escape/backdrop (Requirements 1.3, 1.5) */
+  const handlePRPromptFillDirectly = () => {
+    setShowPRPrompt(false);
+    setShowAddForm(true);
+  };
+
+  /** PRP close (×) — discard without modifying records (Requirement 2.7) */
+  const handlePRPClose = () => {
+    setShowPRP(false);
+    setPrpAutoFillValues(null);
+    setPendingPrecursor(null);
+  };
+
+  /** PRP "Use Results to Fill Form" — auto-fill values + summary (Requirements 8.2, 8.3) */
+  const handlePRPUseResults = (autoFillValues, summary) => {
+    setPrpAutoFillValues(autoFillValues);
+    setPrpSummary(summary);
+    setShowPRP(false);
+    setShowAddForm(true);
+  };
 
   // Pre-fill values for the AddDeformationForm from the precursor record.
   const precursorRecord = useMemo(
@@ -275,23 +311,28 @@ export default function DeformationTab({
   );
 
   const addFormInitialValues = useMemo(() => {
+    if (prpAutoFillValues) return prpAutoFillValues; // auto-fill takes precedence (Requirement 1.6 / design)
     if (!precursorRecord) return undefined;
     return {
       WallFolderID: precursorRecord.wallfolder_id || sensor.wallfolder_id,
       Location: precursorRecord.location || '',
       alarmRegions: Array.isArray(precursorRecord.alarm) ? precursorRecord.alarm : [],
     };
-  }, [precursorRecord, sensor?.wallfolder_id]);
+  }, [precursorRecord, sensor?.wallfolder_id, prpAutoFillValues]);
 
   const handleAddFormClose = () => {
     // Discard the pending precursor; no records modified (Requirement 11.4).
     setShowAddForm(false);
     setPendingPrecursor(null);
+    setPrpAutoFillValues(null);
+    setPrpSummary(null);
   };
 
   const handleAddFormSuccess = async () => {
     setShowAddForm(false);
     setPendingPrecursor(null);
+    setPrpAutoFillValues(null);
+    setPrpSummary(null);
     await fetchDeformationRecords();
   };
 
@@ -346,7 +387,8 @@ export default function DeformationTab({
   // ── Render ───────────────────────────────────────────────────────────────────
 
   // While the AddDeformationForm (Update flow) is open, show it instead of the list.
-  if (showAddForm) {
+  // Requirement 1.4: AddDeformationForm must NOT be simultaneously open when PRP is open.
+  if (showAddForm && !showPRP) {
     return (
       <div className="flex flex-col h-full p-4">
         <AddDeformationForm
@@ -358,6 +400,7 @@ export default function DeformationTab({
           clientTimezone={timezone}
           precursor={pendingPrecursor}
           initialValues={addFormInitialValues}
+          patternRecognitionSummary={prpSummary}
           onClose={handleAddFormClose}
           onSuccess={handleAddFormSuccess}
         />
@@ -429,6 +472,27 @@ export default function DeformationTab({
         onConfirm={handleUpdateConfirm}
         onCancel={handleUpdateCancel}
         confirmLabel="Continue"
+      />
+
+      {/* PR Prompt — step between update confirm and add form (Requirements 1.1–1.5) */}
+      <ConfirmDialog
+        isOpen={showPRPrompt}
+        title="Run Pattern Recognition?"
+        message="Would you like to run Pattern Recognition first to auto-fill the form?"
+        onConfirm={handlePRPromptOpenPRP}
+        onCancel={handlePRPromptFillDirectly}
+        confirmLabel="Open Pattern Recognition"
+        cancelLabel="Fill Form Directly"
+      />
+
+      {/* Pattern Recognition Popup (Requirements 1.4, 2.x–8.x) */}
+      <PatternRecognitionPopup
+        isOpen={showPRP}
+        precursor={pendingPrecursor}
+        precursorInitialValues={addFormInitialValues}
+        timezone={timezone}
+        onClose={handlePRPClose}
+        onUseResults={handlePRPUseResults}
       />
     </div>
   );
