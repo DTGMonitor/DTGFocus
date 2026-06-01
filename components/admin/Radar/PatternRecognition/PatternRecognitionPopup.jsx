@@ -37,44 +37,35 @@ function deriveLongestVcpName(vcpResults) {
  * Build the multipart FormData payload for the analyze API call.
  * Appends all file binaries and parameter fields per the design's API request table.
  */
-function buildAnalysisFormData(uploadedFiles, params) {
-  const formData = new FormData();
+/** Read a File as a base64 string (no data: prefix), chunked to avoid stack overflow. */
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
-  // Append file binaries
+/**
+ * Build the JSON payload for the analyze function. Files are base64-encoded
+ * (the Vercel Python function reads JSON, not multipart). Params are sent as
+ * native JSON types.
+ */
+async function buildAnalysisPayload(uploadedFiles, params) {
+  const files = [];
   for (const cfg of uploadedFiles) {
     if (!cfg.parseError && cfg.file) {
-      formData.append('files[]', cfg.file, cfg.file.name);
+      files.push({
+        name: cfg.file.name,
+        contentBase64: await fileToBase64(cfg.file),
+        vcpNamePrefix: cfg.vcpNamePrefix,
+        smoothingWindows: cfg.smoothingWindows,
+      });
     }
   }
-
-  // Build vcpConfigs array: one entry per valid file
-  const vcpConfigs = uploadedFiles
-    .filter((cfg) => !cfg.parseError && cfg.file)
-    .map((cfg) => ({
-      fileName: cfg.file.name,
-      vcpNamePrefix: cfg.vcpNamePrefix,
-      smoothingWindows: cfg.smoothingWindows,
-    }));
-  formData.append('vcpConfigs', JSON.stringify(vcpConfigs));
-
-  // Append all parameter fields as strings
-  formData.append('smoothingWindow', String(params.smoothingWindow));
-  formData.append('longSmoothWindow', String(params.longSmoothWindow));
-  formData.append('vLowFrac', String(params.vLowFrac));
-  formData.append('aMultiplier', String(params.aMultiplier));
-  formData.append('minSegmentPts', String(params.minSegmentPts));
-  formData.append('ivR2Threshold', String(params.ivR2Threshold));
-  formData.append('r2WarningThreshold', String(params.r2WarningThreshold));
-  formData.append('fukuzonoTailFraction', String(params.fukuzonoTailFraction));
-  formData.append('enableForecasting', String(params.enableForecasting));
-  formData.append('enableFukuzono', String(params.enableFukuzono));
-  formData.append('enableSloGradient', String(params.enableSloGradient));
-  formData.append('sloRollingWindow', String(params.sloRollingWindow));
-  formData.append('sloCriticalThreshold', String(params.sloCriticalThreshold));
-  formData.append('sloTailFraction', String(params.sloTailFraction));
-  formData.append('sloR2WarningThreshold', String(params.sloR2WarningThreshold));
-
-  return formData;
+  return { files, params };
 }
 
 // ── Loading Spinner ───────────────────────────────────────────────────────────
@@ -235,11 +226,12 @@ export default function PatternRecognitionPopup({
     setStageError(null);
 
     try {
-      const formData = buildAnalysisFormData(uploadedFiles, params);
+      const payload = await buildAnalysisPayload(uploadedFiles, params);
 
       const response = await fetch('/api/pattern-recognition/analyze', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 

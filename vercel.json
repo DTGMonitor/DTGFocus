@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "api/pattern-recognition/analyze.py": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "api/_pipeline/**"
+    },
+    "api/pattern-recognition/classify-manual.py": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "api/_pipeline/**"
+    }
+  }
+}

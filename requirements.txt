@@ -1,0 +1,7 @@
+# Python deps for the pattern-recognition serverless functions (api/pattern-recognition/*.py).
+# scipy is intentionally NOT included — stats.linregress was replaced with a
+# small numpy helper to keep the serverless bundle within Vercel's size limit.
+pandas>=2.2.0
+numpy>=1.26.0
+openpyxl>=3.1.0
+plotly>=5.22.0
