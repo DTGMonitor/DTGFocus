@@ -17,7 +17,9 @@ import {
   type StageSummaryRow,
   type WindowResult,
 } from '@/utils/patternRecognitionMapper';
-import { isoToDatetimeLocal } from '@/utils/tabHelpers';
+/** Mirror the mapper's tz-naive datetime-local formatting (no conversion). */
+const isoToLocalInput = (iso: string | null) =>
+  iso ? String(iso).replace('Z', '').slice(0, 16) : '';
 
 const NUM_RUNS = 200; // ≥ 100 iterations per the spec
 const TIMEZONE = 'Australia/Perth';
@@ -165,12 +167,8 @@ describe('patternRecognitionMapper', () => {
           // Type (Req 8.4): mapped phase when a PF stage exists, else "Linear".
           expect(result.Type).toBe(hasPFStage ? mappedType : 'Linear');
 
-          // Start (Req 8.5): onset → datetime-local, else "".
-          expect(result.Start).toBe(
-            selected.onsetOfFailure
-              ? isoToDatetimeLocal(selected.onsetOfFailure, TIMEZONE)
-              : ''
-          );
+          // Start (Req 8.5): onset → datetime-local (no tz conversion), else "".
+          expect(result.Start).toBe(isoToLocalInput(selected.onsetOfFailure));
 
           // VCP (Req 8.6): the smoothing window as a string.
           expect(result.VCP).toBe(String(selected.smoothingWindow));
@@ -211,5 +209,69 @@ describe('patternRecognitionMapper', () => {
       ),
       { numRuns: NUM_RUNS }
     );
+  });
+
+  // ── Dual-VCP form fields (Failure / Forecast) ──
+  describe('dual-VCP fields (field 1 = shortest, field 2 = longest)', () => {
+    const makeVcp = (
+      name: string,
+      window: number,
+      vmaxMmday: number,
+      deltaDef: number,
+      forecastIso: string
+    ): VCPResult => ({
+      vcpName: name,
+      smoothingWindow: window,
+      windows: [
+        {
+          phase: 'Progressive Failure',
+          start: '2026-01-02T03:04:05',
+          end: '2026-01-03T00:00:00',
+          duration: '1d',
+        },
+      ],
+      onsetOfFailure: '2026-01-02T03:04:05',
+      fukuzono: { predictedFailureTime: forecastIso, r2: 0.9, lowR2Warning: false },
+      slo: null,
+      stageSummaryRows: [
+        {
+          ...pfRow(vmaxMmday, 1),
+          'Deformation Δ (mm)': deltaDef,
+        },
+      ],
+      combinedChartJson: {},
+      errors: [],
+    });
+
+    it('maps shortest→field1 (mm/h), longest→field2 (mm/day), MaxDeformation from longest, no tz shift', () => {
+      const shortVcp = makeVcp('S', 60, 240, 12, '2026-01-05T06:07:08'); // 60 min → mm/h
+      const longVcp = makeVcp('L', 1440, 480, 55, '2026-01-06T09:10:11'); // 1440 → mm/day
+      const result = buildAutoFillInitialValues([longVcp, shortVcp], {}, 'Australia/Perth');
+
+      // Field 1 = shortest (60 min → mm/h: 240/24 = 10)
+      expect(result.VCP1).toBe('60');
+      expect(result.Vmax1).toBe('10');
+      expect(result.ForecastResult1).toBe('2026-01-05T06:07'); // naive, no -8h shift
+
+      // Field 2 = longest (1440 → mm/day, unchanged)
+      expect(result.VCP2).toBe('1440');
+      expect(result.Vmax2).toBe('480');
+      expect(result.ForecastResult2).toBe('2026-01-06T09:10');
+
+      // MaximumDeformation = Δ deformation of the longest VCP
+      expect(result.MaximumDeformation).toBe('55');
+
+      // Inverse velocities are NOT pre-filled (the form derives them from Vmax).
+      expect(result.InverseVelocity2).toBeUndefined();
+    });
+
+    it('single VCP fills only field 1 (field 2 empty)', () => {
+      const only = makeVcp('S', 60, 240, 12, '2026-01-05T06:07:08');
+      const result = buildAutoFillInitialValues([only], {}, 'Australia/Perth');
+      expect(result.VCP1).toBe('60');
+      expect(result.Vmax1).toBe('10');
+      expect(result.VCP2).toBeUndefined();
+      expect(result.Vmax2).toBeUndefined();
+    });
   });
 });

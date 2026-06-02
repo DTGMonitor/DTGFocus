@@ -17,6 +17,16 @@ import { supabase } from '@/lib/supabaseClient';
 /** Client-side request timeout in milliseconds (Requirement 4.7) */
 const ANALYSIS_TIMEOUT_MS = 90_000;
 
+/**
+ * In production the endpoints are Vercel Python functions at
+ * /api/pattern-recognition/*. In local development those aren't served by
+ * `next dev`, so we use the dev-only Next routes that spawn local Python.
+ */
+const PR_API_BASE =
+  process.env.NODE_ENV === 'development'
+    ? '/api/pr-local'
+    : '/api/pattern-recognition';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -115,6 +125,8 @@ export default function PatternRecognitionPopup({
   timezone,
   onClose,
   onUseResults,
+  sensor = null,
+  userSite = null,
 }) {
   // ── File upload state ──────────────────────────────────────────────────────
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -181,6 +193,37 @@ export default function PatternRecognitionPopup({
     };
   }, [isOpen, wallFolderId, timezone]);
 
+  // ── Client (site / company / logo) for the Post-Blast Report header ─────────
+  // The report describes the SENSOR's site, not the signed-in user's own site,
+  // so we resolve company + logo from the clients table by sensor.site_id.
+  const [clientInfo, setClientInfo] = useState(null);
+  const sensorSiteId = sensor?.site_id ?? null;
+
+  useEffect(() => {
+    if (!isOpen || !sensorSiteId) {
+      setClientInfo(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('clients')
+          .select('site_name, company, location, logo_path')
+          .eq('id', sensorSiteId)
+          .maybeSingle();
+        if (error) throw error;
+        if (!cancelled) setClientInfo(data ?? null);
+      } catch (err) {
+        console.error('Failed to load client for report:', err);
+        if (!cancelled) setClientInfo(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, sensorSiteId]);
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleFilesChange = useCallback((updatedFiles) => {
@@ -228,7 +271,7 @@ export default function PatternRecognitionPopup({
     try {
       const payload = await buildAnalysisPayload(uploadedFiles, params);
 
-      const response = await fetch('/api/pattern-recognition/analyze', {
+      const response = await fetch(`${PR_API_BASE}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -291,7 +334,7 @@ export default function PatternRecognitionPopup({
       setStageError(null);
 
       try {
-        const response = await fetch('/api/pattern-recognition/classify-manual', {
+        const response = await fetch(`${PR_API_BASE}/classify-manual`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -399,6 +442,21 @@ export default function PatternRecognitionPopup({
   const canRunAnalysis = !hasParamErrors && validFileCount > 0 && !isAnalysing;
   const hasResults = vcpResults.length > 0;
   const forecastingEnabled = params.enableForecasting ?? DEFAULT_PARAMS.enableForecasting;
+
+  // Metadata for the Post-Blast Analysis Report header. Company + logo come from
+  // the sensor's client record (resolved above); author from the signed-in user;
+  // blast id from the precursor record's location. Logo paths stored as
+  // "../CompanyLogo/…" are rewritten to the public "/logo/…" path.
+  const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
+  const reportMeta = {
+    company: clientInfo?.company ?? userSite?.site?.company ?? '',
+    siteName: clientInfo?.site_name ?? sensor?.site_name ?? userSite?.site?.site_name ?? '',
+    location: clientInfo?.location ?? '',
+    radarNumber: sensor?.radar_number ?? '',
+    author: userSite?.displayname ?? '',
+    blastId: precursorInitialValues?.Location ?? '',
+    logoPath: normalizeLogoPath(clientInfo?.logo_path ?? userSite?.site?.logo_path),
+  };
 
   // ── Early return when not open ─────────────────────────────────────────────
 
@@ -672,6 +730,7 @@ export default function PatternRecognitionPopup({
                   isResettingStages={isResettingStages}
                   onUseResults={handleUseResults}
                   blastEvents={blastEvents}
+                  reportMeta={reportMeta}
                 />
               </section>
             )}

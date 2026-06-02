@@ -7,7 +7,6 @@
  * Requirements: 8.1, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 8.12, 8.13
  */
 
-import { isoToDatetimeLocal } from "@/utils/tabHelpers";
 
 // ---------------------------------------------------------------------------
 // Type definitions (matching the API response shape)
@@ -114,6 +113,27 @@ export function selectFormVcp(vcpResults: VCPResult[]): VCPResult {
   );
 }
 
+/** The VCP with the LONGEST smoothing window (or the single VCP). */
+export function selectLongestVcp(vcpResults: VCPResult[]): VCPResult {
+  if (vcpResults.length === 0) {
+    throw new Error("vcpResults must not be empty");
+  }
+  return vcpResults.reduce((best, current) =>
+    current.smoothingWindow > best.smoothingWindow ? current : best
+  );
+}
+
+/**
+ * Format a pipeline timestamp for a datetime-local input WITHOUT timezone
+ * conversion. The pipeline emits tz-naive ISO strings (local wall-clock), so we
+ * use them directly — converting through the client timezone would shift the
+ * value by the UTC offset (issue: forecast result was off by -8h).
+ */
+function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return String(iso).replace("Z", "").slice(0, 16);
+}
+
 // ---------------------------------------------------------------------------
 // Step 3 — Extract PF stage statistics
 // ---------------------------------------------------------------------------
@@ -121,11 +141,12 @@ export function selectFormVcp(vcpResults: VCPResult[]): VCPResult {
 interface PFStats {
   pfVmax: number | null;
   pfVmin: number | null;
+  pfDeltaDeformation: number | null;
 }
 
 /**
  * From the PF stageSummaryRows of a VCP, find the row with the highest
- * "Velocity max (mm/day)" and return its Vmax and Vmin.
+ * "Velocity max (mm/day)" and return its Vmax, Vmin and Δ deformation.
  */
 function extractPFStats(vcp: VCPResult): PFStats {
   const pfRows = vcp.stageSummaryRows.filter((r) =>
@@ -133,7 +154,7 @@ function extractPFStats(vcp: VCPResult): PFStats {
   );
 
   if (pfRows.length === 0) {
-    return { pfVmax: null, pfVmin: null };
+    return { pfVmax: null, pfVmin: null, pfDeltaDeformation: null };
   }
 
   // Find the row with the highest Velocity max
@@ -146,6 +167,28 @@ function extractPFStats(vcp: VCPResult): PFStats {
   return {
     pfVmax: bestRow["Velocity max (mm/day)"] ?? null,
     pfVmin: bestRow["Velocity min (mm/day)"] ?? null,
+    pfDeltaDeformation: bestRow["Deformation Δ (mm)"] ?? null,
+  };
+}
+
+/**
+ * Build the per-VCP dual-form fields (VCP/Vmax/ForecastResult) in that VCP's
+ * native velocity unit. Returns null when the VCP has no PF stage.
+ */
+function dualFieldsFor(vcp: VCPResult): {
+  vcp: string;
+  vmax: string;
+  forecast: string;
+} | null {
+  const { pfVmax } = extractPFStats(vcp);
+  if (pfVmax === null) return null;
+  const vFac = velocityUnitFactor(vcp.smoothingWindow);
+  const forecastIso =
+    vcp.fukuzono?.predictedFailureTime ?? vcp.slo?.predictedFailureTime ?? null;
+  return {
+    vcp: String(vcp.smoothingWindow),
+    vmax: String(round(pfVmax * vFac, 4)),
+    forecast: isoToLocalInput(forecastIso),
   };
 }
 
@@ -197,12 +240,12 @@ export function buildAutoFillInitialValues(
   // Determine whether a PF stage actually exists
   const hasPFStage = pfVmax !== null;
 
-  // Step 4 — Build mapped values
+  // Step 4 — Build single-VCP values (Progressive / Linear forms)
   const mapped: Record<string, any> = {
     Type: hasPFStage ? mappedType : "Linear",
-    Start: selected.onsetOfFailure
-      ? isoToDatetimeLocal(selected.onsetOfFailure, timezone)
-      : "",
+    // Start / forecast times are tz-naive wall-clock — used directly (no
+    // timezone conversion, which previously shifted them by the UTC offset).
+    Start: isoToLocalInput(selected.onsetOfFailure),
     VCP: String(selected.smoothingWindow),
   };
 
@@ -211,7 +254,6 @@ export function buildAutoFillInitialValues(
     const vmaxDisp = pfVmax! * vFac;
     mapped.Vmax = String(round(vmaxDisp, 4));
     mapped.Vmin = pfVmin !== null ? String(round(pfVmin * vFac, 4)) : "";
-
     // InverseVelocity1 = round(1 / Vmax, 4) in the matching inverse unit.
     mapped.InverseVelocity1 =
       vmaxDisp !== 0 ? String(round(1 / vmaxDisp, 4)) : "";
@@ -240,18 +282,35 @@ export function buildAutoFillInitialValues(
     }
   }
 
-  // Forecast fields (Req 8.11)
-  if (selected.fukuzono?.predictedFailureTime) {
-    mapped.ForecastResult1 = isoToDatetimeLocal(
-      selected.fukuzono.predictedFailureTime,
-      timezone
-    );
+  // ── Dual-VCP fields (Failure / Forecast forms) ───────────────────────────
+  // Field "1" = SHORTEST VCP, field "2" = LONGEST VCP (matches the form's
+  // SHORT/LONG email labels). When only one VCP is present, only field 1 is
+  // filled. Vmax1/Vmax2 are in each VCP's native unit; the form derives
+  // InverseVelocity1/2 from them automatically. MaximumDeformation (Δ
+  // deformation) comes from the LONGEST VCP.
+  const shortest = selectFormVcp(vcpResults);
+  const longest = selectLongestVcp(vcpResults);
+
+  const shortFields = dualFieldsFor(shortest);
+  if (shortFields) {
+    mapped.VCP1 = shortFields.vcp;
+    mapped.Vmax1 = shortFields.vmax;
+    if (shortFields.forecast) mapped.ForecastResult1 = shortFields.forecast;
   }
-  if (selected.slo?.predictedFailureTime) {
-    mapped.ForecastResult2 = isoToDatetimeLocal(
-      selected.slo.predictedFailureTime,
-      timezone
-    );
+
+  if (vcpResults.length > 1) {
+    const longFields = dualFieldsFor(longest);
+    if (longFields) {
+      mapped.VCP2 = longFields.vcp;
+      mapped.Vmax2 = longFields.vmax;
+      if (longFields.forecast) mapped.ForecastResult2 = longFields.forecast;
+    }
+  }
+
+  // MaximumDeformation = Δ deformation of the longest VCP's PF stage.
+  const longestPf = extractPFStats(longest);
+  if (longestPf.pfDeltaDeformation !== null) {
+    mapped.MaximumDeformation = String(round(longestPf.pfDeltaDeformation, 3));
   }
 
   // Step 5 — Merge with precursor (Req 8.13)

@@ -38,11 +38,11 @@ from models import ClassificationResult, PredictionResult
 # ---------------------------------------------------------------------------
 
 PHASE_COLORS: dict[str, str] = {
-    "No Significant Movement": "#2196F3",
-    "Linear": "#4CAF50",
-    "Progressive Failure": "#FF5722",
-    "Regressive": "#9C27B0",
-    "Unclassified": "#9E9E9E",
+   'No Significant Movement': '#00B050',
+  'Linear': '#E97132',
+  'Progressive Failure': '#FF0000',
+  'Regressive': '#FFFF00',
+  'Unclassified': '#9E9E9E',
 }
 
 _NA = "N/A"

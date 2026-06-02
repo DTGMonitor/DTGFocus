@@ -493,6 +493,8 @@ export default function DeformationTab({
         timezone={timezone}
         onClose={handlePRPClose}
         onUseResults={handlePRPUseResults}
+        sensor={sensor}
+        userSite={userSite}
       />
     </div>
   );

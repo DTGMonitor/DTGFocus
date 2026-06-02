@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import VCPSummaryTable from './VCPSummaryTable';
 import StageSummaryTable from './StageSummaryTable';
 import StageEditor from './StageEditor';
+import PostBlastReportModal from './PostBlastReportModal';
 import {
   PHASE_OPTIONS,
   windowsToBoundaries,
@@ -18,10 +19,10 @@ import {
 
 /** Phase band colours — mirrors visualizer.PHASE_COLORS for the rename menu. */
 const PHASE_COLORS = {
-  'No Significant Movement': '#2196F3',
-  Linear: '#4CAF50',
-  'Progressive Failure': '#FF5722',
-  Regressive: '#9C27B0',
+  'No Significant Movement': '#00B050',
+  Linear: '#E97132',
+  'Progressive Failure': '#FF0000',
+  Regressive: '#FFFF00',
   Unclassified: '#9E9E9E',
 };
 
@@ -626,11 +627,14 @@ export default function ResultsArea({
   isResettingStages,
   onUseResults,
   blastEvents = null,
+  reportMeta = {},
 }) {
   // ── Active VCP state (Requirement 5.4) ────────────────────────────────────
   const [activeVcpIndex, setActiveVcpIndex] = useState(0);
   // Actual failure time for back-analysis / forecast error (issue 2).
   const [actualFailureTime, setActualFailureTime] = useState('');
+  // Post-Blast Analysis Report modal.
+  const [showReport, setShowReport] = useState(false);
 
   const results = Array.isArray(vcpResults) ? vcpResults : [];
   const hasMultipleVcps = results.length >= 2;
@@ -832,9 +836,36 @@ export default function ResultsArea({
         style={{
           display: 'flex',
           justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: '10px',
           paddingTop: '4px',
         }}
       >
+        {/* Generate the printable Post-Blast Analysis Report (preview + PDF) */}
+        <button
+          type="button"
+          onClick={() => setShowReport(true)}
+          style={{
+            padding: '10px 22px',
+            borderRadius: '6px',
+            border: '1px solid var(--dtg-border-medium)',
+            background: 'transparent',
+            color: 'var(--dtg-text-primary)',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--dtg-bg-secondary, rgba(255,255,255,0.06))';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+          }}
+        >
+          Generate Post-Blast Report
+        </button>
+
         {/* Informational message when no PF stage exists (Requirement 10.5) */}
         {!canUseResults && (
           <p
@@ -883,6 +914,18 @@ export default function ResultsArea({
           Use Results to Fill Form
         </button>
       </div>
+
+      {/* ── Post-Blast Analysis Report modal (preview + PDF export) ── */}
+      <PostBlastReportModal
+        isOpen={showReport}
+        onClose={() => setShowReport(false)}
+        vcpResults={results}
+        activeVcp={activeVcp}
+        stageRows={allStageRows}
+        meta={reportMeta}
+        actualFailureTime={actualFailureTime}
+        pfConfirmed={pfConfirmed}
+      />
 
       {/* Spinner keyframe (shared with StageEditor) */}
       <style>{`
