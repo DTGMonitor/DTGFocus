@@ -2,6 +2,7 @@
 
 import { useRef, useCallback } from 'react';
 import VCPConfigRow from './VCPConfigRow';
+import { countXlsxRows } from '@/utils/xlsxRowCount';
 
 /**
  * FileUploadPanel
@@ -38,6 +39,13 @@ import VCPConfigRow from './VCPConfigRow';
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls'];
 const DEFAULT_SMOOTHING_WINDOWS = [60];
+
+/**
+ * Files larger than this (data rows) risk exceeding the 60-second serverless
+ * analysis limit and failing with a 504. Empirically the server handles up to
+ * ~980 rows; above ~1,000 it times out. We warn from 950 to give a margin.
+ */
+const ROW_WARNING_THRESHOLD = 950;
 
 /**
  * Derive the filename without extension.
@@ -128,6 +136,24 @@ export default function FileUploadPanel({ uploadedFiles, onFilesChange }) {
 
       const newConfigs = unique.map(buildFileConfig);
       onFilesChange([...uploadedFiles, ...newConfigs]);
+
+      // Best-effort: count rows client-side (no SheetJS needed) and patch each
+      // config so the UI can warn before a too-large file hits the 60s server
+      // limit. Any failure leaves rowCount at 0 and simply shows no warning.
+      for (const cfg of newConfigs) {
+        if (cfg.parseError) continue;
+        countXlsxRows(cfg.file).then((rowCount) => {
+          if (rowCount == null) return;
+          // Functional update — the file may have moved/been removed since.
+          onFilesChange((prev) =>
+            prev.map((c) =>
+              c.file === cfg.file
+                ? { ...c, parseInfo: { ...(c.parseInfo || {}), rowCount } }
+                : c
+            )
+          );
+        });
+      }
     },
     [uploadedFiles, onFilesChange]
   );
@@ -407,13 +433,46 @@ export default function FileUploadPanel({ uploadedFiles, onFilesChange }) {
           </p>
           {uploadedFiles.map((cfg, index) => {
             if (cfg.parseError) return null;
+            const rowCount = cfg.parseInfo?.rowCount ?? 0;
+            const overLimit = rowCount > ROW_WARNING_THRESHOLD;
             return (
-              <VCPConfigRow
+              <div
                 key={`${cfg.file.name}-${index}`}
-                fileConfig={cfg}
-                onChange={(updatedConfig) => handleFileConfigChange(index, updatedConfig)}
-                onRemove={() => handleFileRemove(index)}
-              />
+                style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}
+              >
+                <VCPConfigRow
+                  fileConfig={cfg}
+                  onChange={(updatedConfig) => handleFileConfigChange(index, updatedConfig)}
+                  onRemove={() => handleFileRemove(index)}
+                />
+                {overLimit && (
+                  <div
+                    role="alert"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(245,158,11,0.35)',
+                      background: 'rgba(245,158,11,0.08)',
+                      fontSize: '0.75rem',
+                      lineHeight: 1.4,
+                      color: 'var(--dtg-text-primary)',
+                    }}
+                  >
+                    <span aria-hidden="true" style={{ flexShrink: 0 }}>
+                      ⚠️
+                    </span>
+                    <span>
+                      This file has <strong>{rowCount.toLocaleString()} rows</strong>. Files
+                      larger than ~1,000 rows often exceed the 60-second analysis limit and
+                      fail. Consider reducing it to ~900 rows or fewer — or splitting it into
+                      smaller files — before running the analysis.
+                    </span>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

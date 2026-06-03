@@ -74,6 +74,9 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
                         hour: "2-digit",
                         minute: "2-digit",
                         hour12: false,
+                        // converted holds site wall-clock components in a
+                        // tz-naive ISO; read them back in UTC, never the runtime tz.
+                        timeZone: "UTC",
                       })
                     : "—";
                 } catch {

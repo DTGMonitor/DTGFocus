@@ -37,6 +37,8 @@ export function formatTimestamp(isoString, timezone) {
   try {
     const local = fromUTC(isoString, timezone);
     if (!local) return '—';
+    // `local` is a tz-naive ISO whose clock components are the site wall time;
+    // read them back in UTC so the runtime timezone never shifts them again.
     return new Date(local).toLocaleString('en-AU', {
       year: 'numeric',
       month: '2-digit',
@@ -44,6 +46,7 @@ export function formatTimestamp(isoString, timezone) {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      timeZone: 'UTC',
     });
   } catch {
     return isoString;

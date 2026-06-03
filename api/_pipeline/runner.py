@@ -384,11 +384,9 @@ def handle_analyze(payload: dict) -> dict:
             # Emit one error VCP entry per smoothing window so the frontend
             # can display the error inline.
             for sw in smoothing_windows:
-                vcp_name = (
-                    f"{vcp_name_prefix}_{sw}min"
-                    if len(smoothing_windows) > 1
-                    else vcp_name_prefix
-                )
+                # Always suffix the calculation period, even for a single one
+                # (issue 1) — keeps VCP naming consistent across the summary.
+                vcp_name = f"{vcp_name_prefix}_{sw}min"
                 vcp_results_raw.append({
                     "vcpName": vcp_name,
                     "smoothingWindow": sw,
@@ -405,11 +403,7 @@ def handle_analyze(payload: dict) -> dict:
         # Use the first VCP column from the loaded DataFrame
         if not load_result.vcp_names:
             for sw in smoothing_windows:
-                vcp_name = (
-                    f"{vcp_name_prefix}_{sw}min"
-                    if len(smoothing_windows) > 1
-                    else vcp_name_prefix
-                )
+                vcp_name = f"{vcp_name_prefix}_{sw}min"
                 vcp_results_raw.append({
                     "vcpName": vcp_name,
                     "smoothingWindow": sw,
@@ -428,11 +422,7 @@ def handle_analyze(payload: dict) -> dict:
         displacement_raw = load_result.raw_df[col_name].dropna()
 
         for sw in smoothing_windows:
-            vcp_name = (
-                f"{vcp_name_prefix}_{sw}min"
-                if len(smoothing_windows) > 1
-                else vcp_name_prefix
-            )
+            vcp_name = f"{vcp_name_prefix}_{sw}min"
             result = _run_single_vcp(displacement_raw, vcp_name, sw, params)
             vcp_results_raw.append(result)
 

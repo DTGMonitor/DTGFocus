@@ -1,5 +1,7 @@
 'use client';
 
+import { shortVcpLabel } from '@/utils/stageBoundaries';
+
 /**
  * VCPSummaryTable
  *
@@ -222,8 +224,9 @@ export default function VCPSummaryTable({
                           ? 'var(--dtg-text-primary)'
                           : 'var(--dtg-text-primary)',
                       }}
+                      title={vcp.vcpName}
                     >
-                      {vcp.vcpName}
+                      {shortVcpLabel(vcp.vcpName)}
                     </span>
                     {isLongest && (
                       <span

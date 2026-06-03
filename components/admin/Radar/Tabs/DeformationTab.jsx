@@ -64,6 +64,7 @@ export default function DeformationTab({
   const [showPRP, setShowPRP] = useState(false);
   const [prpAutoFillValues, setPrpAutoFillValues] = useState(null);
   const [prpSummary, setPrpSummary] = useState(null);
+  const [isArchivingPrecursor, setIsArchivingPrecursor] = useState(false);
 
   // ── Timeline state ──────────────────────────────────────────────────────────────
   const [timelineRecord, setTimelineRecord] = useState(null);
@@ -304,6 +305,36 @@ export default function DeformationTab({
     setShowAddForm(true);
   };
 
+  /**
+   * PRP "Archive Blast Record" — when the latest stage is No Significant
+   * Movement the slope has settled, so we archive the precursor record directly
+   * instead of creating a follow-up deformation record (issue 3).
+   */
+  const handlePRPArchive = async () => {
+    if (!pendingPrecursor) return;
+    setIsArchivingPrecursor(true);
+    try {
+      const { error: archiveError } = await supabase
+        .from('def_records')
+        .update({ isactive: 'No' })
+        .eq('id', pendingPrecursor);
+
+      if (archiveError) throw archiveError;
+
+      toast.success('Blast record archived — slope settled (No Significant Movement).');
+      setShowPRP(false);
+      setPrpAutoFillValues(null);
+      setPrpSummary(null);
+      setPendingPrecursor(null);
+      await fetchDeformationRecords();
+    } catch (err) {
+      console.error('Error archiving blast record:', err);
+      toast.error('Failed to archive blast record.');
+    } finally {
+      setIsArchivingPrecursor(false);
+    }
+  };
+
   // Pre-fill values for the AddDeformationForm from the precursor record.
   const precursorRecord = useMemo(
     () => deformationList.find((d) => d.id === pendingPrecursor) || null,
@@ -493,6 +524,8 @@ export default function DeformationTab({
         timezone={timezone}
         onClose={handlePRPClose}
         onUseResults={handlePRPUseResults}
+        onArchive={handlePRPArchive}
+        isArchiving={isArchivingPrecursor}
         sensor={sensor}
         userSite={userSite}
       />

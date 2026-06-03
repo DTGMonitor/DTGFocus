@@ -34,13 +34,9 @@ const MAX_ROWS = 10;
 const DEFAULT_WINDOW_VALUE = 60;
 
 const VCPConfigRow = ({ fileConfig, onChange, onRemove }) => {
-  const { file, vcpNamePrefix, smoothingWindows, parseInfo, parseError } = fileConfig;
+  const { file, smoothingWindows, parseInfo, parseError } = fileConfig;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const handlePrefixChange = (e) => {
-    onChange({ ...fileConfig, vcpNamePrefix: e.target.value });
-  };
 
   const handleWindowChange = (index, rawValue) => {
     // Allow empty string while typing; clamp on blur (see handleWindowBlur)
@@ -198,39 +194,6 @@ const VCPConfigRow = ({ fileConfig, onChange, onRemove }) => {
           </span>
         </div>
       )}
-
-      {/* ── VCP name prefix input ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label
-          htmlFor={`vcp-prefix-${file.name}`}
-          style={{
-            fontSize: '0.75rem',
-            fontWeight: 500,
-            color: 'var(--dtg-text-secondary)',
-            userSelect: 'none',
-          }}
-        >
-          VCP Name Prefix
-        </label>
-        <input
-          id={`vcp-prefix-${file.name}`}
-          type="text"
-          value={vcpNamePrefix}
-          onChange={handlePrefixChange}
-          placeholder="e.g. VCP-01"
-          style={{
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: '1px solid var(--dtg-border-medium)',
-            background: 'var(--dtg-bg-secondary)',
-            color: 'var(--dtg-text-primary)',
-            fontSize: '0.875rem',
-            outline: 'none',
-            width: '100%',
-            boxSizing: 'border-box',
-          }}
-        />
-      </div>
 
       {/* ── Smoothing window table ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

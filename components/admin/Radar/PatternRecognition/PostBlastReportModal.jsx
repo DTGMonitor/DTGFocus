@@ -18,7 +18,48 @@
  */
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { displayPhase } from '@/utils/stageBoundaries';
+import { displayPhase, shortVcpLabel } from '@/utils/stageBoundaries';
+import { supabase } from '@/lib/supabaseClient';
+
+// Public dashboard link included in the emailed report draft.
+const DASHBOARD_URL = 'https://dashboard.digitaltwingeotechnical.com/';
+
+// ── Outlook draft + Supabase helpers ────────────────────────────────────────────
+
+/** Open the user's default mail client (Outlook) with a pre-filled draft. */
+function openOutlookDraft(subject, body, toGroup = '', ccGroup = '') {
+  const safeSubject = encodeURIComponent(subject);
+  const safeBody = encodeURIComponent(body);
+  const safeTo = encodeURIComponent(toGroup);
+  const safeCc = encodeURIComponent(ccGroup);
+  let mailtoLink = `mailto:${safeTo}?subject=${safeSubject}&body=${safeBody}`;
+  if (safeCc) mailtoLink += `&cc=${safeCc}`;
+  window.location.href = mailtoLink;
+}
+
+/** Inject a CDN script once (html2canvas / jsPDF) — mirrors the daily/InSAR flow. */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadPdfScripts() {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+}
+
+/** Human-readable file size (matches ReportTemplateModal). */
+function formatFileSize(bytes) {
+  const kb = (bytes / 1024).toFixed(2);
+  const mb = (bytes / (1024 * 1024)).toFixed(2);
+  return bytes > 1024 * 1024 ? `${mb} MB` : `${kb} KB`;
+}
 
 // ── Palette (inline hex so html2canvas reproduces print colours faithfully) ──
 const NAVY = '#142850';
@@ -50,6 +91,14 @@ const PHASE_TO_TARP = {
   Regressive: 'TARP 2',
   Linear: 'TARP 3',
   'Progressive Failure': 'TARP 4',
+};
+
+/** Short labels for deformation events shown in the transition sequence. */
+const EVENT_LABEL = {
+  'Blast Event': 'Blast',
+  'Rock Fall': 'Rock Fall',
+  'Material Detachment': 'Material Detachment',
+  Failure: 'Failure',
 };
 
 /** Stage band colours — mirror ResultsArea.PHASE_COLORS. */
@@ -105,6 +154,26 @@ function fmtLongDate(d) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+/** Parse a tz-naive timestamp (window edge or blast time) to epoch-ms locally. */
+function toMs(s) {
+  if (!s) return NaN;
+  return new Date(String(s).replace(' ', 'T').replace('Z', '')).getTime();
+}
+
+/** Human duration "Xd Yh Zm" from a millisecond span. */
+function formatDurationMs(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const totalMin = Math.round(ms / 60000);
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  if (m || parts.length === 0) parts.push(`${m}m`);
+  return parts.join(' ');
+}
+
 /** Display unit + multiplier for a convertible column — mirrors StageSummaryTable. */
 function unitInfo(kind, isMmH) {
   if (kind === 'velocity') return { unit: isMmH ? 'mm/h' : 'mm/day', factor: isMmH ? 1 / 24 : 1 };
@@ -115,6 +184,7 @@ function unitInfo(kind, isMmH) {
 /** Format a stage-table cell. */
 function formatStageCell(col, row, pfConfirmed) {
   const raw = row[col.key];
+  if (col.key === 'VCP') return shortVcpLabel(String(raw ?? ''));
   if (col.phase) return displayPhase(String(raw ?? ''), pfConfirmed);
   if (col.dateFmt) return fmtTableDate(raw);
   if (!col.num) return raw ?? '—';
@@ -205,6 +275,8 @@ export default function PostBlastReportModal({
   meta = {},
   actualFailureTime = '',
   pfConfirmed = false,
+  blastEvents = [],
+  analysisTitle = 'Post-Blast Analysis',
 }) {
   const measureRef = useRef(null);
   const imageRef = useRef(null);
@@ -294,10 +366,53 @@ export default function PostBlastReportModal({
   const monitoringStart = windows.length ? windows[0].start : null;
   const monitoringEnd = windows.length ? windows[windows.length - 1].end : null;
 
+  // Slope-behaviour transition sequence with blast events interleaved by time
+  // (issue 4): e.g. No Significant → Blast → Regressive → Blast → Linear.
   const transitions = useMemo(() => {
-    const seq = windows.map((w) => displayPhase(w.phase, pfConfirmed));
-    return seq.filter((p, i) => i === 0 || p !== seq[i - 1]);
-  }, [windows, pfConfirmed]);
+    const phasePts = windows.map((w) => ({
+      time: toMs(w.start),
+      label: displayPhase(w.phase, pfConfirmed),
+    }));
+    const dedup = phasePts.filter((p, i) => i === 0 || p.label !== phasePts[i - 1].label);
+    const startMs = windows.length ? toMs(windows[0].start) : null;
+    const endMs = windows.length ? toMs(windows[windows.length - 1].end) : null;
+    const blastPts = (blastEvents ?? [])
+      .map((b) => ({
+        time: toMs(b.time),
+        label: EVENT_LABEL[b.type] ?? b.type ?? 'Blast',
+      }))
+      .filter(
+        (p) =>
+          !Number.isNaN(p.time) &&
+          (startMs == null || (p.time >= startMs && p.time <= endMs))
+      );
+    return [...dedup, ...blastPts]
+      .sort((a, b) => a.time - b.time)
+      .map((p) => p.label);
+  }, [windows, blastEvents, pfConfirmed]);
+
+  // Settling time (issue 2): from the most recent blast up to the start of the
+  // (last) No Significant Movement trend — how long the slope took to settle.
+  const settlingInfo = useMemo(() => {
+    const nsm = [...windows].reverse().find((w) => w.phase === 'No Significant Movement');
+    if (!nsm) return null;
+    const startMs = toMs(nsm.start);
+    if (Number.isNaN(startMs)) return null;
+    const priorBlasts = (blastEvents ?? [])
+      .filter((b) => (b.type ?? 'Blast Event') === 'Blast Event')
+      .map((b) => ({ ms: toMs(b.time), time: b.time }))
+      .filter((b) => !Number.isNaN(b.ms) && b.ms <= startMs)
+      .sort((a, b) => a.ms - b.ms);
+    if (priorBlasts.length === 0) return null;
+    const chosen = priorBlasts[priorBlasts.length - 1];
+    const span = startMs - chosen.ms;
+    if (span <= 0) return null;
+    return {
+      duration: formatDurationMs(span),
+      blastTimeStr: chosen.time,
+      settledTimeStr: nsm.start,
+    };
+  }, [windows, blastEvents]);
 
   const failureTakeaway = useMemo(() => {
     const forecastIso =
@@ -328,12 +443,19 @@ export default function PostBlastReportModal({
         : `Slope is in progressive failure; no forecast time could be computed for the selected VCP.`;
     }
     if (phase === 'Regressive' || phase === 'No Significant Movement') {
+      // Settling measured from the blast to the start of the No Significant
+      // trend, when a preceding blast exists (issue 2).
+      if (settlingInfo) {
+        return `Slope is ${displayPhase(phase, pfConfirmed).toLowerCase()}; settled ${settlingInfo.duration} after the blast (${fmtDateTime(
+          settlingInfo.blastTimeStr
+        )} → ${fmtDateTime(settlingInfo.settledTimeStr)}). No failure time is projected.`;
+      }
       const dur = lastWindow?.duration ? ` over the last ${lastWindow.duration}` : '';
       return `Slope is ${displayPhase(phase, pfConfirmed).toLowerCase()}; estimated to be settling${dur}. No failure time is projected.`;
     }
     const dur = lastWindow?.duration ? lastWindow.duration : 'the monitored period';
     return `Slope remains in a linear deformation stage for the last ${dur}. Continue monitoring for any transition to progressive failure.`;
-  }, [summaryVcp, actualFailureTime, lastWindow, latestRawPhase, pfConfirmed]);
+  }, [summaryVcp, actualFailureTime, lastWindow, latestRawPhase, pfConfirmed, settlingInfo]);
 
   // ── Pit image handlers ─────────────────────────────────────────────────────
   const readImageFile = useCallback((file) => {
@@ -387,16 +509,50 @@ export default function PostBlastReportModal({
   const fileName = useMemo(() => {
     const date = new Date().toLocaleDateString('en-CA').replaceAll('-', '');
     const id = (meta.blastId || meta.radarNumber || 'report').toString().replace(/[^\w-]+/g, '_');
-    return `${date}_Post_Blast_Analysis_${id}`;
-  }, [meta.blastId, meta.radarNumber]);
+    const slug = String(analysisTitle).replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '');
+    return `${date}_${slug}_${id}`;
+  }, [meta.blastId, meta.radarNumber, analysisTitle]);
 
-  // Export via the browser's NATIVE print engine (render the pages into a hidden
-  // iframe and print it). The browser rasterizes text itself — vector, selectable
-  // and perfectly aligned — which html2canvas can't do reliably at small sizes.
-  // The user picks "Save as PDF" in the print dialog.
-  const handleExport = async () => {
+  // Predefined-but-editable report title / PDF filename (issue 6). Seeded from
+  // the auto-generated name on open; the analyst can override it before export.
+  const [reportTitle, setReportTitle] = useState('');
+  useEffect(() => {
+    if (isOpen) setReportTitle(fileName);
+  }, [isOpen, fileName]);
+  const effectiveTitle = (reportTitle || fileName).trim() || fileName;
+
+  // ── Outlook draft content (subject + body) ─────────────────────────────────
+  // Plain-text mirror of the on-page Summary section, for the email body.
+  const summaryText = useMemo(
+    () =>
+      [
+        `Current risk status: ${tarp} — slope classified as ${latestPhase}.`,
+        `Slope behaviour transition: ${transitions.length ? transitions.join(' -> ') : 'No staged behaviour detected.'}`,
+        `Outlook: ${failureTakeaway}`,
+      ].join('\n'),
+    [tarp, latestPhase, transitions, failureTakeaway]
+  );
+
+  const emailSubject = `${analysisTitle} Report of ${meta.radarNumber || 'Sensor'} period of ${fmtLongDate(new Date())}`;
+  const emailBody = [
+    `SENSOR: ${meta.radarNumber || '—'} - ${meta.siteName || '—'}`,
+    ...(meta.blastId ? [`BLAST ID: ${meta.blastId}`] : []),
+    '',
+    'SUMMARY:',
+    summaryText,
+    '',
+    `The report can also be accessed from this link (${DASHBOARD_URL})`,
+    '',
+    'Kind regards,',
+    meta.author || '',
+  ].join('\n');
+
+  // Local download via the browser's NATIVE print engine (render the pages into a
+  // hidden iframe and print it). The browser rasterizes text itself — vector,
+  // selectable and perfectly aligned — which html2canvas can't do reliably at
+  // small sizes. The user picks "Save as PDF" in the print dialog.
+  const printLocal = async () => {
     if (!effectivePages || effectivePages.length === 0) return;
-    setIsExporting(true);
     let iframe = null;
     let root = null;
     try {
@@ -412,7 +568,7 @@ export default function PostBlastReportModal({
       const doc = iframe.contentDocument;
       doc.open();
       doc.write(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileName}</title><style>` +
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${effectiveTitle}</title><style>` +
           '@page { size: A4; margin: 0; }' +
           '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }' +
           'html, body { margin: 0; padding: 0; background: #fff; }' +
@@ -423,6 +579,9 @@ export default function PostBlastReportModal({
           '</style></head><body><div id="pbr-root"></div></body></html>'
       );
       doc.close();
+      // Explicitly set the frame's title — the print dialog suggests the saved
+      // PDF filename from the document title (issue: filename was blank).
+      doc.title = effectiveTitle;
 
       root = createRoot(doc.getElementById('pbr-root'));
       root.render(
@@ -444,7 +603,20 @@ export default function PostBlastReportModal({
       await new Promise((r) => setTimeout(r, 120));
 
       const win = iframe.contentWindow;
+      // Chromium derives the "Save as PDF" filename from the *top* document's
+      // title when printing a same-origin iframe — temporarily swap it so the
+      // dialog pre-fills our report name, then restore it after printing.
+      const prevDocTitle = document.title;
+      document.title = effectiveTitle;
+      let titleRestored = false;
+      const restoreTitle = () => {
+        if (!titleRestored) {
+          document.title = prevDocTitle;
+          titleRestored = true;
+        }
+      };
       const cleanup = () => {
+        restoreTitle();
         try { if (root) root.unmount(); } catch { /* ignore */ }
         if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
       };
@@ -454,9 +626,147 @@ export default function PostBlastReportModal({
       // Fallback cleanup if onafterprint never fires (some browsers).
       setTimeout(cleanup, 60000);
     } catch (err) {
-      console.error('PDF export failed:', err);
+      console.error('PDF print failed:', err);
       try { if (root) root.unmount(); } catch { /* ignore */ }
       if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    }
+  };
+
+  // Render the export pages off-screen and rasterize them into a single PDF blob
+  // (html2canvas → jsPDF), mirroring the daily/InSAR report export. Used for the
+  // Supabase archive copy; the local download still uses the vector print path.
+  const generatePdfBlob = async () => {
+    const { createRoot } = await import('react-dom/client');
+    const logoDataUrl = await urlToDataUrl(headerLogo);
+    const exportBlocks = buildBlocks(false, logoDataUrl);
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'absolute',
+      left: '-100000px',
+      top: '0',
+      width: `${PAGE_W}px`,
+      background: '#fff',
+    });
+    document.body.appendChild(container);
+
+    const root = createRoot(container);
+    root.render(
+      <>
+        {effectivePages.map((idxs, i) => (
+          <PageSheet key={i} blocks={exportBlocks} idxs={idxs} pageNum={i + 1} total={effectivePages.length} />
+        ))}
+      </>
+    );
+
+    try {
+      // Wait for layout + all (data-URL / network) images to settle.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const imgEls = Array.from(container.querySelectorAll('img'));
+      await Promise.all(
+        imgEls.map((im) =>
+          im.complete ? Promise.resolve() : new Promise((res) => { im.onload = res; im.onerror = res; })
+        )
+      );
+      await new Promise((r) => setTimeout(r, 200));
+
+      await loadPdfScripts();
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+      const mmW = pdf.internal.pageSize.getWidth();
+      const mmH = pdf.internal.pageSize.getHeight();
+
+      const pageEls = Array.from(container.querySelectorAll('.pbr-page'));
+      for (let i = 0; i < pageEls.length; i++) {
+        const canvas = await window.html2canvas(pageEls[i], {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, 0, mmW, mmH);
+      }
+
+      return pdf.output('blob');
+    } finally {
+      try { root.unmount(); } catch { /* ignore */ }
+      if (container.parentNode) container.parentNode.removeChild(container);
+    }
+  };
+
+  // Persist the generated report PDF to Supabase — same flow/logic as the daily
+  // radar and InSAR water-body reports (reports table + Reports bucket + work_log).
+  const saveReportToSupabase = async (blob) => {
+    const clientId = meta.clientId ?? meta.client_id ?? null;
+    const safeName = (effectiveTitle || 'report').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '');
+    const pdfFileName = `${safeName}.pdf`;
+    const storagePath = clientId ? `${clientId}/${pdfFileName}` : pdfFileName;
+
+    const title = `${analysisTitle} Report`;
+    const category = /back/i.test(analysisTitle) ? 'back analysis' : 'post blast';
+    const description = `${analysisTitle} report for ${meta.radarNumber || 'sensor'}`;
+    const todayCa = new Date().toLocaleDateString('en-CA');
+
+    const { error: metadataError } = await supabase.from('reports').insert({
+      title,
+      type: 'radar',
+      category,
+      created_at: new Date().toISOString(),
+      status: 'Completed',
+      client_id: clientId,
+      filename: storagePath,
+      description,
+      generatedby: meta.author || '',
+      date: todayCa,
+      size: formatFileSize(blob.size),
+    });
+    if (metadataError) throw metadataError;
+
+    const { error: uploadError } = await supabase.storage.from('Reports').upload(
+      storagePath,
+      blob,
+      { contentType: 'application/pdf', upsert: true }
+    );
+    if (uploadError) throw uploadError;
+
+    // Work log (best-effort) — matches the daily/InSAR report behaviour.
+    try {
+      await supabase.from('work_log').insert([{
+        created_at: new Date().toISOString(),
+        subject: 1,
+        location: meta.siteName || '',
+        category: `${category} report`,
+        action: 'No action required',
+        notes: `${title} has been generated`,
+        submitted_by: meta.userId ?? null,
+        type: 'radar',
+      }]);
+    } catch (logErr) {
+      console.warn('Failed to create work log.', logErr);
+    }
+  };
+
+  // Orchestrate the export: archive a PDF copy to Supabase, open an Outlook draft,
+  // and finally trigger the local (vector) print/save dialog.
+  const handleExport = async () => {
+    if (!effectivePages || effectivePages.length === 0) return;
+    setIsExporting(true);
+    try {
+      // Supabase archive (best-effort — never blocks the local export/email).
+      try {
+        const blob = await generatePdfBlob();
+        await saveReportToSupabase(blob);
+      } catch (err) {
+        console.error('Saving report to Supabase failed:', err);
+      }
+
+      // Pre-filled Outlook draft.
+      openOutlookDraft(emailSubject, emailBody);
+
+      // Local high-quality download.
+      await printLocal();
     } finally {
       setIsExporting(false);
     }
@@ -468,7 +778,8 @@ export default function PostBlastReportModal({
     { label: 'Edition', value: fmtLongDate(new Date()) },
     { label: 'Author', value: meta.author || '—' },
     { label: 'Sensor', value: meta.radarNumber || '—' },
-    { label: 'Blast ID', value: meta.blastId || '—' },
+    // Blast ID is only carried for a Post-Blast Analysis (omitted otherwise).
+    ...(meta.blastId ? [{ label: 'Blast ID', value: meta.blastId }] : []),
   ];
   const summaryItems = [
     <>
@@ -493,7 +804,7 @@ export default function PostBlastReportModal({
           <img src={logoSrc} alt="Company" style={{ height: 46, maxWidth: 140, objectFit: 'contain' }} crossOrigin="anonymous" onLoad={bumpMeasure} />
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: NAVY, letterSpacing: '0.01em' }}>
-              POST BLAST ANALYSIS REPORT
+              {String(analysisTitle).toUpperCase()} REPORT
             </h1>
             <p style={{ margin: '3px 0 0', fontSize: 12, color: MUTED, fontWeight: 600 }}>
               {(meta.company || '—')} – {(meta.siteName || '—')}
@@ -753,7 +1064,27 @@ export default function PostBlastReportModal({
     >
       {/* ── Toolbar ── */}
       <div style={{ width: '100%', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 16px', background: '#111418', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}>
-        <strong style={{ fontSize: 14, marginRight: 'auto' }}>Post-Blast Analysis Report — Preview</strong>
+        <strong style={{ fontSize: 14 }}>{analysisTitle} Report — Preview</strong>
+
+        {/* Editable report title / PDF filename (issue 6) */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginRight: 'auto' }}>
+          <span style={{ color: '#cbd5e1' }}>Title</span>
+          <input
+            type="text"
+            value={reportTitle}
+            onChange={(e) => setReportTitle(e.target.value)}
+            aria-label="Report title / filename"
+            style={{
+              background: 'rgba(255,255,255,0.1)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 6,
+              padding: '5px 8px',
+              fontSize: 13,
+              width: 280,
+            }}
+          />
+        </label>
 
         {vcpResults.length > 1 && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>

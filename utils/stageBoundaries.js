@@ -246,6 +246,20 @@ export function displayPhase(phase, pfConfirmed) {
   return phase.replace('Progressive Failure', 'Progressive');
 }
 
+/**
+ * Short display label for a VCP — the calculation-period suffix only, without
+ * the filename-derived prefix. VCP names follow `${prefix}_${sw}min`, so this
+ * returns e.g. "600min" for "Enhanced Deformation_600min". Falls back to the
+ * text after the last underscore, then to the whole string.
+ */
+export function shortVcpLabel(vcpName) {
+  if (typeof vcpName !== 'string') return vcpName;
+  const m = vcpName.match(/(\d+)\s*min$/i);
+  if (m) return `${m[1]}min`;
+  const idx = vcpName.lastIndexOf('_');
+  return idx >= 0 ? vcpName.slice(idx + 1) : vcpName;
+}
+
 /** Index of the stage window containing time `tMs`, or -1. */
 export function stageAtMs(windows, tMs) {
   if (!Array.isArray(windows)) return -1;

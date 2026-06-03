@@ -403,9 +403,11 @@ const SensorDetail = ({
 
     // --- REFACTORED STATUS CHANGE LOGIC ---
 
+    // Convert a stored UTC ISO into a datetime-local value expressed in the
+    // SITE timezone (never the user's local / raw UTC time).
     const formatForInput = (isoString) => {
         if (!isoString) return '';
-        return new Date(isoString).toISOString().slice(0, 16);
+        return (fromUTC(isoString, timezone) || '').slice(0, 16);
     };
 
     const handleStatusChange = async (e) => {
@@ -415,13 +417,14 @@ const SensorDetail = ({
 
         // Default: Assume new entry
         setActiveDowntimeId(null);
-        const currentTime = new Date().toISOString().slice(0, 16);
+        // "Now", expressed as a datetime-local value in the site timezone.
+        const nowSiteLocal = (fromUTC(new Date().toISOString(), timezone) || '').slice(0, 16);
         let initialForm = {
             Type: targetStatus,
             reason: 'Radar System Issue',
             action: 'Check Fuel',
             notes: '',
-            from: fromUTC(currentTime),
+            from: nowSiteLocal,
             to: '',
             notificationTime: '',
             siteEngineer: '',
@@ -448,7 +451,7 @@ const SensorDetail = ({
                         action: activeRecord.action || 'Check Fuel',
                         notes: activeRecord.notes || '',
                         from: formatForInput(activeRecord.from), // Fill existing start time
-                        to: newStatus === 'Live' ? currentTime : '', // Pre-fill end time if going Live
+                        to: newStatus === 'Live' ? nowSiteLocal : '', // Pre-fill end time if going Live
                         notificationTime: formatForInput(activeRecord.notification_time),
                         siteEngineer: activeRecord.site_engineer || '',
                         crosscheckedBy: activeRecord.crosschecked_by || ''

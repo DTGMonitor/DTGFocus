@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import FileUploadPanel from './FileUploadPanel';
 import AnalysisParametersPanel, { DEFAULT_PARAMS } from './AnalysisParametersPanel';
 import ResultsArea from './ResultsArea';
@@ -27,7 +27,19 @@ const PR_API_BASE =
     ? '/api/pr-local'
     : '/api/pattern-recognition';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Constants / helpers ─────────────────────────────────────────────────────
+
+/**
+ * Deformation event types overlaid on the analysis charts and folded into the
+ * slope-behaviour summary (request 2). Archived records are included.
+ */
+const EVENT_DEF_TYPES = ['Material Detachment', 'Rock Fall', 'Blast Event', 'Failure'];
+
+/** Parse a tz-naive timestamp (window edge / event time) to epoch-ms locally. */
+function localMs(s) {
+  if (!s) return NaN;
+  return new Date(String(s).replace(' ', 'T').replace('Z', '')).getTime();
+}
 
 /**
  * Derive the name of the VCP used to fill the form (issue 4): the single VCP,
@@ -125,6 +137,8 @@ export default function PatternRecognitionPopup({
   timezone,
   onClose,
   onUseResults,
+  onArchive,
+  isArchiving = false,
   sensor = null,
   userSite = null,
 }) {
@@ -154,13 +168,21 @@ export default function PatternRecognitionPopup({
   const [isResettingStages, setIsResettingStages] = useState(false);
   const [stageError, setStageError] = useState(null);
 
-  // ── Blasting events for the related wall-folder (issue 7) ──────────────────
-  const [blastEvents, setBlastEvents] = useState([]);
+  // ── Per-VCP re-run in-flight index (issue 5) ───────────────────────────────
+  const [rerunningVcpIndex, setRerunningVcpIndex] = useState(null);
+
+  // ── Deformation events for the related wall-folder (request 2) ─────────────
+  // All Material Detachment / Rock Fall / Blast Event / Failure records for the
+  // wall folder, including archived ones. Filtered to the analysis period and
+  // toggled in/out by the analyst before plotting / summarising.
+  const [deformationEvents, setDeformationEvents] = useState([]);
+  const [excludedEventIds, setExcludedEventIds] = useState(() => new Set());
   const wallFolderId = precursorInitialValues?.WallFolderID ?? null;
 
   useEffect(() => {
     if (!isOpen || !wallFolderId) {
-      setBlastEvents([]);
+      setDeformationEvents([]);
+      setExcludedEventIds(new Set());
       return;
     }
     let cancelled = false;
@@ -168,10 +190,9 @@ export default function PatternRecognitionPopup({
       try {
         const { data, error } = await supabase
           .from('def_records')
-          .select('start')
+          .select('id, start, def_type, location, isactive')
           .eq('wallfolder_id', wallFolderId)
-          .eq('def_type', 'Blast Event')
-          .eq('isactive', 'Yes')
+          .in('def_type', EVENT_DEF_TYPES)
           .not('start', 'is', null);
         if (error) throw error;
         if (cancelled) return;
@@ -179,19 +200,66 @@ export default function PatternRecognitionPopup({
           .map((r) => {
             const local = isoToDatetimeLocal(r.start, timezone); // local-naive, matches chart axis
             if (!local) return null;
-            return { time: local, label: local.slice(5).replace('T', ' ') };
+            return {
+              id: r.id,
+              time: local,
+              type: r.def_type,
+              location: r.location ?? null,
+              isactive: r.isactive ?? null,
+            };
           })
           .filter(Boolean);
-        setBlastEvents(events);
+        setDeformationEvents(events);
+        setExcludedEventIds(new Set()); // default: include all
       } catch (err) {
-        console.error('Failed to load blasting events:', err);
-        if (!cancelled) setBlastEvents([]);
+        console.error('Failed to load deformation events:', err);
+        if (!cancelled) {
+          setDeformationEvents([]);
+          setExcludedEventIds(new Set());
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [isOpen, wallFolderId, timezone]);
+
+  const handleToggleEvent = useCallback((id) => {
+    setExcludedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Analysis period = union of all VCP window ranges. Events outside it are not
+  // shown (request 2: "within timestamp period").
+  const analysisPeriod = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of vcpResults) {
+      for (const w of v.windows ?? []) {
+        const s = localMs(w.start);
+        const e = localMs(w.end);
+        if (!Number.isNaN(s)) lo = Math.min(lo, s);
+        if (!Number.isNaN(e)) hi = Math.max(hi, e);
+      }
+    }
+    return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
+  }, [vcpResults]);
+
+  // Events within the period, tagged with their current include flag.
+  const periodEvents = useMemo(() => {
+    if (!analysisPeriod) return [];
+    return deformationEvents
+      .filter((ev) => {
+        const t = localMs(ev.time);
+        return !Number.isNaN(t) && t >= analysisPeriod.lo && t <= analysisPeriod.hi;
+      })
+      .sort((a, b) => localMs(a.time) - localMs(b.time))
+      .map((ev) => ({ ...ev, included: !excludedEventIds.has(ev.id) }));
+  }, [deformationEvents, analysisPeriod, excludedEventIds]);
 
   // ── Client (site / company / logo) for the Post-Blast Report header ─────────
   // The report describes the SENSOR's site, not the signed-in user's own site,
@@ -280,14 +348,40 @@ export default function PatternRecognitionPopup({
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
-
       if (!response.ok) {
-        // HTTP 4xx or 5xx
-        const errorMsg = data?.error || `Analysis failed (HTTP ${response.status}).`;
-        setAnalysisError(errorMsg);
+        // A Vercel function timeout (504) or gateway error (502) returns an
+        // HTML/plain error page, not JSON — so parse defensively and map the
+        // common platform limits to actionable messages for the analyst.
+        let serverError = null;
+        try {
+          serverError = (await response.json())?.error || null;
+        } catch {
+          serverError = null;
+        }
+
+        if (response.status === 504 || response.status === 502) {
+          // Function exceeded the 60-second server time limit — almost always
+          // because the dataset is too large to process in time.
+          setAnalysisError(
+            'The dataset is too large to analyse within the 60-second server ' +
+              'time limit. Please reduce it to roughly 900 rows or fewer (or ' +
+              'split it into smaller files) and try again.'
+          );
+        } else if (response.status === 413) {
+          // Request body exceeded Vercel's ~4.5 MB cap.
+          setAnalysisError(
+            'The uploaded file is too large for the server (max ~4.5 MB per ' +
+              'request). Please upload a smaller file or split it into parts.'
+          );
+        } else {
+          setAnalysisError(
+            serverError || `Analysis failed (HTTP ${response.status}).`
+          );
+        }
         return;
       }
+
+      const data = await response.json();
 
       // Success — populate results
       const results = Array.isArray(data.vcps) ? data.vcps : [];
@@ -420,6 +514,107 @@ export default function PatternRecognitionPopup({
     [originalVcpResults]
   );
 
+  // ── Re-run a single VCP with adjusted parameters (issue 5) ────────────────
+
+  const handleRerunVcp = useCallback(
+    async (vcpIndex, overrideParams, newSmoothingWindow) => {
+      const target = vcpResults[vcpIndex];
+      if (!target) return;
+
+      const sw = Number(newSmoothingWindow) || target.smoothingWindow;
+
+      // VCP names follow `${prefix}_${sw}min`; recover the prefix to locate the
+      // original uploaded file so we can re-run just this VCP.
+      const oldSuffix = `_${target.smoothingWindow}min`;
+      const prefix =
+        typeof target.vcpName === 'string' && target.vcpName.endsWith(oldSuffix)
+          ? target.vcpName.slice(0, -oldSuffix.length)
+          : target.vcpName;
+      const cfg = uploadedFiles.find(
+        (c) => !c.parseError && c.file && c.vcpNamePrefix === prefix
+      );
+      if (!cfg) {
+        setStageError(
+          `Could not locate the source file for ${target.vcpName} to re-run.`
+        );
+        return;
+      }
+
+      setRerunningVcpIndex(vcpIndex);
+      setStageError(null);
+
+      try {
+        const payload = {
+          files: [
+            {
+              name: cfg.file.name,
+              contentBase64: await fileToBase64(cfg.file),
+              vcpNamePrefix: cfg.vcpNamePrefix,
+              smoothingWindows: [sw],
+            },
+          ],
+          params: overrideParams ?? params,
+        };
+
+        const response = await fetch(`${PR_API_BASE}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          let serverError = null;
+          try {
+            serverError = (await response.json())?.error || null;
+          } catch {
+            serverError = null;
+          }
+          if (response.status === 504 || response.status === 502) {
+            setStageError(
+              'This VCP is too large to re-run within the 60-second server ' +
+                'time limit. Try reducing the dataset (~900 rows or fewer).'
+            );
+          } else if (response.status === 413) {
+            setStageError(
+              'The source file is too large for the server (max ~4.5 MB).'
+            );
+          } else {
+            setStageError(serverError || 'Failed to re-run this VCP.');
+          }
+          return;
+        }
+
+        const data = await response.json();
+        const newVcp = Array.isArray(data.vcps) ? data.vcps[0] : null;
+        if (!newVcp) {
+          setStageError('Re-run returned no VCP result.');
+          return;
+        }
+        if (newVcp.errors?.length && !newVcp.combinedChartJson) {
+          setStageError(newVcp.errors[0]);
+          return;
+        }
+
+        setVcpResults((prev) => {
+          const updated = [...prev];
+          updated[vcpIndex] = newVcp;
+          setLongestVcpName(deriveLongestVcpName(updated));
+          return updated;
+        });
+        setOriginalVcpResults((prev) => {
+          const updated = [...prev];
+          updated[vcpIndex] = newVcp;
+          return updated;
+        });
+      } catch (err) {
+        setStageError('An unexpected error occurred while re-running the VCP.');
+      } finally {
+        setRerunningVcpIndex(null);
+      }
+    },
+    [vcpResults, uploadedFiles, params]
+  );
+
   // ── Use Results to Fill Form (Requirements 8.2, 8.3) ─────────────────────
 
   const handleUseResults = useCallback(() => {
@@ -456,6 +651,10 @@ export default function PatternRecognitionPopup({
     author: userSite?.displayname ?? '',
     blastId: precursorInitialValues?.Location ?? '',
     logoPath: normalizeLogoPath(clientInfo?.logo_path ?? userSite?.site?.logo_path),
+    // Carried so the report export can persist to Supabase (reports table +
+    // Reports storage bucket + work_log), mirroring the daily/InSAR reports.
+    clientId: sensorSiteId,
+    userId: userSite?.user_id ?? null,
   };
 
   // ── Early return when not open ─────────────────────────────────────────────
@@ -729,7 +928,13 @@ export default function PatternRecognitionPopup({
                   isApplyingStages={isApplyingStages}
                   isResettingStages={isResettingStages}
                   onUseResults={handleUseResults}
-                  blastEvents={blastEvents}
+                  onArchive={onArchive}
+                  isArchiving={isArchiving}
+                  params={params}
+                  onRerunVcp={handleRerunVcp}
+                  rerunningVcpIndex={rerunningVcpIndex}
+                  events={periodEvents}
+                  onToggleEvent={handleToggleEvent}
                   reportMeta={reportMeta}
                 />
               </section>

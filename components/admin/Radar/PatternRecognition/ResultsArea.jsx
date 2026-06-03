@@ -6,6 +6,9 @@ import VCPSummaryTable from './VCPSummaryTable';
 import StageSummaryTable from './StageSummaryTable';
 import StageEditor from './StageEditor';
 import PostBlastReportModal from './PostBlastReportModal';
+import VcpParameterEditor from './VcpParameterEditor';
+import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
+import { selectFormVcp } from '@/utils/patternRecognitionMapper';
 import {
   PHASE_OPTIONS,
   windowsToBoundaries,
@@ -24,6 +27,20 @@ const PHASE_COLORS = {
   'Progressive Failure': '#FF0000',
   Regressive: '#FFFF00',
   Unclassified: '#9E9E9E',
+};
+
+/** Deformation-event types plotted as vertical markers + chart icons/labels. */
+const EVENT_ICON = {
+  'Blast Event': '💥',
+  'Rock Fall': '🪨',
+  'Material Detachment': '⛏️',
+  Failure: '⚠️',
+};
+const EVENT_SHORT = {
+  'Blast Event': 'Blast',
+  'Rock Fall': 'Rock Fall',
+  'Material Detachment': 'Material Detachment',
+  Failure: 'Failure',
 };
 
 /**
@@ -292,7 +309,7 @@ function ChartPanel({
       xref: 'x',
       y: 0.04,
       yref: 'paper',
-      text: `💥 Blasting${b.label ? ` ${b.label}` : ''}`,
+      text: `${EVENT_ICON[b.type] ?? '💥'} ${EVENT_SHORT[b.type] ?? b.type ?? 'Event'}`,
       showarrow: false,
       textangle: -90,
       font: { color: BLAST_COLOR, size: 9 },
@@ -588,6 +605,105 @@ function MenuItem({ children, onClick, disabled }) {
   );
 }
 
+/**
+ * DeformationEventsPanel — lists deformation events (Material Detachment, Rock
+ * Fall, Blast Event, Failure) found within the analysis period for the wall
+ * folder, including archived ones (request 2). Each can be toggled in/out; the
+ * included set is plotted on the charts and folded into the report summary.
+ */
+function DeformationEventsPanel({ events, onToggle }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        borderRadius: '8px',
+        border: '1px solid var(--dtg-border-medium)',
+        background: 'var(--dtg-bg-card)',
+        padding: '12px 14px',
+      }}
+    >
+      <h3
+        style={{
+          margin: 0,
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          color: 'var(--dtg-text-primary)',
+        }}
+      >
+        Deformation Events ({events.filter((e) => e.included !== false).length}/{events.length} included)
+      </h3>
+      <p
+        style={{
+          margin: 0,
+          fontSize: '0.75rem',
+          color: 'var(--dtg-text-secondary)',
+          fontStyle: 'italic',
+        }}
+      >
+        Events within the analysis period for this wall folder (archived included).
+        Untick any you want to exclude from the charts and slope-behaviour summary.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        {events.map((ev) => {
+          const isArchived = ev.isactive != null && ev.isactive !== 'Yes';
+          return (
+            <label
+              key={ev.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '5px 6px',
+                borderRadius: '6px',
+                fontSize: '0.8125rem',
+                color: 'var(--dtg-text-primary)',
+                cursor: onToggle ? 'pointer' : 'default',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={ev.included !== false}
+                onChange={() => onToggle?.(ev.id)}
+                style={{
+                  width: '15px',
+                  height: '15px',
+                  accentColor: 'var(--dtg-brand-orange, #e67e22)',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              />
+              <span aria-hidden="true">{EVENT_ICON[ev.type] ?? '📍'}</span>
+              <span style={{ fontWeight: 600 }}>{EVENT_SHORT[ev.type] ?? ev.type}</span>
+              <span style={{ color: 'var(--dtg-text-secondary)' }}>
+                {String(ev.time).replace('T', ' ')}
+              </span>
+              {ev.location && (
+                <span style={{ color: 'var(--dtg-text-secondary)' }}>· {ev.location}</span>
+              )}
+              {isArchived && (
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: '0.6875rem',
+                    color: 'var(--dtg-text-secondary)',
+                    border: '1px solid var(--dtg-border-medium)',
+                    borderRadius: '4px',
+                    padding: '0 6px',
+                  }}
+                >
+                  archived
+                </span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 /**
@@ -626,7 +742,13 @@ export default function ResultsArea({
   isApplyingStages,
   isResettingStages,
   onUseResults,
-  blastEvents = null,
+  onArchive,
+  isArchiving = false,
+  params = null,
+  onRerunVcp,
+  rerunningVcpIndex = null,
+  events = null,
+  onToggleEvent,
   reportMeta = {},
 }) {
   // ── Active VCP state (Requirement 5.4) ────────────────────────────────────
@@ -635,6 +757,49 @@ export default function ResultsArea({
   const [actualFailureTime, setActualFailureTime] = useState('');
   // Post-Blast Analysis Report modal.
   const [showReport, setShowReport] = useState(false);
+  // Archive-blast confirmation (issue 3) — shown when the latest stage of the
+  // form VCP is No Significant Movement.
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  // Report mode — chosen from the Generate Report dropdown right before opening
+  // the preview (request 1). Drives the report title.
+  const [analysisMode, setAnalysisMode] = useState('postblast');
+  // Generate Report dropdown open state.
+  const [showReportMenu, setShowReportMenu] = useState(false);
+
+  // Deformation events within the analysis period (request 2): the included
+  // subset is plotted on the charts and folded into the slope-behaviour summary.
+  const periodEvents = Array.isArray(events) ? events : [];
+  const includedEvents = periodEvents.filter((e) => e.included !== false);
+
+  // Mode → report title. Back Analysis becomes "Failure Back Analysis" once an
+  // actual failure time is supplied (request 1).
+  const backAnalysisTitle = actualFailureTime ? 'Failure Back Analysis' : 'Back Analysis';
+  const analysisTitle = analysisMode === 'back' ? backAnalysisTitle : 'Post-Blast Analysis';
+
+  // Open the report preview in a given mode (from the dropdown).
+  const openReport = (mode) => {
+    setAnalysisMode(mode);
+    setShowReportMenu(false);
+    setShowReport(true);
+  };
+
+  // Latest included blast event (when more than one, use the most recent).
+  const latestBlast = includedEvents
+    .filter((e) => e.type === 'Blast Event')
+    .reduce(
+      (latest, e) => (!latest || String(e.time) > String(latest.time) ? e : latest),
+      null
+    );
+
+  // Report metadata, mode-adjusted: the Blast ID is only carried for a
+  // Post-Blast Analysis, and resolves to the latest blast event's identifier.
+  const reportMetaForMode = {
+    ...reportMeta,
+    blastId:
+      analysisMode === 'postblast'
+        ? latestBlast?.location || latestBlast?.time || reportMeta?.blastId || ''
+        : '',
+  };
 
   const results = Array.isArray(vcpResults) ? vcpResults : [];
   const hasMultipleVcps = results.length >= 2;
@@ -656,13 +821,43 @@ export default function ResultsArea({
   // time is entered (issue 3).
   const pfConfirmed = Boolean(actualFailureTime);
 
-  // Requirement 10.5: disable "Use Results to Fill Form" when no VCP has a PF stage
-  const canUseResults = anyVcpHasProgressiveFailure(results);
+  // Whether any VCP reached a Progressive Failure stage (used only for the
+  // informational hint now — the button itself is always enabled, issue 3).
+  const hasProgressive = anyVcpHasProgressiveFailure(results);
+
+  // Latest stage of the VCP that would fill the form (single VCP, or the one
+  // with the shortest calculation period). When this is No Significant Movement,
+  // "Use Results" archives the blast record instead of filling the form (issue 3).
+  let formVcpLatestPhase = null;
+  try {
+    const formVcp = selectFormVcp(results);
+    const ws = Array.isArray(formVcp?.windows) ? formVcp.windows : [];
+    formVcpLatestPhase = ws.length ? ws[ws.length - 1].phase : null;
+  } catch {
+    formVcpLatestPhase = null;
+  }
+  const latestIsNoSignificant = formVcpLatestPhase === 'No Significant Movement';
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleVcpSelect = (index) => {
     setActiveVcpIndex(index);
+  };
+
+  // "Use Results to Fill Form" — when the form VCP's latest stage is No
+  // Significant Movement, prompt to archive the blast record; otherwise fill.
+  const handleUseResultsClick = () => {
+    if (latestIsNoSignificant) {
+      setShowArchiveConfirm(true);
+    } else {
+      onUseResults?.();
+    }
+  };
+
+  const handleConfirmArchive = () => {
+    onArchive?.();
+    // Parent closes the popup on success; keep the dialog dismissed locally.
+    setShowArchiveConfirm(false);
   };
 
   const handleApplyStages = (updatedWindows) => {
@@ -711,9 +906,22 @@ export default function ResultsArea({
           onApplyBoundaries={(newWindows) =>
             onApplyStages?.(safeActiveIndex, newWindows)
           }
-          blastEvents={blastEvents}
+          blastEvents={includedEvents}
           pfConfirmed={pfConfirmed}
           actualFailureTime={actualFailureTime}
+        />
+      )}
+
+      {/* ── Per-VCP parameter adjustment + individual re-run (issue 5) ── */}
+      {activeVcp && onRerunVcp && (
+        <VcpParameterEditor
+          vcpName={activeVcp.vcpName}
+          globalParams={params}
+          smoothingWindow={activeVcp.smoothingWindow}
+          isBusy={rerunningVcpIndex === safeActiveIndex}
+          onApply={(newParams, newSmoothingWindow) =>
+            onRerunVcp(safeActiveIndex, newParams, newSmoothingWindow)
+          }
         />
       )}
 
@@ -722,10 +930,15 @@ export default function ResultsArea({
         <ChartPanel
           chartJson={multiVcpComparisonChartJson}
           label="Multi-VCP Comparison"
-          blastEvents={blastEvents}
+          blastEvents={includedEvents}
           pfConfirmed={pfConfirmed}
           actualFailureTime={actualFailureTime}
         />
+      )}
+
+      {/* ── Deformation Events within the analysis period (request 2) ── */}
+      {periodEvents.length > 0 && (
+        <DeformationEventsPanel events={periodEvents} onToggle={onToggleEvent} />
       )}
 
       {/* ── Actual Failure Time (back-analysis / forecast error, issue 2) ── */}
@@ -841,33 +1054,98 @@ export default function ResultsArea({
           paddingTop: '4px',
         }}
       >
-        {/* Generate the printable Post-Blast Analysis Report (preview + PDF) */}
-        <button
-          type="button"
-          onClick={() => setShowReport(true)}
-          style={{
-            padding: '10px 22px',
-            borderRadius: '6px',
-            border: '1px solid var(--dtg-border-medium)',
-            background: 'transparent',
-            color: 'var(--dtg-text-primary)',
-            fontSize: '0.9rem',
-            fontWeight: 600,
-            cursor: 'pointer',
-            transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--dtg-bg-secondary, rgba(255,255,255,0.06))';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-          }}
-        >
-          Generate Post-Blast Report
-        </button>
+        {/* Generate the printable report — pick the analysis type from the
+            dropdown, which then opens the preview (request 1). */}
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setShowReportMenu((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={showReportMenu}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 22px',
+              borderRadius: '6px',
+              border: '1px solid var(--dtg-border-medium)',
+              background: 'transparent',
+              color: 'var(--dtg-text-primary)',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--dtg-bg-secondary, rgba(255,255,255,0.06))';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            Generate Report
+            <span aria-hidden="true" style={{ fontSize: '0.7rem', opacity: 0.7 }}>▾</span>
+          </button>
 
-        {/* Informational message when no PF stage exists (Requirement 10.5) */}
-        {!canUseResults && (
+          {showReportMenu && (
+            <>
+              {/* click-away backdrop */}
+              <div
+                onClick={() => setShowReportMenu(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+              />
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute',
+                  bottom: 'calc(100% + 6px)',
+                  left: 0,
+                  zIndex: 41,
+                  minWidth: '220px',
+                  padding: '4px 0',
+                  background: 'var(--dtg-bg-card)',
+                  border: '1px solid var(--dtg-border-medium)',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+                }}
+              >
+                {[
+                  { mode: 'postblast', label: 'Post-Blast Analysis' },
+                  { mode: 'back', label: backAnalysisTitle },
+                ].map((opt) => (
+                  <div
+                    key={opt.mode}
+                    role="menuitem"
+                    tabIndex={0}
+                    onClick={() => openReport(opt.mode)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') openReport(opt.mode);
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '0.85rem',
+                      color: 'var(--dtg-text-primary)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background =
+                        'var(--dtg-bg-secondary, rgba(255,255,255,0.06))';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    {opt.label}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Informational hint — never blocks the button now (issue 3) */}
+        {!hasProgressive && !latestIsNoSignificant && (
           <p
             style={{
               margin: '0 12px 0 0',
@@ -881,37 +1159,33 @@ export default function ResultsArea({
           </p>
         )}
 
+        {/* When the latest stage is No Significant Movement, the action archives
+            the blast record instead of filling the form (issue 3). */}
         <button
           type="button"
-          onClick={onUseResults}
-          disabled={!canUseResults}
-          aria-disabled={!canUseResults}
+          onClick={handleUseResultsClick}
+          disabled={isArchiving}
+          aria-disabled={isArchiving}
           style={{
             padding: '10px 22px',
             borderRadius: '6px',
             border: 'none',
-            background: canUseResults
-              ? 'var(--dtg-brand-orange, #e67e22)'
-              : 'rgba(230, 126, 34, 0.3)',
-            color: canUseResults ? '#fff' : 'rgba(255,255,255,0.4)',
+            background: 'var(--dtg-brand-orange, #e67e22)',
+            color: '#fff',
             fontSize: '0.9rem',
             fontWeight: 600,
-            cursor: canUseResults ? 'pointer' : 'not-allowed',
-            opacity: canUseResults ? 1 : 0.6,
+            cursor: isArchiving ? 'not-allowed' : 'pointer',
+            opacity: isArchiving ? 0.6 : 1,
             transition: 'opacity 0.15s, background 0.15s',
           }}
           onMouseEnter={(e) => {
-            if (canUseResults) {
-              e.currentTarget.style.opacity = '0.85';
-            }
+            if (!isArchiving) e.currentTarget.style.opacity = '0.85';
           }}
           onMouseLeave={(e) => {
-            if (canUseResults) {
-              e.currentTarget.style.opacity = '1';
-            }
+            if (!isArchiving) e.currentTarget.style.opacity = '1';
           }}
         >
-          Use Results to Fill Form
+          {latestIsNoSignificant ? 'Archive Blast Record' : 'Use Results to Fill Form'}
         </button>
       </div>
 
@@ -922,9 +1196,24 @@ export default function ResultsArea({
         vcpResults={results}
         activeVcp={activeVcp}
         stageRows={allStageRows}
-        meta={reportMeta}
+        meta={reportMetaForMode}
         actualFailureTime={actualFailureTime}
         pfConfirmed={pfConfirmed}
+        blastEvents={includedEvents}
+        analysisTitle={analysisTitle}
+      />
+
+      {/* ── Archive-blast confirmation (issue 3) ── */}
+      <ConfirmDialog
+        isOpen={showArchiveConfirm}
+        title="Archive Blast Record"
+        message="The latest stage is No Significant Movement — the slope has settled. This will archive the blast record without creating a new deformation record. Do you want to continue?"
+        onConfirm={handleConfirmArchive}
+        onCancel={() => setShowArchiveConfirm(false)}
+        confirmLabel="Archive"
+        cancelLabel="Cancel"
+        isDestructive
+        isConfirmDisabled={isArchiving}
       />
 
       {/* Spinner keyframe (shared with StageEditor) */}

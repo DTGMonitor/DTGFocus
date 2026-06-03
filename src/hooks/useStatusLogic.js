@@ -21,18 +21,20 @@ export const useStatusLogic = (sensor, timezone, user, onUpdateComplete) => {
         crosscheckedBy: '',
     });
 
-    // Helper: Format for input
-    const formatForInput = (isoString) => isoString ? new Date(isoString).toISOString().slice(0, 16) : '';
+    // Helper: convert a stored UTC ISO into a datetime-local value expressed in
+    // the SITE timezone (never the user's local / raw UTC time).
+    const formatForInput = (isoString) => (isoString ? (fromUTC(isoString, timezone) || '').slice(0, 16) : '');
 
     const initiateStatusChange = async (newStatus) => {
         setTargetStatus(newStatus);
-        const currentTime = new Date().toISOString().slice(0, 16);
+        // "Now", expressed as a datetime-local value in the site timezone.
+        const nowSiteLocal = (fromUTC(new Date().toISOString(), timezone) || '').slice(0, 16);
 
         // Default Form
         let initialForm = {
             ...formData,
-            from: fromUTC(currentTime),
-            to: newStatus === 'Live' ? currentTime : '',
+            from: nowSiteLocal,
+            to: newStatus === 'Live' ? nowSiteLocal : '',
         };
 
         // If we aren't currently Live, check for an existing open record to edit
@@ -53,7 +55,7 @@ export const useStatusLogic = (sensor, timezone, user, onUpdateComplete) => {
                     action: activeRecord.action || 'Check Fuel',
                     notes: activeRecord.notes || '',
                     from: formatForInput(activeRecord.from),
-                    to: newStatus === 'Live' ? currentTime : '',
+                    to: newStatus === 'Live' ? nowSiteLocal : '',
                     notificationTime: formatForInput(activeRecord.notification_time),
                     siteEngineer: activeRecord.site_engineer || '',
                     crosscheckedBy: activeRecord.crosschecked_by || ''

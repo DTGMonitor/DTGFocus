@@ -1,6 +1,6 @@
 'use client';
 
-import { displayPhase } from '@/utils/stageBoundaries';
+import { displayPhase, shortVcpLabel } from '@/utils/stageBoundaries';
 
 /**
  * StageSummaryTable
@@ -81,6 +81,8 @@ function columnLabel(col) {
 function formatCell(col, row, pfConfirmed) {
   const raw = row[col.key];
   if (raw === null || raw === undefined) return 'N/A';
+  // VCP column shows the calculation-period only (e.g. "600min"), no prefix.
+  if (col.key === 'VCP') return shortVcpLabel(String(raw));
   // Stage label respects the "Progressive" → "Progressive Failure" gate (issue 3).
   if (col.key === 'Stage') return displayPhase(String(raw), pfConfirmed);
   if (!col.numeric) return String(raw);

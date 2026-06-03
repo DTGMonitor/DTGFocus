@@ -121,6 +121,9 @@ test('Property 3: formatTimestamp is derived from fromUTC, never the raw UTC str
           hour: '2-digit',
           minute: '2-digit',
           hour12: false,
+          // fromUTC returns a tz-naive ISO carrying site wall-clock components;
+          // read them back in UTC so the assertion is runtime-independent.
+          timeZone: 'UTC',
         });
         expect(formatTimestamp(iso, tz)).toBe(expected);
       }
