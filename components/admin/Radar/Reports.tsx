@@ -12,6 +12,7 @@ import { SafetyReportPreview } from '../../reports/SafetyReportPreview';
 import AdminUpload from "@/components/admin/Reports/AdminUpload";
 import ReportList from "@/components/admin/Reports/ReportList";
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
+import ScheduledReports from "@/components/admin/Radar/ReportReminder/ScheduledReports";
 
 interface Report {
   id: string;
@@ -278,56 +279,8 @@ function Reports() {
 
       <ReportList refreshTrigger={refreshTrigger} reportData={handleReportLoaded} />
 
-      {/* Report Templates */}
-      <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">
-        <h3 className="text-lg text-[var(--dtg-text-primary)] mb-4">Report Templates</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { name: 'Daily Operations Report', icon: Clock, color: 'text-[#14b8a6]' },
-            { name: 'Weekly Summary Report', icon: Calendar, color: 'text-[#f97316]' },
-            { name: 'Monthly Analysis Report', icon: TrendingUp, color: 'text-[#8b5cf6]' },
-          ].map((template, index) => {
-            const Icon = template.icon;
-            return (
-              <button key={index} className="flex items-center gap-3 p-4 bg-[var(--dtg-bg-primary)] rounded-lg border border-[var(--dtg-border-medium)] hover:border-[#14b8a6] transition-all text-left">
-                <Icon className={`w-6 h-6 ${template.color}`} />
-                <span className="text-[var(--dtg-text-primary)]">{template.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Scheduled Reports */}
-      <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg text-[var(--dtg-text-primary)]">Scheduled Reports</h3>
-          <button className="text-sm text-[#14b8a6] hover:text-[#0d9488] transition-colors">
-            Manage Schedule
-          </button>
-        </div>
-        <div className="space-y-3">
-          {[
-            { name: 'Daily Data Quality', frequency: 'Every day at 6:00 AM', nextRun: 'Tomorrow' },
-            { name: 'Weekly Safety Summary', frequency: 'Every Monday at 8:00 AM', nextRun: 'Nov 4, 2024' },
-            { name: 'Monthly Availability Report', frequency: 'First day of month', nextRun: 'Dec 1, 2024' },
-          ].map((scheduled, index) => (
-            <div key={index} className="flex items-center justify-between p-4 bg-[var(--dtg-bg-primary)] rounded-lg border border-[var(--dtg-border-medium)]">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <div>
-                  <div className="text-[var(--dtg-text-primary)]">{scheduled.name}</div>
-                  <div className="text-[var(--dtg-gray-500)] text-sm">{scheduled.frequency}</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[var(--dtg-gray-500)] text-sm">Next run</div>
-                <div className="text-[var(--dtg-text-primary)] text-sm">{scheduled.nextRun}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Scheduled Reports — per-site deadline & reminder */}
+      <ScheduledReports />
 
       {/* Report Preview Modals */}
       {viewingReport === 'alarm' && (

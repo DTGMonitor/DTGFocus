@@ -5,6 +5,7 @@ import { adminMenuItems } from "@/config/menuConfig";
 import RadarMonitoring from "./RadarMonitoring";
 import Notifications from "@/components/admin/Radar/Notifications";
 import Reports from "@/components/admin/Radar/Reports";
+import ReportReminderManager from "@/components/admin/Radar/ReportReminder/ReportReminderManager";
 import '../adminpagestyle.css';
 
 
@@ -47,6 +48,9 @@ function Radar() {
             </div>
 
             {components[activeComponent]}
+
+            {/* Daily report-generation reminder — active across all tabs */}
+            <ReportReminderManager />
 
         </div>
     );

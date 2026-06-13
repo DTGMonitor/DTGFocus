@@ -70,8 +70,8 @@ export default function AlarmTab({
       // 1. Resolve the alarm regions belonging to this wall-folder.
       const { data: regionData, error: regionError } = await supabase
         .from('alarm_regions')
-        .select('id, name, type')
-        .eq('wallfolder_id', sensor.wallfolder_id);
+        .select('id, name, alarmtype')
+        .eq('wallfolder', sensor.wallfolder_id);
 
       if (regionError) throw regionError;
 
