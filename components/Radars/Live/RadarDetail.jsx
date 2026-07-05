@@ -368,7 +368,7 @@ function RadarDetail({ radar, onBack }) {
         const { data, error } = await supabase
           .from("def_records")
           .select(`
-          id, created_at, location, precursor, def_type, tarp_level, isactive, start,
+          id, created_at, location, precursors, def_type, tarp_level, isactive, start,
           wall_folder:radar_wall_folders!inner(
             id, type, name, radar_id
           )

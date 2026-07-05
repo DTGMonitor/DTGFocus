@@ -16,6 +16,7 @@ import {
   getCauseOptions,
   resolveTimelineChain,
   performDeformationUpdateFlow,
+  normalizePrecursorss,
 } from '@/utils/tabHelpers';
 import { fromUTC } from '@/utils/timezoneUtils';
 import { CAUSE_OPTIONS } from '@/config/formConfig';
@@ -244,9 +245,9 @@ function makeClient({ archiveError = null, insertError = null } = {}) {
   return { client, calls };
 }
 
-// ─── Property 7: Update flow preserves precursor linkage ───────────────────────
-// Feature: sensor-detail-tabs-redesign, Property 7: Update flow preserves precursor linkage
-test('Property 7: successful update flow archives original and links precursor', async () => {
+// ─── Property 7: Update flow preserves precursors linkage ───────────────────────
+// Feature: sensor-detail-tabs-redesign, Property 7: Update flow preserves precursors linkage
+test('Property 7: successful update flow archives original and links precursors', async () => {
   await fc.assert(
     fc.asyncProperty(fc.uuid(), async (originalId) => {
       const { client, calls } = makeClient();
@@ -257,9 +258,9 @@ test('Property 7: successful update flow archives original and links precursor',
       const archive = calls.updates.find((u) => u.payload.isactive === 'No');
       expect(archive).toBeTruthy();
       expect(archive.val).toBe(originalId);
-      // (b) new record links precursor
+      // (b) new record links precursors as an INT[] with the archived original first
       expect(calls.inserts).toHaveLength(1);
-      expect(calls.inserts[0].rows[0].precursor).toBe(originalId);
+      expect(calls.inserts[0].rows[0].precursors).toEqual([originalId]);
     }),
     RUNS
   );
@@ -288,12 +289,12 @@ test('Property 8: insert failure triggers compensating restore of isactive=Yes',
 test('Property 9: resolveTimelineChain returns root-to-current ordered chain', async () => {
   await fc.assert(
     fc.asyncProperty(fc.integer({ min: 1, max: 10 }), async (depth) => {
-      // Build a linked chain r0(root, precursor=null) -> r1 -> ... -> r{depth}
+      // Build a linked chain r0(root, precursors=null) -> r1 -> ... -> r{depth}
       const records = [];
       for (let i = 0; i <= depth; i++) {
         records.push({
           id: `id-${i}`,
-          precursor: i === 0 ? null : `id-${i - 1}`,
+          precursors: i === 0 ? null : `id-${i - 1}`,
           created_at: new Date(2020, 0, 1 + i).toISOString(),
         });
       }
@@ -305,11 +306,74 @@ test('Property 9: resolveTimelineChain returns root-to-current ordered chain', a
 
       expect(error).toBeNull();
       expect(chain).toHaveLength(depth + 1);
-      expect(chain[0].precursor).toBeNull();
+      expect(chain[0].precursors).toBeNull();
       expect(chain[chain.length - 1].id).toBe(latest.id);
       for (let i = 0; i < chain.length - 1; i++) {
-        expect(chain[i + 1].precursor).toBe(chain[i].id);
+        expect(chain[i + 1].precursors).toBe(chain[i].id);
       }
+    }),
+    RUNS
+  );
+});
+
+// ─── Property 10: normalizePrecursorss coerces every shape to a clean array ──────
+// Feature: precursors-int-array, Property 10: normalizePrecursorss normalization
+test('Property 10: normalizePrecursorss returns a null/undefined-free array for any input', () => {
+  fc.assert(
+    fc.property(
+      fc.oneof(
+        fc.constant(null),
+        fc.constant(undefined),
+        fc.integer(),
+        fc.array(fc.oneof(fc.integer(), fc.constant(null), fc.constant(undefined))),
+      ),
+      (input) => {
+        const out = normalizePrecursorss(input);
+        expect(Array.isArray(out)).toBe(true);
+        expect(out.every((v) => v !== null && v !== undefined)).toBe(true);
+        if (input === null || input === undefined) expect(out).toHaveLength(0);
+        if (typeof input === 'number') expect(out).toEqual([input]);
+      },
+    ),
+    RUNS
+  );
+});
+
+// ─── Property 11: array precursorss — linear spine + non-primary `related` ───────
+// Feature: precursors-int-array, Property 11: first precursors forms spine, rest are `related`
+test('Property 11: resolveTimelineChain walks precursors[0] and lists the rest as related', async () => {
+  await fc.assert(
+    fc.asyncProperty(fc.integer({ min: 1, max: 6 }), fc.integer({ min: 1, max: 4 }), async (depth, extras) => {
+      // Spine s0(root) -> s1 -> ... -> s{depth}; the tail also links `extras`
+      // standalone event records via the non-primary slots of precursors[].
+      const records = [];
+      for (let i = 0; i <= depth; i++) {
+        records.push({ id: `s-${i}`, def_type: 'Progressive', precursors: i === 0 ? [] : [`s-${i - 1}`] });
+      }
+      const eventIds = [];
+      for (let e = 0; e < extras; e++) {
+        const id = `evt-${e}`;
+        eventIds.push(id);
+        records.push({ id, def_type: 'Blast Event', precursors: [] });
+      }
+      // Append event ids after the primary spine parent on the tail record.
+      records[depth].precursors = [`s-${depth - 1}`, ...eventIds];
+
+      const byId = Object.fromEntries(records.map((r) => [r.id, r]));
+      const fetchFn = (id) => Promise.resolve(byId[id]);
+
+      const { chain, error } = await resolveTimelineChain(records[depth], fetchFn, 50);
+
+      expect(error).toBeNull();
+      // Spine length is unaffected by the extra event links.
+      expect(chain).toHaveLength(depth + 1);
+      expect(chain[0].id).toBe('s-0');
+      const tail = chain[chain.length - 1];
+      expect(tail.id).toBe(`s-${depth}`);
+      // Non-primary precursorss surface as `related`, primary spine parent does not.
+      expect(tail.related.map((r) => r.id)).toEqual(eventIds);
+      // Interior spine nodes have no extras.
+      expect(chain[0].related).toEqual([]);
     }),
     RUNS
   );

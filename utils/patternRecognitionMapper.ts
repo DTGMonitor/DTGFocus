@@ -203,18 +203,18 @@ function dualFieldsFor(vcp: VCPResult): {
  * Pure function — no side effects.
  *
  * @param vcpResults            Array of VCPResult from the analysis API
- * @param precursorInitialValues initialValues derived from the precursor record
+ * @param precursorsInitialValues initialValues derived from the precursors record
  * @param timezone              Client timezone string (e.g. "Australia/Perth")
  * @returns Record<string, any> ready to pass as initialValues to AddDeformationForm
  */
 export function buildAutoFillInitialValues(
   vcpResults: VCPResult[],
-  precursorInitialValues: Record<string, any> | undefined,
+  precursorsInitialValues: Record<string, any> | undefined,
   timezone: string
 ): Record<string, any> {
   if (!vcpResults || vcpResults.length === 0) {
     return {
-      ...(precursorInitialValues ?? {}),
+      ...(precursorsInitialValues ?? {}),
     };
   }
 
@@ -313,14 +313,14 @@ export function buildAutoFillInitialValues(
     mapped.MaximumDeformation = String(round(longestPf.pfDeltaDeformation, 3));
   }
 
-  // Step 5 — Merge with precursor (Req 8.13)
-  // Location and alarmRegions from precursor always take precedence
+  // Step 5 — Merge with precursors (Req 8.13)
+  // Location and alarmRegions from precursors always take precedence
   return {
     ...mapped,
-    Location: precursorInitialValues?.Location ?? mapped.Location ?? "",
-    alarmRegions: precursorInitialValues?.alarmRegions ?? [],
-    ...(precursorInitialValues?.WallFolderID !== undefined
-      ? { WallFolderID: precursorInitialValues.WallFolderID }
+    Location: precursorsInitialValues?.Location ?? mapped.Location ?? "",
+    alarmRegions: precursorsInitialValues?.alarmRegions ?? [],
+    ...(precursorsInitialValues?.WallFolderID !== undefined
+      ? { WallFolderID: precursorsInitialValues.WallFolderID }
       : {}),
   };
 }

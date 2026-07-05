@@ -37,6 +37,7 @@ export default function DQPTab({
   feedbackModalData,
   onFeedbackSubmit,
   onFeedbackCancel,
+  dqpModalDefaultSubject,
 }) {
   return (
     <div className="flex flex-col w-full gap-2 p-4 text-[var(--dtg-text-primary)]">
@@ -53,6 +54,7 @@ export default function DQPTab({
         item={pendingUpdate?.item}
         targetStatus={pendingUpdate?.newValue}
         alarmRegions={sharedRegions}
+        defaultSubject={dqpModalDefaultSubject}
       />
 
       <FeedbackModal

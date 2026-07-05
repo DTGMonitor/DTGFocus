@@ -146,6 +146,10 @@ const SensorDetail = ({
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [feedbackModalData, setFeedbackModalData] = useState([]);
     const [pendingOptimalUpdate, setPendingOptimalUpdate] = useState(null); // To resume the update after modal closes
+    // Rainfall → Refractivity flow: dedicated modal state (separate from DQP tab modal)
+    const [dqpModalDefaultSubject, setDqpModalDefaultSubject] = useState(null);
+    const [isRainfallModalOpen, setIsRainfallModalOpen] = useState(false);
+    const [rainfallPendingUpdate, setRainfallPendingUpdate] = useState(null);
 
     // Report
     const [showReportModal, setShowReportModal] = useState(false);
@@ -198,7 +202,7 @@ const SensorDetail = ({
         try {
             const { data, error } = await supabase
                 .from('def_records')
-                .select('id, created_at, location, precursor, def_type, tarp_level, isactive, start, detected_by,alarm,crosschecked_by, notification_time, site_engineer, properties')
+                .select('id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by,alarm,crosschecked_by, notification_time, site_engineer, properties')
                 .eq('wallfolder_id', sensor.wallfolder_id)
                 .eq('isactive', "Yes")
                 .order('created_at', { ascending: false });
@@ -855,6 +859,98 @@ const SensorDetail = ({
         setFeedbackModalData([]);
     };
 
+    // --- Rainfall → Refractivity flow ---
+    // Called by DeformationTab after a Rainfall Event record is saved.
+    // Re-fetches DQP data fresh from the DB (resolving dqp_record_id if not on the sensor prop),
+    // then finds Atmospheric Refractivity and opens the dedicated rainfall ActionRequiredModal
+    // pre-set to Sub-Optimal / Service Impacted.
+    // Tolerant match — the DB parameter name is "Atmospheric Refractivity",
+    // but we match on any row whose name contains "refractivity" so a minor
+    // naming difference never silently breaks the flow.
+    const isRefractivityRow = (row) =>
+        row?.parameter?.name?.toLowerCase().includes('refractivity');
+
+    const handleRainfallSaved = useCallback(async () => {
+        console.log('[Rainfall→Refractivity] handler fired. dqpList rows:', dqpList.length);
+        try {
+            // Step 1: Prefer the DQP data already loaded in state (no extra round-trip).
+            // If dqpList is loaded at all, sensor.dqp_record_id is guaranteed present,
+            // which is exactly what the eventual update write relies on.
+            let refractivityItem = dqpList.find(isRefractivityRow);
+
+            // Step 2: Fallback — dqpList not loaded yet, fetch fresh.
+            if (!refractivityItem) {
+                console.warn('[Rainfall→Refractivity] not in dqpList, fetching fresh…');
+
+                let dqpRecordId = sensor?.dqp_record_id;
+                if (!dqpRecordId) {
+                    const { data: rec } = await supabase
+                        .from('dqp_records')
+                        .select('id')
+                        .eq('wall_folder_id', sensor.wallfolder_id)
+                        .order('created_time', { ascending: false })
+                        .limit(1)
+                        .single();
+                    dqpRecordId = rec?.id;
+                }
+
+                if (dqpRecordId) {
+                    // Ensure we have parameter definitions to resolve names.
+                    let localParamMap = parameterMap;
+                    if (Object.keys(localParamMap).length === 0) {
+                        const { data: paramData } = await supabase
+                            .from('parameters')
+                            .select('id, name, parent_id, level, weight');
+                        if (paramData) {
+                            localParamMap = {};
+                            paramData.forEach((p) => { localParamMap[p.id] = p; });
+                            setParameterMap(localParamMap);
+                        }
+                    }
+
+                    const { data: valuesData } = await supabase
+                        .from('dqp_values')
+                        .select('value, value_numeric, notes, parameter_id, appendix, caption')
+                        .eq('dqp_record_id', dqpRecordId)
+                        .order('parameter_id', { ascending: true });
+
+                    const freshList = (valuesData || []).map((item) => {
+                        const paramDef = localParamMap[item.parameter_id];
+                        return {
+                            ...item,
+                            value: item.value || 'N/A',
+                            parameter: {
+                                ...paramDef,
+                                parent: paramDef?.parent_id ? localParamMap[paramDef.parent_id] : null,
+                            },
+                        };
+                    });
+
+                    if (freshList.length) setDqpList(freshList);
+                    refractivityItem = freshList.find(isRefractivityRow);
+                }
+            }
+
+            if (!refractivityItem) {
+                console.warn('[Rainfall→Refractivity] Refractivity parameter not found for this radar.');
+                toast.error(
+                    'Rainfall saved, but the Atmospheric Refractivity parameter was not found for this radar. Update DQP manually.'
+                );
+                return;
+            }
+
+            // Step 3: Open the dedicated rainfall ActionRequiredModal
+            // (preset to Sub-Optimal / Service Impacted). The actual DQP write
+            // happens when the user submits the modal (handleModalSubmit).
+            console.log('[Rainfall→Refractivity] opening modal for:', refractivityItem.parameter?.name);
+            setRainfallPendingUpdate({ item: refractivityItem, field: 'value', newValue: 'Sub-Optimal' });
+            setIsRainfallModalOpen(true);
+        } catch (err) {
+            console.error('[Rainfall→Refractivity] handler error:', err);
+            toast.error('Rainfall saved, but failed to open the DQP modal. Update DQP manually.');
+        }
+    }, [dqpList, sensor?.dqp_record_id, sensor?.wallfolder_id, parameterMap]);
+
     const calculateNumericScore = (status, weight = 1) => {
         switch (status) {
             case 'Optimal':
@@ -1409,7 +1505,7 @@ const SensorDetail = ({
                                                 <div>
                                                     <label className="block text-xs text-gray-400">Reason</label>
                                                     <select
-                                                        className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm"
+                                                        className="w-full bg-[var(--dtg-bg-card)] border border-gray-600 p-2 rounded text-sm"
                                                         value={formData.reason}
                                                         onChange={e => setFormData({ ...formData, reason: e.target.value })}
                                                     >
@@ -1419,7 +1515,7 @@ const SensorDetail = ({
                                                 <div>
                                                     <label className="block text-xs text-gray-400">Action</label>
                                                     <select
-                                                        className="w-full bg-gray-800 border border-gray-600 p-2 rounded text-sm"
+                                                        className="w-full bg-[var(--dtg-bg-card)] border border-gray-600 p-2 rounded text-sm"
                                                         value={formData.action}
                                                         onChange={e => setFormData({ ...formData, action: e.target.value })}
                                                     >
@@ -1564,6 +1660,7 @@ const SensorDetail = ({
                                         userSite={userSite}
                                         alarmRegions={sharedRegions}
                                         activeTab={activeTab}
+                                        onRainfallSaved={handleRainfallSaved}
                                     />
                                 )}
 
@@ -1586,7 +1683,10 @@ const SensorDetail = ({
                                         onUpdate={handleStatusRequest}
                                         isDQPModalOpen={isDQPModalOpen}
                                         pendingUpdate={pendingUpdate}
-                                        onDQPModalClose={() => setIsDQPModalOpen(false)}
+                                        onDQPModalClose={() => {
+                                            setIsDQPModalOpen(false);
+                                            setDqpModalDefaultSubject(null);
+                                        }}
                                         onDQPModalSubmit={handleModalSubmit}
                                         sharedRegions={sharedRegions}
                                         isFeedbackModalOpen={isFeedbackModalOpen}
@@ -1594,6 +1694,7 @@ const SensorDetail = ({
                                         onFeedbackSubmit={handleFeedbackSubmit}
                                         onFeedbackCancel={handleFeedbackCancel}
                                         sensor={sensor}
+                                        dqpModalDefaultSubject={dqpModalDefaultSubject}
                                     />
                                 )}
 
@@ -1624,6 +1725,26 @@ const SensorDetail = ({
                     </div>
                 </div>
             </div>
+
+            {/* Rainfall → Refractivity: dedicated ActionRequiredModal rendered at SensorDetail level
+                so it is reachable from the Deformation tab (not gated by activeTab === 'dqp').
+                Uses separate state from the DQP tab modal to avoid any cross-tab interference. */}
+            <ActionRequiredModal
+                isOpen={isRainfallModalOpen}
+                onClose={() => {
+                    setIsRainfallModalOpen(false);
+                    setRainfallPendingUpdate(null);
+                }}
+                onSubmit={(formData, item, targetStatus) => {
+                    setIsRainfallModalOpen(false);
+                    setRainfallPendingUpdate(null);
+                    handleModalSubmit(formData, item, targetStatus);
+                }}
+                item={rainfallPendingUpdate?.item}
+                targetStatus={rainfallPendingUpdate?.newValue}
+                alarmRegions={sharedRegions}
+                defaultSubject="Service Impacted"
+            />
         </div >
     )
 }

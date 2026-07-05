@@ -8,6 +8,7 @@ import EditModal from '@/components/admin/Radar/shared/EditModal';
 import { resolveDetectedBy, sortAlarmRecords, getCauseOptions } from '@/utils/tabHelpers';
 import toast from 'react-hot-toast';
 import { Pencil, Trash2 } from 'lucide-react';
+import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 
 /**
  * AlarmTab
@@ -88,10 +89,10 @@ export default function AlarmTab({
       const since = new Date(Date.now() - ONE_DAY_MS).toISOString();
       const { data, error: alarmError } = await supabase
         .from('alarm_records')
-        .select('id, created_at, alarm_region, location, reason, cause, detected_by')
+        .select('id, triggered_at, alarm_region, location, reason, cause, detected_by')
         .in('alarm_region', regionIds)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false });
+        .gte('triggered_at', since)
+        .order('triggered_at', { ascending: false });
 
       if (alarmError) throw alarmError;
 
@@ -128,6 +129,7 @@ export default function AlarmTab({
         alarm_region: formValues.alarm_region ? Number(formValues.alarm_region) : null,
         location: formValues.location,
         reason: formValues.reason,
+        triggered_at: formValues.triggered_at,
         cause: formValues.cause,
       };
 
@@ -202,16 +204,18 @@ export default function AlarmTab({
       required: true,
     },
     { key: 'detected_by', label: 'Detected By', type: 'readonly' },
+    { key: 'triggered_at', label: 'Triggered At', type: 'date-time', required: true }
   ];
 
   const editInitialValues = editTarget
     ? {
-        alarm_region: editTarget.alarm_region != null ? String(editTarget.alarm_region) : '',
-        location: editTarget.location || '',
-        reason: editTarget.reason || '',
-        cause: editTarget.cause || '',
-        detected_by: resolveDetectedBy(editTarget.detected_by, crosscheckers),
-      }
+      alarm_region: editTarget.alarm_region != null ? String(editTarget.alarm_region) : '',
+      location: editTarget.location || '',
+      reason: editTarget.reason || '',
+      cause: editTarget.cause || '',
+      detected_by: resolveDetectedBy(editTarget.detected_by, crosscheckers),
+      triggered_at: editTarget.triggered_at || ''
+    }
     : {};
 
   // ── Render: recent alarms table ────────────────────────────────────────────────
@@ -242,7 +246,7 @@ export default function AlarmTab({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-secondary)]">
-              {['Alarm Region', 'Location', 'Reason', 'Detected By', 'Cause', ''].map((col, i) => (
+              {['Alarm Region', 'Location', 'Reason', 'Detected By', 'Cause', 'Triggered At', ''].map((col, i) => (
                 <th
                   key={col || `actions-${i}`}
                   className="px-3 py-2 text-left text-xs font-semibold text-[var(--dtg-text-secondary)] uppercase tracking-wide whitespace-nowrap"
@@ -285,6 +289,11 @@ export default function AlarmTab({
                   </td>
                   <td className="px-3 py-2 text-[var(--dtg-text-secondary)]">
                     {record.cause || '—'}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--dtg-text-secondary)]">
+                    {record.triggered_at
+                      ? (fromUTC(record.triggered_at, timezone) || '').slice(0, 16).replace('T', ' ')
+                      : '—'}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-2">
@@ -330,8 +339,8 @@ export default function AlarmTab({
           userID={userID}
           crosscheckers={crosscheckers}
           isExpanded={false}
-          onBatchInsertClick={() => {}}
-          onClose={() => {}}
+          onBatchInsertClick={() => { }}
+          onClose={() => { }}
           onRegionsLoaded={onRegionsLoaded}
         />
 

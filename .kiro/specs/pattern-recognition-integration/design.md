@@ -89,7 +89,7 @@ ConfirmDialog: "Update Deformation Record?"
         │ "Open Pattern Recognition" │ "Fill Form Directly" / Escape / backdrop
         ▼                           ▼
 PatternRecognitionPopup opens   AddDeformationForm opens
-(precursor + initialValues ctx)  (same initialValues as before)
+(precursors + initialValues ctx)  (same initialValues as before)
         │
         │ User uploads files, configures params, clicks "Run Analysis"
         ▼
@@ -104,7 +104,7 @@ JSON response (VCP results + Plotly figures)
         │
         │ User clicks "Use Results to Fill Form"
         ▼
-buildAutoFillInitialValues(vcpResults, precursorInitialValues)
+buildAutoFillInitialValues(vcpResults, precursorsInitialValues)
         │
         ▼
 PatternRecognitionPopup unmounts
@@ -145,14 +145,14 @@ PRP updates: combined chart, stage summary table, onset_of_failure display
 // New state additions to DeformationTab
 const [showPRPrompt, setShowPRPrompt] = useState(false);   // PR prompt step
 const [showPRP, setShowPRP] = useState(false);             // PRP open/close
-const [prpContext, setPrpContext] = useState(null);        // { precursor, initialValues }
+const [prpContext, setPrpContext] = useState(null);        // { precursors, initialValues }
 ```
 
 **Updated `handleUpdateConfirm`:**
 ```javascript
 const handleUpdateConfirm = () => {
   if (!updateTarget) return;
-  setPendingPrecursor(updateTarget.id);
+  setPendingPrecursors(updateTarget.id);
   setUpdateTarget(null);
   setShowPRPrompt(true);   // NEW: show PR prompt instead of directly opening form
 };
@@ -162,7 +162,7 @@ const handleUpdateConfirm = () => {
 ```javascript
 const handlePRPromptOpenPRP = () => {
   setShowPRPrompt(false);
-  setPrpContext({ precursor: pendingPrecursor, initialValues: addFormInitialValues });
+  setPrpContext({ precursors: pendingPrecursors, initialValues: addFormInitialValues });
   setShowPRP(true);
 };
 
@@ -174,14 +174,14 @@ const handlePRPromptFillDirectly = () => {
 const handlePRPClose = () => {
   setShowPRP(false);
   setPrpContext(null);
-  setPendingPrecursor(null);
+  setPendingPrecursors(null);
 };
 
 const handlePRPUseResults = (autoFillValues, summary) => {
   setShowPRP(false);
   setPrpContext(null);
-  // addFormInitialValues is already derived from pendingPrecursor;
-  // autoFillValues has been merged with precursor context by the mapper.
+  // addFormInitialValues is already derived from pendingPrecursors;
+  // autoFillValues has been merged with precursors context by the mapper.
   setAutoFillValues(autoFillValues);
   setPatternRecognitionSummary(summary);
   setShowAddForm(true);
@@ -193,8 +193,8 @@ const handlePRPUseResults = (autoFillValues, summary) => {
 ```typescript
 interface PatternRecognitionPopupProps {
   isOpen: boolean;
-  precursor: string | number | null;
-  precursorInitialValues: Partial<FormDataState> | undefined;
+  precursors: string | number | null;
+  precursorsInitialValues: Partial<FormDataState> | undefined;
   timezone: string;
   onClose: () => void;
   onUseResults: (autoFillValues: Partial<FormDataState>, summary: PRSummary) => void;
@@ -424,17 +424,17 @@ The mapper is implemented as a pure function in `utils/patternRecognitionMapper.
  * buildAutoFillInitialValues
  *
  * Maps pattern-recognition VCP results to AddDeformationForm initialValues.
- * Merges with precursor initialValues, where Location and alarmRegions
- * from the precursor take precedence (Requirement 8.13).
+ * Merges with precursors initialValues, where Location and alarmRegions
+ * from the precursors take precedence (Requirement 8.13).
  *
  * @param vcpResults   - Array of VCPResult from the analysis API
- * @param precursorInitialValues - initialValues derived from the precursor record
+ * @param precursorsInitialValues - initialValues derived from the precursors record
  * @param timezone     - Client timezone string (e.g. "Australia/Perth")
  * @returns Partial<FormDataState> ready to pass as initialValues to AddDeformationForm
  */
 export function buildAutoFillInitialValues(
   vcpResults: VCPResult[],
-  precursorInitialValues: Partial<FormDataState> | undefined,
+  precursorsInitialValues: Partial<FormDataState> | undefined,
   timezone: string
 ): Partial<FormDataState>
 ```
@@ -519,15 +519,15 @@ if (longestVcp.slo?.predictedFailureTime) {
 }
 ```
 
-### Step 5 — Merge with Precursor (Requirement 8.13)
+### Step 5 — Merge with Precursors (Requirement 8.13)
 
 ```typescript
 return {
   ...mapped,
-  // Precursor fields always take precedence
-  Location: precursorInitialValues?.Location ?? mapped.Location ?? "",
-  alarmRegions: precursorInitialValues?.alarmRegions ?? [],
-  WallFolderID: precursorInitialValues?.WallFolderID ?? mapped.WallFolderID,
+  // Precursors fields always take precedence
+  Location: precursorsInitialValues?.Location ?? mapped.Location ?? "",
+  alarmRegions: precursorsInitialValues?.alarmRegions ?? [],
+  WallFolderID: precursorsInitialValues?.WallFolderID ?? mapped.WallFolderID,
 };
 ```
 
@@ -564,7 +564,7 @@ State variables controlling this machine:
 ```javascript
 // Existing
 const [updateTarget, setUpdateTarget] = useState(null);
-const [pendingPrecursor, setPendingPrecursor] = useState(null);
+const [pendingPrecursors, setPendingPrecursors] = useState(null);
 const [showAddForm, setShowAddForm] = useState(false);
 
 // New
@@ -579,13 +579,13 @@ The `addFormInitialValues` memo is extended to also spread `prpAutoFillValues` w
 ```javascript
 const addFormInitialValues = useMemo(() => {
   if (prpAutoFillValues) return prpAutoFillValues;  // auto-fill takes precedence
-  if (!precursorRecord) return undefined;
+  if (!precursorsRecord) return undefined;
   return {
-    WallFolderID: precursorRecord.wallfolder_id || sensor.wallfolder_id,
-    Location: precursorRecord.location || '',
-    alarmRegions: Array.isArray(precursorRecord.alarm) ? precursorRecord.alarm : [],
+    WallFolderID: precursorsRecord.wallfolder_id || sensor.wallfolder_id,
+    Location: precursorsRecord.location || '',
+    alarmRegions: Array.isArray(precursorsRecord.alarm) ? precursorsRecord.alarm : [],
   };
-}, [precursorRecord, sensor?.wallfolder_id, prpAutoFillValues]);
+}, [precursorsRecord, sensor?.wallfolder_id, prpAutoFillValues]);
 ```
 
 ### AddDeformationForm — Summary Storage
@@ -743,14 +743,14 @@ Accepts the manual stage windows, re-runs `classify_from_manual_windows` via the
 
 ### Property 4: Auto-fill Mapper Field Mapping
 
-*For any* set of VCP results and precursor `initialValues`, `buildAutoFillInitialValues` SHALL produce an `initialValues` object where:
+*For any* set of VCP results and precursors `initialValues`, `buildAutoFillInitialValues` SHALL produce an `initialValues` object where:
 - `Type` is the correct mapping of the final phase label of the Longest VCP per the `PHASE_TO_TYPE_MAP`
 - `Start` is the `onset_of_failure` of the Longest VCP converted to the client timezone
 - `VCP` is the smoothing window in minutes of the Longest VCP
 - `Vmax` is the maximum velocity from the Progressive Failure stage of the Longest VCP (when applicable)
 - `Vmin` is the minimum velocity from the Progressive Failure stage of the Longest VCP (when applicable)
 - `InverseVelocity1` equals `round(1 / Vmax, 4)` when `Vmax` is available and non-zero
-- `Location` and `alarmRegions` are taken from the precursor `initialValues`, not from the PR output
+- `Location` and `alarmRegions` are taken from the precursors `initialValues`, not from the PR output
 
 **Validates: Requirements 8.1, 8.4, 8.5, 8.6, 8.7, 8.8, 8.10, 8.13**
 
@@ -811,7 +811,7 @@ Each VCP is processed independently. The Node.js API route uses a `Promise.race`
 
 - `buildAutoFillInitialValues` with concrete VCP result fixtures covering each `Type` mapping
 - `buildAutoFillInitialValues` with no Progressive Failure stage (fallback to "Linear")
-- `buildAutoFillInitialValues` merge precedence (Location and alarmRegions from precursor)
+- `buildAutoFillInitialValues` merge precedence (Location and alarmRegions from precursors)
 - `DeformationTab` state transitions: update confirm → PR prompt → PRP open / fill directly
 - `PatternRecognitionPopup` parameter validation: each parameter at its boundary values
 - `StageEditor` onset derivation: first PF row, no PF row
@@ -839,7 +839,7 @@ Generate arbitrary arrays of VCP results with random PF window durations and pea
 *Tag: Feature: pattern-recognition-integration, Property 3: longest VCP selection is correct for any input set*
 
 **Property 4 — Auto-fill Mapper Field Mapping**  
-Generate arbitrary VCP results and precursor initialValues. Assert all field mapping rules hold simultaneously (Type, Start, VCP, Vmax, Vmin, InverseVelocity1, Location, alarmRegions precedence).  
+Generate arbitrary VCP results and precursors initialValues. Assert all field mapping rules hold simultaneously (Type, Start, VCP, Vmax, Vmin, InverseVelocity1, Location, alarmRegions precedence).  
 *Tag: Feature: pattern-recognition-integration, Property 4: auto-fill mapper produces correct field values for any VCP results*
 
 **Property 5 — Stage Editor Onset Derivation**  

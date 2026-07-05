@@ -135,7 +135,7 @@ describe('patternRecognitionMapper', () => {
 
   // Feature: pattern-recognition-integration, Property 4: auto-fill mapper produces correct field values for any VCP results
   it('Property 4: maps Type, Start, VCP, Vmax, Vmin, InverseVelocity1 (native unit), Location, alarmRegions correctly', () => {
-    const precursorArb = fc.record({
+    const precursorsArb = fc.record({
       Location: fc.option(fc.string(), { nil: undefined }),
       alarmRegions: fc.option(fc.array(fc.integer()), { nil: undefined }),
     });
@@ -143,9 +143,9 @@ describe('patternRecognitionMapper', () => {
     fc.assert(
       fc.property(
         fc.array(vcpArb(), { minLength: 1, maxLength: 6 }),
-        precursorArb,
-        (vcps, precursor) => {
-          const result = buildAutoFillInitialValues(vcps, precursor, TIMEZONE);
+        precursorsArb,
+        (vcps, precursors) => {
+          const result = buildAutoFillInitialValues(vcps, precursors, TIMEZONE);
           const selected = selectFormVcp(vcps);
 
           // Native form unit: mm/h (×1/24) when window < 1440, else mm/day.
@@ -202,9 +202,9 @@ describe('patternRecognitionMapper', () => {
             expect(result.InverseVelocity1).toBe('');
           }
 
-          // Location & alarmRegions always come from the precursor (Req 8.13).
-          expect(result.Location).toBe(precursor.Location ?? '');
-          expect(result.alarmRegions).toEqual(precursor.alarmRegions ?? []);
+          // Location & alarmRegions always come from the precursors (Req 8.13).
+          expect(result.Location).toBe(precursors.Location ?? '');
+          expect(result.alarmRegions).toEqual(precursors.alarmRegions ?? []);
         }
       ),
       { numRuns: NUM_RUNS }

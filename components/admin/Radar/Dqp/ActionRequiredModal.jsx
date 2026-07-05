@@ -9,7 +9,7 @@ import { getSubjectOptions } from "@/config/formConfig";
 import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
-export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetStatus, alarmRegions = [] }) => {
+export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetStatus, alarmRegions = [], defaultSubject }) => {
     const [formData, setFormData] = useState({
         subject: "",
         issue: "",
@@ -63,10 +63,28 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
 
     // Reset form when modal opens
     useEffect(() => {
-        if (isOpen && subjectOptions.length === 1) {
-            setFormData(prev => ({ ...prev, subject: subjectOptions[0].value, label: subjectOptions[0].label, issue: subjectOptions[0].issue, action: subjectOptions[0].action }));
+        if (!isOpen) return;
+
+        // Priority 1: caller-specified default subject (e.g. from Rainfall flow)
+        const subjectToApply = defaultSubject
+            ? subjectOptions.find(opt => opt.value === defaultSubject)
+            : subjectOptions.length === 1
+            ? subjectOptions[0]
+            : null;
+
+        if (subjectToApply) {
+            setFormData(prev => ({
+                ...prev,
+                subject: subjectToApply.value,
+                label: subjectToApply.label,
+                issue: subjectToApply.issue || "",
+                action: subjectToApply.action || "",
+                notes: subjectToApply.notes || "",
+                tempnotes: subjectToApply.tempnotes || "",
+                appendix: subjectToApply.notes || "",
+            }));
         }
-    }, [isOpen, subjectOptions]);
+    }, [isOpen, subjectOptions, defaultSubject]);
 
     const handleRegionToggle = (regionId) => {
         setFormData(prev => {

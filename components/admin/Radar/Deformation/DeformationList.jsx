@@ -35,6 +35,7 @@ const DeformationList = ({
     timelineLoading = false,
     timelineError = null,
     timezone,
+    onRainfallSaved,
 }) => {
     const [viewMode, setViewMode] = useState('list');
     const userID = userSite?.user_id;
@@ -42,13 +43,6 @@ const DeformationList = ({
     const getDisplayName = (userid) =>
         crosscheckers.find(c => String(c.id) === String(userid))?.full_name
         ;
-
-    // Identify the "latest" record (highest created_at) among all active records.
-    const latestId = (rawList && rawList.length > 0)
-        ? rawList.reduce((latest, cur) =>
-            new Date(cur.created_at) > new Date(latest.created_at) ? cur : latest
-        ).id
-        : null;
 
     const handleArchiveDeformation = async (item) => {
         try {
@@ -95,6 +89,22 @@ const DeformationList = ({
     const renderList = () => {
         if (rawList.length === 0) return <div className="text-sm text-gray-500 mt-4">No deformation observed on this radar.</div>;
 
+        // Only Rain/Blast *events* get the dual-card treatment: a plain
+        // "individual" card (edit/update/archive/delete actions) plus a dedicated
+        // "timeline" card that expands the Blast→…→current chain (added only when a
+        // precursor chain exists). Every other record (deformations) renders as a
+        // single "full" card with actions + an inline timeline toggle, as before.
+        const EVENT_TYPES = new Set(['Rainfall Event', 'Blast Event']);
+        const cards = filtered.flatMap((item) => {
+            const hasChain = Array.isArray(item.precursors) && item.precursors.length > 0;
+            if (!EVENT_TYPES.has(item.def_type)) {
+                return [{ item, variant: 'full' }];
+            }
+            const entries = [{ item, variant: 'individual' }];
+            if (hasChain) entries.push({ item, variant: 'timeline' });
+            return entries;
+        });
+
         return (
             <>
                 <div className="w-full relative">
@@ -107,17 +117,28 @@ const DeformationList = ({
                     />
                 </div>
                 <div className="w-full max-h-[30vh] overflow-y-auto flex flex-col gap-2">
-                    {filtered.map((item, index) => {
-                        const isLatest = item.id === latestId;
-                        const isTimelineOpen = isLatest && timelineRecord?.id === item.id;
-                        const cardColor = isTimelineOpen ? getRiskBorderColor(item.tarp_level):getCardColors(item.def_type)
+                    {cards.map(({ item, variant }) => {
+                        const isTimelineCard = variant === 'timeline';
+                        const showToggle = variant === 'full' || variant === 'timeline';
+                        const showActions = variant === 'full' || variant === 'individual';
+                        // Cards that own a timeline toggle track the open state by id.
+                        const isTimelineOpen = showToggle && timelineRecord?.id === item.id;
+                        const cardColor = isTimelineOpen ? getRiskBorderColor(item.tarp_level) : getCardColors(item.def_type);
                         return (
-                            <div key={item.id ?? index} className={`flex flex-col gap-2 border rounded-lg p-3 ${cardColor}`}>
+                            <div
+                                key={`${item.id}-${variant}`}
+                                className={`flex flex-col gap-2 border rounded-lg p-3 ${cardColor} ${isTimelineCard ? 'border-dashed' : ''}`}
+                            >
                                 <div className="flex justify-between items-center">
                                     <div className="flex flex-col gap-1">
                                         <div className="flex gap-3 items-center text-sm">
                                             <span className={`w-4 h-4 rounded-xl ${getStatusDotColors(item.tarp_level)}`}></span>
                                             <p><strong>{item.tarp_level}</strong> | {item.def_type} - {item.location}</p>
+                                            {isTimelineCard && (
+                                                <span className="rounded-full bg-[var(--dtg-border-medium)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--dtg-text-secondary)]">
+                                                    Timeline
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-5 font-light text-xs text-[var(--dtg-text-secondary)]">
                                             <div className="flex items-center gap-1">
@@ -130,9 +151,11 @@ const DeformationList = ({
                                         </div>
                                     </div>
 
-                                    {/* Action buttons */}
+                                    {/* Action buttons. The timeline card toggles the chain
+                                        AND can Update (continue the timeline); individual/full
+                                        cards own the full record actions. */}
                                     <div className="flex items-center gap-1">
-                                        {isLatest && (
+                                        {showToggle && (
                                             <button
                                                 onClick={() => isTimelineOpen ? onTimelineCollapse?.() : onTimelineExpand?.(item)}
                                                 title={isTimelineOpen ? "Hide timeline" : "View timeline"}
@@ -142,42 +165,56 @@ const DeformationList = ({
                                                 {isTimelineOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                             </button>
                                         )}
-                                        <button
-                                            onClick={() => onEdit?.(item)}
-                                            title="Edit record"
-                                            aria-label="Edit deformation record"
-                                            className="p-1 hover:text-[var(--dtg-brand-orange)] rounded text-gray-400"
-                                        >
-                                            <Pencil size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => onUpdate?.(item)}
-                                            title="Update (archive + new precursor record)"
-                                            aria-label="Update deformation record"
-                                            className="p-1 hover:text-blue-400 rounded text-gray-400"
-                                        >
-                                            <RefreshCw size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleArchiveDeformation(item)}
-                                            title="Archive record"
-                                            aria-label="Archive deformation record"
-                                            className="p-1 hover:text-yellow-400 rounded text-gray-400"
-                                        >
-                                            <Archive size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => onHardDelete?.(item)}
-                                            title="Permanently delete record"
-                                            aria-label="Permanently delete deformation record"
-                                            className="p-1 hover:text-red-500 rounded text-red-400"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                                        {isTimelineCard && (
+                                            <button
+                                                onClick={() => onUpdate?.(item)}
+                                                title="Update (archive head + continue timeline)"
+                                                aria-label="Update timeline"
+                                                className="p-1 hover:text-blue-400 rounded text-gray-400"
+                                            >
+                                                <RefreshCw size={14} />
+                                            </button>
+                                        )}
+                                        {showActions && (
+                                            <>
+                                                <button
+                                                    onClick={() => onEdit?.(item)}
+                                                    title="Edit record"
+                                                    aria-label="Edit deformation record"
+                                                    className="p-1 hover:text-[var(--dtg-brand-orange)] rounded text-gray-400"
+                                                >
+                                                    <Pencil size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => onUpdate?.(item)}
+                                                    title="Update (archive + new precursors record)"
+                                                    aria-label="Update deformation record"
+                                                    className="p-1 hover:text-blue-400 rounded text-gray-400"
+                                                >
+                                                    <RefreshCw size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleArchiveDeformation(item)}
+                                                    title="Archive record"
+                                                    aria-label="Archive deformation record"
+                                                    className="p-1 hover:text-yellow-400 rounded text-gray-400"
+                                                >
+                                                    <Archive size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => onHardDelete?.(item)}
+                                                    title="Permanently delete record"
+                                                    aria-label="Permanently delete deformation record"
+                                                    className="p-1 hover:text-red-500 rounded text-red-400"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Event timeline (latest card only, when expanded) */}
+                                {/* Event timeline (cards with a toggle, when expanded) */}
                                 {isTimelineOpen && (
                                     <TimelineView
                                         chain={timelineChain}
@@ -207,6 +244,7 @@ const DeformationList = ({
                     clientTimezone={timezone}
                     onSuccess={() => { onSuccess?.(); setViewMode('list'); }}
                     onClose={() => { onClose?.(); setViewMode('list'); }}
+                    onRainfallSaved={onRainfallSaved}
                 />
             )
         return renderList();

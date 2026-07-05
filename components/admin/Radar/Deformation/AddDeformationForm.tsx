@@ -38,13 +38,17 @@ interface AddDeformationFormProps {
     crosscheckers: UserProfile[];
     onClose: () => void;
     onSuccess?: () => void;
-    // --- Update (archive + precursor) flow support (Requirement 11) ---
-    // When `precursor` is provided, the original record is archived (isactive='No')
-    // and the new record is inserted with precursor set to it, compensating on failure.
-    precursor?: string | number | null;
+    // --- Update (archive + precursors) flow support (Requirement 11) ---
+    // When `precursors` is provided, the original record is archived (isactive='No')
+    // and the new record is inserted with precursors set to it, compensating on failure.
+    precursors?: string | number | null;
     initialValues?: Partial<FormDataState>;
     // --- Pattern Recognition auto-fill support (Requirements 9.1–9.5) ---
     patternRecognitionSummary?: PRSummary | null;
+    // --- Rainfall → Refractivity flow ---
+    // Called after a Rainfall Event record is saved successfully, instead of the normal email draft.
+    // Parent uses this to open the ActionRequiredModal on the Refractivity DQP item.
+    onRainfallSaved?: () => void;
 }
 
 const openOutlookDraft = (
@@ -89,8 +93,21 @@ interface FormDataState {
     Vmax2: string;
     InverseVelocity1?: string;
     InverseVelocity2?: string;
+    // Previous record(s) selected as this record's precursors(s). Stored to the
+    // `precursors` INT[] column. In the Update flow the archived original is added
+    // automatically as the primary precursors (see performDeformationUpdateFlow).
+    Precursorss: (number | string)[];
     [key: string]: any;
     triggeredTimes: { [key: number]: string };
+}
+
+// Minimal shape of a selectable precursors record (existing active def_record).
+interface PrecursorsOption {
+    id: number | string;
+    def_type: string | null;
+    location: string | null;
+    created_at: string | null;
+    tarp_level: string | null;
 }
 
 const AddDeformationForm = ({
@@ -102,9 +119,10 @@ const AddDeformationForm = ({
     crosscheckers,
     onClose,
     onSuccess,
-    precursor = null,
+    precursors = null,
     initialValues,
-    patternRecognitionSummary = null
+    patternRecognitionSummary = null,
+    onRainfallSaved,
 }: AddDeformationFormProps) => {
     const [isLoading, setIsLoading] = useState(false);
     const [withAlarm, setWithAlarm] = useState(
@@ -134,10 +152,50 @@ const AddDeformationForm = ({
         SurfaceArea: "",
         Vmax1: "",
         Vmax2: "",
+        Precursorss: [],
         triggeredTimes: {},
         // Pre-fill from the record being "updated" (Requirement 11.3)
         ...(initialValues || {})
     });
+
+    // Existing active records for this radar that can be picked as precursors(s).
+    const [precursorsOptions, setPrecursorsOptions] = useState<PrecursorsOption[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadPrecursorsOptions = async () => {
+            if (!sensor?.wallfolder_id) return;
+            const { data, error } = await supabase
+                .from('def_records')
+                .select('id, def_type, location, created_at, tarp_level')
+                .eq('wallfolder_id', sensor.wallfolder_id)
+                .eq('isactive', 'Yes')
+                .order('created_at', { ascending: false });
+            if (cancelled || error) return;
+            // Exclude the Update-flow original — it is auto-linked as the primary
+            // precursors, so offering it here would be redundant/confusing.
+            setPrecursorsOptions(
+                (data || []).filter((r: PrecursorsOption) => String(r.id) !== String(precursors))
+            );
+        };
+        loadPrecursorsOptions();
+        return () => {
+            cancelled = true;
+        };
+    }, [sensor?.wallfolder_id, precursors]);
+
+    const handlePrecursorsToggle = (id: number | string) => {
+        setFormData(prev => {
+            const current = prev.Precursorss || [];
+            const isSelected = current.some(x => String(x) === String(id));
+            return {
+                ...prev,
+                Precursorss: isSelected
+                    ? current.filter(x => String(x) !== String(id))
+                    : [...current, id],
+            };
+        });
+    };
 
     // Helper to render the 3-column "Velocity Group" row
     // Place this outside or inside your component
@@ -503,14 +561,21 @@ const AddDeformationForm = ({
             // Shared helper is the single source of truth (covered by Property 6 + Task 15.3).
             mergeSummaryIntoProperties(properties, patternRecognitionSummary, hasManualEdits.current);
 
+            // Precursors(s) manually selected in the form (existing records this new
+            // record points back to). `precursors` is INT[]; empty selection → null.
+            const selectedPrecursorss = formData.Precursorss || [];
+
             // 3. Send to Supabase (Option 1: JSONB approach)
             let insertedRecord: { id: any } | null = null;
 
-            if (precursor !== null && precursor !== undefined) {
-                // --- UPDATE FLOW: archive original + insert with precursor + compensate ---
-                const flow = await performDeformationUpdateFlow(supabase, precursor, {
+            if (precursors !== null && precursors !== undefined) {
+                // --- UPDATE FLOW: archive original + insert with precursors + compensate ---
+                // The archived original is added as the primary precursors by the flow;
+                // any extra ids selected here are merged in after it.
+                const flow = await performDeformationUpdateFlow(supabase, precursors, {
                     ...fixedColumns,
                     properties,
+                    precursors: selectedPrecursorss,
                 });
 
                 if (!flow.ok) {
@@ -533,6 +598,7 @@ const AddDeformationForm = ({
                     .from('def_records') // Your table name
                     .insert([{
                         ...fixedColumns,
+                        precursors: selectedPrecursorss.length > 0 ? selectedPrecursorss : null,
                         properties: properties // All the conditional stuff goes here
                     }])
                     .select('id')
@@ -585,10 +651,20 @@ const AddDeformationForm = ({
                 console.warn("Failed to create work log, but alarms were saved.", logErr);
             }
 
-            if (onSuccess) onSuccess(); {
+            if (onSuccess) onSuccess();
+
+            // Rainfall Event: skip normal email draft; trigger Refractivity modal instead.
+            if (formData.Type === 'Rainfall Event') {
+                console.log('[Rainfall→Refractivity] Rainfall Event saved. onRainfallSaved present:', typeof onRainfallSaved === 'function');
+                if (onRainfallSaved) {
+                    onRainfallSaved();
+                } else {
+                    console.warn('[Rainfall→Refractivity] onRainfallSaved callback missing — check prop wiring.');
+                    toast.error('Rainfall saved, but the DQP action could not be triggered (missing handler).');
+                }
+            } else {
                 openOutlookDraft(emailSubject, emailBody, siteName, "DTG Engineers");
             }
-
         } catch (err: any) {
             console.error(err);
             toast.error("Error: " + err.message);
@@ -702,6 +778,65 @@ const AddDeformationForm = ({
                             ))}
                         </div>
                     </div>}
+
+                {/* PRECURSORS(S): link this new record back to existing record(s) */}
+                <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-[var(--dtg-gray-500)]">
+                        Precursors(s){" "}
+                        <span className="font-normal text-[var(--dtg-gray-600)]">
+                            — earlier record(s) that led to this event
+                        </span>
+                    </label>
+                    {precursorsOptions.length === 0 ? (
+                        <p className="text-xs text-[var(--dtg-gray-600)] italic">
+                            No earlier active records on this radar to link.
+                        </p>
+                    ) : (
+                        <div className="grid grid-cols-1 gap-1 border border-[var(--dtg-border-light)] p-2 rounded max-h-[160px] overflow-y-auto">
+                            {precursorsOptions.map((opt) => {
+                                const checked = formData.Precursorss.some(
+                                    (x) => String(x) === String(opt.id)
+                                );
+                                const when = opt.created_at
+                                    ? new Date(opt.created_at).toLocaleDateString("en-AU", {
+                                          year: "2-digit",
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                      })
+                                    : "—";
+                                return (
+                                    <label
+                                        key={opt.id}
+                                        htmlFor={`precursors-${opt.id}`}
+                                        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer select-none text-sm ${
+                                            checked ? "bg-[var(--dtg-brand-orange)]/10" : "hover:bg-[var(--dtg-bg-card)]"
+                                        }`}
+                                    >
+                                        <Checkbox
+                                            id={`precursors-${opt.id}`}
+                                            checked={checked}
+                                            onCheckedChange={() => handlePrecursorsToggle(opt.id)}
+                                        />
+                                        <span className="font-medium text-[var(--dtg-text-primary)]">
+                                            {opt.def_type || "—"}
+                                        </span>
+                                        <span className="text-[var(--dtg-text-secondary)]">
+                                            {opt.location || "—"}
+                                        </span>
+                                        {opt.tarp_level && (
+                                            <span className="text-xs text-[var(--dtg-gray-500)]">
+                                                {opt.tarp_level}
+                                            </span>
+                                        )}
+                                        <span className="ml-auto text-xs text-[var(--dtg-gray-600)]">
+                                            {when}
+                                        </span>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
 
                 {/* SECTION 2: DYNAMIC FIELDS */}
                 {formData.Type && visibleDynamicFields.length > 0 && (

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature restructures the `SensorDetail` panel into a tabbed interface with four tabs: **Deformation**, **Alarm**, **Data Quality (DQP)**, and **Downtime**. Each tab surfaces existing or new data from Supabase in a focused, actionable view. The redesign also adds edit, delete, and update (archive + precursor chain) capabilities to the Deformation tab, a recent-alarm table to the Alarm tab, a full downtime records table to the Downtime tab, and a deformation event timeline to the Deformation tab.
+This feature restructures the `SensorDetail` panel into a tabbed interface with four tabs: **Deformation**, **Alarm**, **Data Quality (DQP)**, and **Downtime**. Each tab surfaces existing or new data from Supabase in a focused, actionable view. The redesign also adds edit, delete, and update (archive + precursors chain) capabilities to the Deformation tab, a recent-alarm table to the Alarm tab, a full downtime records table to the Downtime tab, and a deformation event timeline to the Deformation tab.
 
 ## Glossary
 
@@ -14,8 +14,8 @@ This feature restructures the `SensorDetail` panel into a tabbed interface with 
 - **AlarmRecord**: A row in the `alarm_records` table representing a triggered alarm.
 - **AlarmRegion**: A row in the `alarm_regions` table; referenced by `alarm_records.alarm_region`.
 - **DowntimeRecord**: A row in the `downtime_records` table representing a period of sensor downtime.
-- **Precursor**: A `def_records` column (`precursor`) that stores the `id` of the archived predecessor deformation record, forming a chain.
-- **Timeline**: A visual representation of the deformation/event chain from the earliest precursor to the current active record.
+- **Precursors**: A `def_records` column (`precursors`) that stores the `id` of the archived predecessor deformation record, forming a chain.
+- **Timeline**: A visual representation of the deformation/event chain from the earliest precursors to the current active record.
 - **ConfirmationModal**: A pop-up dialog that asks the user to confirm a destructive or mutating action before it is applied.
 - **Tab_Container**: The UI component that renders the four tab headers and the active tab's content panel.
 - **Downtime_Tab**: The tab panel that displays and manages downtime records.
@@ -24,7 +24,7 @@ This feature restructures the `SensorDetail` panel into a tabbed interface with 
 - **Deformation_Tab**: The tab panel that displays, edits, updates, and hard-deletes deformation records.
 - **ConfirmDialog**: A reusable modal component used for delete and update confirmations.
 - **EditModal**: A modal form used to edit an existing record in-place.
-- **UpdateFlow**: The two-step process of archiving the current deformation record and inserting a new one with the archived record's `id` set as `precursor`.
+- **UpdateFlow**: The two-step process of archiving the current deformation record and inserting a new one with the archived record's `id` set as `precursors`.
 
 ---
 
@@ -182,18 +182,18 @@ This feature restructures the `SensorDetail` panel into a tabbed interface with 
 
 ---
 
-### Requirement 11: Deformation Tab — Update (Archive + Precursor Chain)
+### Requirement 11: Deformation Tab — Update (Archive + Precursors Chain)
 
-**User Story:** As an admin user, I want to "update" a deformation record by archiving the current one and creating a new one that references it as a precursor, so that the full deformation progression history is preserved.
+**User Story:** As an admin user, I want to "update" a deformation record by archiving the current one and creating a new one that references it as a precursors, so that the full deformation progression history is preserved.
 
 #### Acceptance Criteria
 
 1. THE Deformation_Tab SHALL render an Update button for each deformation card in the list.
-2. WHEN the Update button for a card is clicked, THE Deformation_Tab SHALL open a ConfirmDialog with `title="Update Deformation Record"` and `message="This will archive the current record and create a new deformation record with this record set as its precursor. Do you want to continue?"`.
-3. WHEN the user clicks Confirm in the ConfirmDialog, THE Deformation_Tab SHALL close the ConfirmDialog and open the existing `AddDeformationForm` pre-filled with the current record's `wallfolder_id`, `location`, and the alarm region IDs linked to the current record; the current record's `id` SHALL be stored as the pending `precursor` value and SHALL NOT be visible or editable in the form.
-4. WHEN the user cancels out of the `AddDeformationForm` (clicks Back or Close) before submitting, THE Deformation_Tab SHALL discard the pending `precursor` value and return to the deformation list without modifying any records.
+2. WHEN the Update button for a card is clicked, THE Deformation_Tab SHALL open a ConfirmDialog with `title="Update Deformation Record"` and `message="This will archive the current record and create a new deformation record with this record set as its precursors. Do you want to continue?"`.
+3. WHEN the user clicks Confirm in the ConfirmDialog, THE Deformation_Tab SHALL close the ConfirmDialog and open the existing `AddDeformationForm` pre-filled with the current record's `wallfolder_id`, `location`, and the alarm region IDs linked to the current record; the current record's `id` SHALL be stored as the pending `precursors` value and SHALL NOT be visible or editable in the form.
+4. WHEN the user cancels out of the `AddDeformationForm` (clicks Back or Close) before submitting, THE Deformation_Tab SHALL discard the pending `precursors` value and return to the deformation list without modifying any records.
 5. WHEN the user submits the `AddDeformationForm`, THE Deformation_Tab SHALL first issue a Supabase `update` on `def_records` setting `isactive = 'No'` for the original record's `id` (archive step); IF this archive step fails, THEN THE Deformation_Tab SHALL display an error toast and abort without inserting the new record.
-6. WHEN the archive step succeeds, THE Deformation_Tab SHALL issue a Supabase `insert` into `def_records` with the new form values and `precursor` set to the archived record's `id`.
+6. WHEN the archive step succeeds, THE Deformation_Tab SHALL issue a Supabase `insert` into `def_records` with the new form values and `precursors` set to the archived record's `id`.
 7. WHEN both operations succeed, THE Deformation_Tab SHALL re-fetch deformation records from `def_records` for the wall-folder and display a success toast.
 8. IF the insert step fails after the archive step has already succeeded, THEN THE Deformation_Tab SHALL display an error toast indicating a partial failure and SHALL issue a compensating Supabase `update` to restore `isactive = 'Yes'` on the original record.
 
@@ -206,13 +206,13 @@ This feature restructures the `SensorDetail` panel into a tabbed interface with 
 #### Acceptance Criteria
 
 1. THE Deformation_Tab SHALL identify the "latest" deformation card as the record with the highest (most recent) `created_at` value among all active records in the current `deformationList`.
-2. WHEN the latest deformation card is expanded (clicked or toggled open), THE Deformation_Tab SHALL fetch the full precursor chain by iteratively querying `def_records` by `id` starting from the latest record's `precursor` value, continuing until a fetched record has `precursor = null`; the maximum chain depth SHALL be capped at 50 nodes to prevent infinite loops.
-3. THE Deformation_Tab SHALL render the precursor chain as a vertical timeline inside the expanded card, ordered from the earliest record (root, `precursor = null`) at the top to the latest (current) record at the bottom, with a connecting line between nodes.
+2. WHEN the latest deformation card is expanded (clicked or toggled open), THE Deformation_Tab SHALL fetch the full precursors chain by iteratively querying `def_records` by `id` starting from the latest record's `precursors` value, continuing until a fetched record has `precursors = null`; the maximum chain depth SHALL be capped at 50 nodes to prevent infinite loops.
+3. THE Deformation_Tab SHALL render the precursors chain as a vertical timeline inside the expanded card, ordered from the earliest record (root, `precursors = null`) at the top to the latest (current) record at the bottom, with a connecting line between nodes.
 4. EACH timeline node SHALL display: `def_type`, `tarp_level` (as a coloured badge using `getStatusDotColors`), `location`, `created_at` formatted via `fromUTC(value, timezone)`, and `detected_by` resolved to `full_name` from the crosscheckers list (falling back to the raw UUID if not found).
-5. THE timeline SHALL visually distinguish the current (latest) record node from archived precursor nodes using a filled/highlighted style (e.g. brand-orange border or "Current" badge) versus a muted style for archived nodes.
+5. THE timeline SHALL visually distinguish the current (latest) record node from archived precursors nodes using a filled/highlighted style (e.g. brand-orange border or "Current" badge) versus a muted style for archived nodes.
 6. WHEN the latest card is collapsed, THE Deformation_Tab SHALL hide the timeline and release the fetched chain data from local state.
-7. IF the latest record has `precursor = null`, THE Deformation_Tab SHALL render the timeline with only the single current record node and SHALL NOT issue any additional fetch requests.
-8. IF any fetch in the precursor chain resolution fails, THE Deformation_Tab SHALL stop chain resolution at that point, display the nodes fetched so far, and show an inline warning "Timeline may be incomplete."
+7. IF the latest record has `precursors = null`, THE Deformation_Tab SHALL render the timeline with only the single current record node and SHALL NOT issue any additional fetch requests.
+8. IF any fetch in the precursors chain resolution fails, THE Deformation_Tab SHALL stop chain resolution at that point, display the nodes fetched so far, and show an inline warning "Timeline may be incomplete."
 
 ---
 

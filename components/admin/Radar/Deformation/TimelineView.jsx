@@ -16,11 +16,14 @@ const resolveDetectedBy = (uuid, crosscheckers = []) => {
 /**
  * TimelineView
  *
- * Renders a vertical precursor chain timeline for a deformation record.
- * Root node (earliest precursor) is at the top; current (latest) node is at the bottom.
+ * Renders a vertical precursors chain timeline for a deformation record.
+ * Root node (earliest precursors) is at the top; current (latest) node is at the bottom.
+ *
+ * Each node may also carry `related` – the non-primary entries of its
+ * precursors[] array (e.g. linked Blast/Rainfall events), rendered as chips.
  *
  * Props:
- *   chain         – DefRecord[] ordered root → current
+ *   chain         – DefRecord[] ordered root → current (each may have `related`)
  *   isLoading     – boolean
  *   error         – string | null
  *   timezone      – string (IANA timezone, e.g. "Australia/Perth")
@@ -173,6 +176,31 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
                     {detectedByName}
                   </span>
                 </div>
+
+                {/* Related precursorss: non-primary entries of the precursors[] array
+                    (e.g. Blast / Rainfall events linked to this record). */}
+                {Array.isArray(record.related) && record.related.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-[var(--dtg-border-medium)]">
+                    <span className="text-xs font-medium text-[var(--dtg-text-primary)]">
+                      Related precursors{record.related.length > 1 ? "s" : ""}:
+                    </span>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {record.related.map((rel, relIndex) => (
+                        <span
+                          key={rel.id ?? relIndex}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] px-2 py-0.5 text-xs text-[var(--dtg-text-secondary)]"
+                          title={rel.location || undefined}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${getStatusDotColors(rel.tarp_level)}`} />
+                          <span className="font-medium text-[var(--dtg-text-primary)]">
+                            {rel.def_type ?? "—"}
+                          </span>
+                          {rel.location && <span>· {rel.location}</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );

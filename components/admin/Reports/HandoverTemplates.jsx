@@ -55,9 +55,6 @@ const openOutlookDraft = (
     window.location.href = mailtoLink;
 };
 
-const today = new Date();
-const yesterday = new Date(today);
-yesterday.setDate(today.getDate() - 1);
 export const Header = ({ header, longDate, userName, gradientPage1 }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', background: gradientPage1 }}>
         <div>
@@ -69,6 +66,12 @@ export const Header = ({ header, longDate, userName, gradientPage1 }) => (
 );
 
 const getShiftMeta = (shift) => {
+    // Compute dates fresh on every call so a long-open browser tab
+    // doesn't hold a stale "today"/"yesterday" across the day boundary.
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
     switch (shift) {
         case 'DS': return { label: 'Day Shift', date: today, indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] };
         case 'NS': return { label: 'Night Shift', date: yesterday, indices: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6] };
@@ -187,7 +190,7 @@ export const HandoverTemplate = ({ data, reportInfo, exportMode = false, onClose
 
     const emailBody = `Dear All,
 
-Please find attached the Nightshift handover period of ${longDate}.
+Please find attached the ${currentShift.label} handover period of ${longDate}.
 
 Regards,
 ${userName}`;

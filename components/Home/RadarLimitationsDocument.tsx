@@ -62,15 +62,15 @@ const limitationsData = {
       id: 'rapid-brittle-collapse',
       title: 'Rapid Brittle Collapse "Rock Fall"',
       icon: TrendingDown,
-      description: 'Limitations in detecting sudden failure events with minimal precursor movement',
+      description: 'Limitations in detecting sudden failure events with minimal precursors movement',
       technicalLimitations: [
-        'Rapid brittle failures (depending on scale and mechanism) may show little to no precursor deformation/movement.',
-        'Vector loss and size of collapse may also influence the "no precursor deformation/movement".'
+        'Rapid brittle failures (depending on scale and mechanism) may show little to no precursors deformation/movement.',
+        'Vector loss and size of collapse may also influence the "no precursors deformation/movement".'
       ],
       image: limitationImage2,
-      acknowledgementText: 'The customer understands the limitation of the technology and agrees that small or \'rapid brittle\' type failures may not display adequate precursor movement to allow for detection and notification.',
+      acknowledgementText: 'The customer understands the limitation of the technology and agrees that small or \'rapid brittle\' type failures may not display adequate precursors movement to allow for detection and notification.',
       additionalAcknowledgement: 'In this event, the customer may be notified after the event that a drop in coherence suggests there has been some collapse of material.',
-      detailsText: 'Brittle failure mechanisms typically show <24 hours of precursor movement, making prediction extremely challenging even with continuous monitoring.'
+      detailsText: 'Brittle failure mechanisms typically show <24 hours of precursors movement, making prediction extremely challenging even with continuous monitoring.'
     },
     {
       id: 'vegetation-materials',

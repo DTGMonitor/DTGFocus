@@ -121,8 +121,8 @@ function LoadingSpinner() {
  *
  * Props:
  *   isOpen                {boolean}
- *   precursor             {string|number|null}  - Precursor record ID
- *   precursorInitialValues {object|undefined}   - initialValues from the precursor record
+ *   precursors             {string|number|null}  - Precursors record ID
+ *   precursorsInitialValues {object|undefined}   - initialValues from the precursors record
  *   timezone              {string}              - Client timezone (e.g. "Australia/Perth")
  *   onClose               {() => void}          - Dismiss without modifying records
  *   onUseResults          {(autoFillValues, summary) => void}
@@ -132,8 +132,8 @@ function LoadingSpinner() {
  */
 export default function PatternRecognitionPopup({
   isOpen,
-  precursor,
-  precursorInitialValues,
+  precursors,
+  precursorsInitialValues,
   timezone,
   onClose,
   onUseResults,
@@ -177,7 +177,7 @@ export default function PatternRecognitionPopup({
   // toggled in/out by the analyst before plotting / summarising.
   const [deformationEvents, setDeformationEvents] = useState([]);
   const [excludedEventIds, setExcludedEventIds] = useState(() => new Set());
-  const wallFolderId = precursorInitialValues?.WallFolderID ?? null;
+  const wallFolderId = precursorsInitialValues?.WallFolderID ?? null;
 
   useEffect(() => {
     if (!isOpen || !wallFolderId) {
@@ -622,14 +622,14 @@ export default function PatternRecognitionPopup({
 
     const autoFillValues = buildAutoFillInitialValues(
       vcpResults,
-      precursorInitialValues,
+      precursorsInitialValues,
       timezone
     );
 
     const summary = buildPatternRecognitionSummary(vcpResults);
 
     onUseResults?.(autoFillValues, summary);
-  }, [vcpResults, precursorInitialValues, timezone, onUseResults]);
+  }, [vcpResults, precursorsInitialValues, timezone, onUseResults]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
@@ -640,7 +640,7 @@ export default function PatternRecognitionPopup({
 
   // Metadata for the Post-Blast Analysis Report header. Company + logo come from
   // the sensor's client record (resolved above); author from the signed-in user;
-  // blast id from the precursor record's location. Logo paths stored as
+  // blast id from the precursors record's location. Logo paths stored as
   // "../CompanyLogo/…" are rewritten to the public "/logo/…" path.
   const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
   const reportMeta = {
@@ -649,7 +649,7 @@ export default function PatternRecognitionPopup({
     location: clientInfo?.location ?? '',
     radarNumber: sensor?.radar_number ?? '',
     author: userSite?.displayname ?? '',
-    blastId: precursorInitialValues?.Location ?? '',
+    blastId: precursorsInitialValues?.Location ?? '',
     logoPath: normalizeLogoPath(clientInfo?.logo_path ?? userSite?.site?.logo_path),
     // Carried so the report export can persist to Supabase (reports table +
     // Reports storage bucket + work_log), mirroring the daily/InSAR reports.
@@ -719,7 +719,7 @@ export default function PatternRecognitionPopup({
               }}
             >
               Pattern Recognition
-              {precursor ? (
+              {precursors ? (
                 <span
                   style={{
                     marginLeft: '10px',
@@ -728,7 +728,7 @@ export default function PatternRecognitionPopup({
                     color: 'var(--dtg-text-secondary)',
                   }}
                 >
-                  — Precursor #{precursor}
+                  — Precursors #{precursors}
                 </span>
               ) : null}
             </h2>

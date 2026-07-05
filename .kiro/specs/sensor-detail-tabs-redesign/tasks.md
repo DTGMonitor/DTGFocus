@@ -83,7 +83,7 @@ Refactor `SensorDetail.jsx` from a monolithic side-panel into a tabbed interface
   - Accept props: `chain` (array of `DefRecord` ordered root→current), `isLoading`, `error`, `timezone`, `crosscheckers`
   - Render a vertical timeline with a connecting line between nodes; root node at top, current (latest) node at bottom
   - Each node displays: `def_type`, `tarp_level` as coloured badge using `getStatusDotColors`, `location`, `created_at` formatted via `fromUTC(value, timezone)`, `detected_by` resolved to `full_name` (fallback to raw UUID)
-  - Current (last) node: brand-orange border + "Current" badge; root node in multi-node chain: "Root" badge; archived precursor nodes: muted style (opacity-70)
+  - Current (last) node: brand-orange border + "Current" badge; root node in multi-node chain: "Root" badge; archived precursors nodes: muted style (opacity-70)
   - Show inline warning `"Timeline may be incomplete."` when `error` is non-null
   - Show loading spinner when `isLoading=true`
   - _Requirements: 12.3, 12.4, 12.5, 12.8_
@@ -105,16 +105,16 @@ Refactor `SensorDetail.jsx` from a monolithic side-panel into a tabbed interface
     - On Confirm: issue Supabase `delete` on `def_records` by `id` (hard delete — no `isactive` update); on success close dialog and re-fetch; on failure show `toast.error` and keep dialog open
     - _Requirements: 10.2, 10.3, 10.4, 10.5, 10.6_
 
-  - [x] 7.4 Implement Update (archive + precursor) flow for deformation records
-    - `handleUpdate(record)` opens `ConfirmDialog` with `title="Update Deformation Record"` and `message="This will archive the current record and create a new deformation record with this record set as its precursor. Do you want to continue?"`
-    - On Confirm: store `pendingPrecursor = record.id`, close dialog, open `AddDeformationForm` pre-filled with `wallfolder_id`, `location`, alarm region IDs from the current record
-    - On AddDeformationForm cancel: discard `pendingPrecursor`, return to list without modifying any records
-    - On AddDeformationForm submit: (1) Supabase `update` `def_records` set `isactive='No'` for `pendingPrecursor` — if fails, show `toast.error` and abort; (2) Supabase `insert` into `def_records` with `precursor=pendingPrecursor` — if fails, compensate by restoring `isactive='Yes'` on original record and show `toast.error("Archive succeeded but new record could not be created. The original record has been restored.")`; on full success re-fetch and show `toast.success`
+  - [x] 7.4 Implement Update (archive + precursors) flow for deformation records
+    - `handleUpdate(record)` opens `ConfirmDialog` with `title="Update Deformation Record"` and `message="This will archive the current record and create a new deformation record with this record set as its precursors. Do you want to continue?"`
+    - On Confirm: store `pendingPrecursors = record.id`, close dialog, open `AddDeformationForm` pre-filled with `wallfolder_id`, `location`, alarm region IDs from the current record
+    - On AddDeformationForm cancel: discard `pendingPrecursors`, return to list without modifying any records
+    - On AddDeformationForm submit: (1) Supabase `update` `def_records` set `isactive='No'` for `pendingPrecursors` — if fails, show `toast.error` and abort; (2) Supabase `insert` into `def_records` with `precursors=pendingPrecursors` — if fails, compensate by restoring `isactive='Yes'` on original record and show `toast.error("Archive succeeded but new record could not be created. The original record has been restored.")`; on full success re-fetch and show `toast.success`
     - _Requirements: 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8_
 
   - [x] 7.5 Implement timeline chain resolution
-    - `handleTimelineExpand(record)` sets `timelineRecord`; if `record.precursor === null`, set `timelineChain = [record]` with no additional fetches
-    - Otherwise, iteratively fetch `def_records` by `id` starting from `record.precursor`, prepending each to `chain`, until `precursor === null` or depth reaches 50; on any fetch error stop resolution, keep nodes fetched so far, set `timelineError`
+    - `handleTimelineExpand(record)` sets `timelineRecord`; if `record.precursors === null`, set `timelineChain = [record]` with no additional fetches
+    - Otherwise, iteratively fetch `def_records` by `id` starting from `record.precursors`, prepending each to `chain`, until `precursors === null` or depth reaches 50; on any fetch error stop resolution, keep nodes fetched so far, set `timelineError`
     - Final `timelineChain` = `[...resolvedAncestors, record]` (root at index 0, current at last index)
     - `handleTimelineCollapse()` clears `timelineRecord`, `timelineChain`, `timelineError`
     - _Requirements: 12.1, 12.2, 12.6, 12.7, 12.8_
@@ -206,11 +206,11 @@ Refactor `SensorDetail.jsx` from a monolithic side-panel into a tabbed interface
     - Assertion: `getCauseOptions(reason)` returns exactly `CAUSE_OPTIONS[reason]`
     - **Validates: Requirements 6.3**
 
-  - [x] 12.8 Write property test for update flow precursor linkage (Property 7)
-    - **Property 7: Update flow preserves precursor linkage**
+  - [x] 12.8 Write property test for update flow precursors linkage (Property 7)
+    - **Property 7: Update flow preserves precursors linkage**
     - Extract pure helper `performDeformationUpdateFlow(client, originalId, insertPayload)` from `utils/tabHelpers.js`
     - Generator: arbitrary deformation record with a valid `id`
-    - Assertion: after a mocked successful update flow, the archive call sets `isactive='No'` for the original `id`, and the insert call includes `precursor = originalId`
+    - Assertion: after a mocked successful update flow, the archive call sets `isactive='No'` for the original `id`, and the insert call includes `precursors = originalId`
     - **Validates: Requirements 11.5, 11.6**
 
   - [x] 12.9 Write property test for compensating transaction on insert failure (Property 8)
@@ -222,8 +222,8 @@ Refactor `SensorDetail.jsx` from a monolithic side-panel into a tabbed interface
   - [x] 12.10 Write property test for timeline chain ordering (Property 9)
     - **Property 9: Timeline chain is ordered from root to current**
     - Extract pure helper `resolveTimelineChain(latestRecord, fetchFn)` from `utils/tabHelpers.js`
-    - Generator: arbitrary chain of deformation records linked by `precursor` (depth 1–10)
-    - Assertion: `chain[0].precursor === null` and `chain[i+1].precursor === chain[i].id` for all i
+    - Generator: arbitrary chain of deformation records linked by `precursors` (depth 1–10)
+    - Assertion: `chain[0].precursors === null` and `chain[i+1].precursors === chain[i].id` for all i
     - **Validates: Requirements 12.2, 12.3**
 
 
@@ -268,10 +268,10 @@ Refactor `SensorDetail.jsx` from a monolithic side-panel into a tabbed interface
 
   - [x] 13.6 Write unit tests for DeformationTab
     - Update flow: ConfirmDialog opens, then AddDeformationForm opens after Confirm
-    - Cancelling AddDeformationForm discards `pendingPrecursor` without modifying any records
+    - Cancelling AddDeformationForm discards `pendingPrecursors` without modifying any records
     - Hard Delete ConfirmDialog has `isDestructive=true`
     - Timeline is hidden when the latest card is collapsed
-    - Single-node timeline renders when `precursor = null` with no additional fetches
+    - Single-node timeline renders when `precursors = null` with no additional fetches
     - _Requirements: 11.2, 11.3, 11.4, 10.2, 12.6, 12.7_
 
 - [x] 14. Final checkpoint — Ensure all tests pass

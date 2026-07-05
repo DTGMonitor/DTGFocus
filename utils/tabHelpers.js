@@ -112,13 +112,40 @@ export function getCauseOptions(reason) {
 }
 
 /**
- * Resolve the full precursor chain for a deformation record, ordered from the
- * root (precursor === null) at index 0 to `latestRecord` at the last index.
+ * Normalize a `precursors` value into a plain array of ids.
+ *
+ * The column is `INT[]`, but historic rows (and the odd caller) may still hold a
+ * bare scalar or null. This coerces every shape to `number[]`:
+ *   null / undefined → []
+ *   scalar id        → [id]
+ *   array            → array with null/undefined entries stripped
+ *
+ * @param {number|number[]|null|undefined} value
+ * @returns {Array<number|string>}
+ */
+export function normalizePrecursorss(value) {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value.filter((v) => v !== null && v !== undefined);
+  return [value];
+}
+
+/**
+ * Resolve the precursors chain for a deformation record.
+ *
+ * `precursors` is now `INT[]`, so a record can point at several predecessors. We
+ * keep the display linear ("keep linear + list extras"): the FIRST precursors id
+ * is the primary spine parent that the timeline walks root → current; any
+ * remaining ids are the record's `related` precursorss (e.g. Blast/Rainfall
+ * events) resolved one level deep and attached to that node, not walked.
+ *
+ * Each returned chain node is a shallow copy of the record with an added
+ * `related: object[]` array (the resolved non-primary precursorss; `[]` when
+ * there are none).
  *
  * `fetchFn(id)` must resolve a single def_record by id (or reject/throw on error).
- * Resolution stops when a node has `precursor === null`, depth reaches `maxDepth`,
- * or a fetch fails. On fetch failure the nodes resolved so far are returned with
- * `error` set; the chain still terminates with `latestRecord` at the end.
+ * Resolution stops when a node has no precursorss, depth reaches `maxDepth`, or a
+ * spine fetch fails. On any fetch failure the nodes resolved so far are returned
+ * with `error` set; the chain still terminates with `latestRecord` at the end.
  *
  * @param {object} latestRecord            The current/latest record (chain tail)
  * @param {(id: any) => Promise<object>} fetchFn
@@ -128,15 +155,42 @@ export function getCauseOptions(reason) {
 export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50) {
   if (!latestRecord) return { chain: [], error: null };
 
-  // No precursor → single-node timeline, no fetches.
-  if (latestRecord.precursor === null || latestRecord.precursor === undefined) {
-    return { chain: [latestRecord], error: null };
+  let error = null;
+
+  // Resolve the non-primary precursors ids of a record one level deep. Records
+  // that fail to resolve are skipped and flagged via `error`.
+  const resolveRelated = async (ids) => {
+    const related = [];
+    for (const id of ids) {
+      try {
+        const rec = await fetchFn(id);
+        if (rec) related.push(rec);
+        else error = 'Timeline may be incomplete.';
+      } catch {
+        error = 'Timeline may be incomplete.';
+      }
+    }
+    return related;
+  };
+
+  // Attach `related` (every precursors after the primary spine parent) to a node.
+  const decorate = async (record) => {
+    const ids = normalizePrecursorss(record.precursors);
+    const extraIds = ids.slice(1);
+    const related = extraIds.length ? await resolveRelated(extraIds) : [];
+    return { ...record, related };
+  };
+
+  const latestIds = normalizePrecursorss(latestRecord.precursors);
+
+  // No precursors → single-node timeline (still resolve `related` for symmetry).
+  if (latestIds.length === 0) {
+    return { chain: [await decorate(latestRecord)], error };
   }
 
   const ancestors = [];
-  let currentId = latestRecord.precursor;
+  let currentId = latestIds[0]; // primary spine parent
   let depth = 0;
-  let error = null;
 
   while (currentId !== null && currentId !== undefined && depth < maxDepth) {
     let fetched;
@@ -150,26 +204,32 @@ export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50)
       error = 'Timeline may be incomplete.';
       break;
     }
-    ancestors.unshift(fetched); // prepend (oldest first)
-    currentId = fetched.precursor;
+    ancestors.unshift(await decorate(fetched)); // prepend (oldest first)
+    const parentIds = normalizePrecursorss(fetched.precursors);
+    currentId = parentIds.length ? parentIds[0] : null;
     depth += 1;
   }
 
-  return { chain: [...ancestors, latestRecord], error };
+  return { chain: [...ancestors, await decorate(latestRecord)], error };
 }
 
 /**
  * Execute the deformation "Update" flow as a two-step compensating transaction:
  *   1. Archive the original record (isactive = 'No').
- *   2. Insert a new record with `precursor` set to the original record's id.
+ *   2. Insert a new record with `precursors` set to the original record's id.
  *
  * If the insert fails after a successful archive, a compensating update restores
  * the original record's isactive to 'Yes', leaving the database in its pre-update
  * state (Requirement 11.8).
  *
+ * The `precursors` column is `INT[]`. The archived original id is always the
+ * first (primary spine) element; any additional precursors ids the caller placed
+ * on `insertPayload.precursors` (e.g. related Blast/Rainfall events picked in the
+ * form) are appended after it, de-duplicated.
+ *
  * @param {object} client       Supabase-like client (has .from(table) chain API)
- * @param {string|number} originalId   id of the record being archived (precursor)
- * @param {object} insertPayload       columns for the new record (precursor is added here)
+ * @param {string|number} originalId   id of the record being archived (primary precursors)
+ * @param {object} insertPayload       columns for the new record (its `precursors` is merged, not overwritten)
  * @returns {Promise<{ ok: boolean, stage?: 'archive'|'insert', error?: any, compensated?: boolean, inserted?: any }>}
  */
 export async function performDeformationUpdateFlow(client, originalId, insertPayload) {
@@ -183,10 +243,18 @@ export async function performDeformationUpdateFlow(client, originalId, insertPay
     return { ok: false, stage: 'archive', error: archiveRes.error, inserted: null };
   }
 
-  // Step 2: insert the new record with the precursor linkage.
+  // Merge the archived original (primary) with any extra precursorss the caller
+  // supplied, keeping the original first and dropping duplicates.
+  const { precursors: extraPrecursors, ...rest } = insertPayload || {};
+  const precursors = [
+    originalId,
+    ...normalizePrecursorss(extraPrecursors).filter((id) => id !== originalId),
+  ];
+
+  // Step 2: insert the new record with the precursors linkage.
   const insertRes = await client
     .from('def_records')
-    .insert([{ ...insertPayload, precursor: originalId }])
+    .insert([{ ...rest, precursors }])
     .select('id')
     .single();
 

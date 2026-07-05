@@ -108,6 +108,10 @@ export const TYPE_MATRIX: Record<string, TypeConfig> = {
         tarp: "",
         fields: [
         ]
+    },
+    "Rainfall Event": {
+        tarp: "TARP 2",
+        fields: []
     }
 };
 
@@ -488,8 +492,10 @@ export const getSubjectOptions = (parameter: any) => {
         ];
     }
 
-    // Case 3: ID 22-26 (DSRA / Service)
-    if (id >= 22 && id <= 26) {
+    // Case 3: ID 22-26 (DSRA / Service) — also matched by name so the
+    // Rainfall → "Service Impacted" flow works regardless of the exact
+    // Refractivity parameter id in the database.
+    if ((id >= 22 && id <= 26) || (typeof name === 'string' && name.toLowerCase().includes('refractivity'))) {
         return [
             {
                 value: 'DSRA Relocation',

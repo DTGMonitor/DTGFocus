@@ -100,11 +100,11 @@ isLoading: boolean
 error: string | null
 editTarget: DefRecord | null       // record open in EditModal
 deleteTarget: DefRecord | null     // record open in ConfirmDialog (hard delete)
-updateTarget: DefRecord | null     // record open in ConfirmDialog (archive+precursor)
-pendingPrecursor: number | null    // id of record being archived during Update flow
+updateTarget: DefRecord | null     // record open in ConfirmDialog (archive+precursors)
+pendingPrecursors: number | null    // id of record being archived during Update flow
 showAddForm: boolean               // whether AddDeformationForm is open
 timelineRecord: DefRecord | null   // the expanded record whose chain is being shown
-timelineChain: DefRecord[]         // resolved precursor chain
+timelineChain: DefRecord[]         // resolved precursors chain
 timelineLoading: boolean
 timelineError: string | null
 ```
@@ -116,8 +116,8 @@ timelineError: string | null
 - `handleHardDelete(record)` — sets `deleteTarget`, opens `ConfirmDialog`.
 - `handleHardDeleteConfirm()` — issues Supabase `delete` on `def_records`, re-fetches on success.
 - `handleUpdate(record)` — sets `updateTarget`, opens `ConfirmDialog`.
-- `handleUpdateConfirm()` — stores `pendingPrecursor = updateTarget.id`, opens `AddDeformationForm`.
-- `handleAddFormSubmit(formValues)` — archives original record (`isactive = 'No'`), inserts new record with `precursor = pendingPrecursor`; compensates on partial failure.
+- `handleUpdateConfirm()` — stores `pendingPrecursors = updateTarget.id`, opens `AddDeformationForm`.
+- `handleAddFormSubmit(formValues)` — archives original record (`isactive = 'No'`), inserts new record with `precursors = pendingPrecursors`; compensates on partial failure.
 - `handleTimelineExpand(record)` — sets `timelineRecord`, triggers chain resolution.
 - `handleTimelineCollapse()` — clears `timelineRecord` and `timelineChain`.
 
@@ -290,7 +290,7 @@ The modal renders each field using the appropriate input element. Validation run
 | notification_time | timestamptz | |
 | site_engineer | text | |
 | properties | jsonb | dynamic fields per TYPE_MATRIX |
-| precursor | uuid | FK → def_records.id (nullable) |
+| precursors | uuid | FK → def_records.id (nullable) |
 | alarm | uuid[] | linked alarm region IDs |
 
 ### AlarmRecord (alarm_records table)
@@ -340,7 +340,7 @@ The modal renders each field using the appropriate input element. Validation run
 
 ## Data Flow Diagrams
 
-### Update Flow (Archive + Precursor Chain)
+### Update Flow (Archive + Precursors Chain)
 
 ```
 User clicks "Update" on DeformationCard
@@ -352,7 +352,7 @@ ConfirmDialog opens
   User clicks Confirm
         │
         ▼
-pendingPrecursor = record.id
+pendingPrecursors = record.id
 AddDeformationForm opens (pre-filled: wallfolder_id, location, alarm regions)
         │
   User fills form and submits
@@ -360,14 +360,14 @@ AddDeformationForm opens (pre-filled: wallfolder_id, location, alarm regions)
         ▼
 Step 1: supabase.update(def_records)
         .set({ isactive: 'No' })
-        .eq('id', pendingPrecursor)
+        .eq('id', pendingPrecursors)
         │
   ┌─────┴──────┐
   │ Error      │ Success
   │            │
   ▼            ▼
 toast.error  Step 2: supabase.insert(def_records)
-abort          { ...formValues, precursor: pendingPrecursor }
+abort          { ...formValues, precursors: pendingPrecursors }
                │
          ┌─────┴──────┐
          │ Error      │ Success
@@ -376,7 +376,7 @@ abort          { ...formValues, precursor: pendingPrecursor }
   Compensate:      toast.success
   supabase.update  re-fetch records
   .set({ isactive: 'Yes' })
-  .eq('id', pendingPrecursor)
+  .eq('id', pendingPrecursors)
   toast.error("Partial failure...")
 ```
 
@@ -387,13 +387,13 @@ User expands latest DeformationCard (highest created_at)
         │
         ▼
 timelineRecord = latestRecord
-IF latestRecord.precursor === null
+IF latestRecord.precursors === null
   → render single-node timeline, no fetch
 ELSE
   → start chain resolution loop:
 
   chain = []
-  currentId = latestRecord.precursor
+  currentId = latestRecord.precursors
   depth = 0
 
   WHILE currentId !== null AND depth < 50:
@@ -401,7 +401,7 @@ ELSE
     IF error → stop, show "Timeline may be incomplete."
     ELSE
       chain.unshift(fetchedRecord)   // prepend (oldest first)
-      currentId = fetchedRecord.precursor
+      currentId = fetchedRecord.precursors
       depth++
 
   render timeline: [...chain, latestRecord]
@@ -463,9 +463,9 @@ ELSE
 
 ---
 
-### Property 7: Update flow preserves precursor linkage
+### Property 7: Update flow preserves precursors linkage
 
-*For any* deformation record R that undergoes a successful Update flow, after both operations complete: (a) R's `isactive` SHALL be `'No'`, and (b) the newly inserted record's `precursor` SHALL equal R's `id`.
+*For any* deformation record R that undergoes a successful Update flow, after both operations complete: (a) R's `isactive` SHALL be `'No'`, and (b) the newly inserted record's `precursors` SHALL equal R's `id`.
 
 **Validates: Requirements 11.5, 11.6**
 
@@ -481,7 +481,7 @@ ELSE
 
 ### Property 9: Timeline chain is ordered from root to current
 
-*For any* deformation record R with a non-null precursor chain of depth N (where N ≤ 50), the resolved timeline SHALL contain N+1 nodes ordered from the root record (the one with `precursor = null`) at index 0 to R at index N, with no gaps or reversals.
+*For any* deformation record R with a non-null precursors chain of depth N (where N ≤ 50), the resolved timeline SHALL contain N+1 nodes ordered from the root record (the one with `precursors = null`) at index 0 to R at index N, with no gaps or reversals.
 
 **Validates: Requirements 12.2, 12.3**
 
@@ -505,7 +505,7 @@ Each tab component maintains an `error` string in local state. When a Supabase q
 
 ### Timeline Error Handling
 
-If any fetch in the precursor chain resolution fails, the timeline renders the nodes fetched so far and shows an inline warning badge: `"Timeline may be incomplete."` The chain resolution stops at the failed node.
+If any fetch in the precursors chain resolution fails, the timeline renders the nodes fetched so far and shows an inline warning badge: `"Timeline may be incomplete."` The chain resolution stops at the failed node.
 
 
 ---
@@ -549,10 +549,10 @@ Unit tests cover specific interactions, edge cases, and error conditions. They u
 
 **DeformationTab:**
 - Update flow: ConfirmDialog opens, then AddDeformationForm opens after Confirm.
-- Cancelling AddDeformationForm discards `pendingPrecursor` without modifying any records.
+- Cancelling AddDeformationForm discards `pendingPrecursors` without modifying any records.
 - Hard Delete ConfirmDialog has `isDestructive=true`.
 - Timeline is hidden when the latest card is collapsed.
-- Single-node timeline renders when `precursor = null` with no additional fetches.
+- Single-node timeline renders when `precursors = null` with no additional fetches.
 
 ### Property-Based Tests
 
@@ -587,17 +587,17 @@ Tag format for each test: `// Feature: sensor-detail-tabs-redesign, Property N: 
 - Generator: arbitrary key from `Object.keys(CAUSE_OPTIONS)`.
 - Assertion: `getCauseOptions(reason)` returns exactly `CAUSE_OPTIONS[reason]`.
 
-**Property 7 — Update flow preserves precursor linkage** (`fast-check`)
+**Property 7 — Update flow preserves precursors linkage** (`fast-check`)
 - Generator: arbitrary deformation record with a valid `id`.
-- Assertion: after a mocked successful update flow, the archive call sets `isactive = 'No'` for the original `id`, and the insert call includes `precursor = originalId`.
+- Assertion: after a mocked successful update flow, the archive call sets `isactive = 'No'` for the original `id`, and the insert call includes `precursors = originalId`.
 
 **Property 8 — Compensating transaction on insert failure** (`fast-check`)
 - Generator: arbitrary deformation record.
 - Assertion: when the insert mock throws an error after the archive mock succeeds, a compensating update call is made to restore `isactive = 'Yes'` for the original `id`.
 
 **Property 9 — Timeline chain ordered from root to current** (`fast-check`)
-- Generator: arbitrary chain of deformation records linked by `precursor` (depth 1–10).
-- Assertion: `resolveTimelineChain(latestRecord, fetchFn)` returns an array where `chain[0].precursor === null` and `chain[i+1].precursor === chain[i].id` for all i.
+- Generator: arbitrary chain of deformation records linked by `precursors` (depth 1–10).
+- Assertion: `resolveTimelineChain(latestRecord, fetchFn)` returns an array where `chain[0].precursors === null` and `chain[i+1].precursors === chain[i].id` for all i.
 
 ### Integration Tests
 
@@ -624,7 +624,7 @@ components/admin/Radar/
 │   ├── DQPTab.jsx                 # DQP tab panel wrapper (Req 8)
 │   └── DowntimeTab.jsx            # Downtime tab panel (Req 2–4)
 └── Deformation/
-    └── TimelineView.jsx           # Precursor chain timeline (Req 12)
+    └── TimelineView.jsx           # Precursors chain timeline (Req 12)
 ```
 
 ### Existing Files to Modify
@@ -675,7 +675,7 @@ The DQP handlers (`handleStatusRequest`, `executeDirectUpdate`, `handleModalSubm
 The three tabs that need edit modals (Downtime, Alarm, Deformation) have different field sets but the same modal chrome (title, save/cancel buttons, validation). A generic `fields`-driven `EditModal` avoids duplicating the modal shell three times while remaining flexible enough to handle all field types present in the codebase (`text`, `textarea`, `datetime-local`, `number`, `select`, `readonly`).
 
 **Why cap the timeline chain at 50 nodes?**
-The precursor chain is a linked list stored in the database. Without a cap, a corrupted chain (circular reference or very long history) could trigger an unbounded number of sequential Supabase queries, degrading performance and potentially hanging the UI. 50 nodes is well beyond any realistic deformation history depth while providing a hard safety limit.
+The precursors chain is a linked list stored in the database. Without a cap, a corrupted chain (circular reference or very long history) could trigger an unbounded number of sequential Supabase queries, degrading performance and potentially hanging the UI. 50 nodes is well beyond any realistic deformation history depth while providing a hard safety limit.
 
 **Why use fast-check for property-based testing?**
 The project uses Next.js with TypeScript/JavaScript. `fast-check` is the most widely adopted PBT library in the JS/TS ecosystem, has first-class TypeScript support, integrates directly with Jest (the standard test runner for Next.js projects), and does not require any additional test runner setup.

@@ -7,7 +7,7 @@ import AddDeformationForm from '@/components/admin/Radar/Deformation/AddDeformat
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import EditModal from '@/components/admin/Radar/shared/EditModal';
 import PatternRecognitionPopup from '@/components/admin/Radar/PatternRecognition/PatternRecognitionPopup';
-import { resolveDetectedBy, isoToDatetimeLocal, resolveTimelineChain } from '@/utils/tabHelpers';
+import { resolveDetectedBy, isoToDatetimeLocal, resolveTimelineChain, normalizePrecursorss } from '@/utils/tabHelpers';
 import { TYPE_MATRIX, FIELD_DEFINITIONS, getConfigForType } from '@/config/formConfig';
 import toast from 'react-hot-toast';
 
@@ -15,7 +15,7 @@ import toast from 'react-hot-toast';
  * DeformationTab
  *
  * Owns all deformation-specific state: list fetching, edit, hard-delete,
- * update (archive + precursor), and timeline chain resolution.
+ * update (archive + precursors), and timeline chain resolution.
  *
  * Props:
  *   sensor        {object}
@@ -29,7 +29,7 @@ import toast from 'react-hot-toast';
  */
 
 const TIMELINE_SELECT =
-  'id, created_at, location, precursor, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties';
+  'id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties';
 
 const DEF_TYPE_OPTIONS = Object.keys(TYPE_MATRIX).map((t) => ({ value: t, label: t }));
 
@@ -40,6 +40,7 @@ export default function DeformationTab({
   userSite,
   alarmRegions = [],
   activeTab,
+  onRainfallSaved,
 }) {
   const userID = userSite?.user_id;
   const userName = userSite?.displayname;
@@ -56,7 +57,7 @@ export default function DeformationTab({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeletePending, setIsDeletePending] = useState(false);
   const [updateTarget, setUpdateTarget] = useState(null);
-  const [pendingPrecursor, setPendingPrecursor] = useState(null);
+  const [pendingPrecursors, setPendingPrecursors] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
 
   // ── Pattern Recognition state (Requirements 1.1–1.6) ──────────────────────────
@@ -64,7 +65,7 @@ export default function DeformationTab({
   const [showPRP, setShowPRP] = useState(false);
   const [prpAutoFillValues, setPrpAutoFillValues] = useState(null);
   const [prpSummary, setPrpSummary] = useState(null);
-  const [isArchivingPrecursor, setIsArchivingPrecursor] = useState(false);
+  const [isArchivingPrecursors, setIsArchivingPrecursors] = useState(false);
 
   // ── Timeline state ──────────────────────────────────────────────────────────────
   const [timelineRecord, setTimelineRecord] = useState(null);
@@ -102,15 +103,30 @@ export default function DeformationTab({
     }
   }, [activeTab, fetchDeformationRecords]);
 
+  // Ids that are referenced as a precursor by some other active record. These
+  // are "rolled up" into their descendant's timeline and must NOT also appear as
+  // their own top-level card (otherwise e.g. a Linear that a later Rainfall points
+  // at would show both standalone and inside the Rainfall's chain).
+  const referencedPrecursorIds = useMemo(() => {
+    const ids = new Set();
+    deformationList.forEach((d) => {
+      normalizePrecursorss(d.precursors).forEach((id) => ids.add(String(id)));
+    });
+    return ids;
+  }, [deformationList]);
+
   const filtered = useMemo(() => {
     const lower = search.toLowerCase();
-    return deformationList.filter(
-      (d) =>
-        d.location?.toLowerCase().includes(lower) ||
-        d.def_type?.toLowerCase().includes(lower) ||
-        d.tarp_level?.toLowerCase().includes(lower)
-    );
-  }, [deformationList, search]);
+    return deformationList
+      // Only "head" records (not a precursor of any other active record) are cards.
+      .filter((d) => !referencedPrecursorIds.has(String(d.id)))
+      .filter(
+        (d) =>
+          d.location?.toLowerCase().includes(lower) ||
+          d.def_type?.toLowerCase().includes(lower) ||
+          d.tarp_level?.toLowerCase().includes(lower)
+      );
+  }, [deformationList, search, referencedPrecursorIds]);
 
   // ── Edit flow (task 7.2) ─────────────────────────────────────────────────────
 
@@ -269,7 +285,7 @@ export default function DeformationTab({
 
   const handleUpdateConfirm = () => {
     if (!updateTarget) return;
-    setPendingPrecursor(updateTarget.id);
+    setPendingPrecursors(updateTarget.id);
     setUpdateTarget(null);
     setShowPRPrompt(true); // NEW: show PR prompt instead of directly opening form (Requirement 1.1)
   };
@@ -294,7 +310,7 @@ export default function DeformationTab({
   const handlePRPClose = () => {
     setShowPRP(false);
     setPrpAutoFillValues(null);
-    setPendingPrecursor(null);
+    setPendingPrecursors(null);
   };
 
   /** PRP "Use Results to Fill Form" — auto-fill values + summary (Requirements 8.2, 8.3) */
@@ -307,17 +323,17 @@ export default function DeformationTab({
 
   /**
    * PRP "Archive Blast Record" — when the latest stage is No Significant
-   * Movement the slope has settled, so we archive the precursor record directly
+   * Movement the slope has settled, so we archive the precursors record directly
    * instead of creating a follow-up deformation record (issue 3).
    */
   const handlePRPArchive = async () => {
-    if (!pendingPrecursor) return;
-    setIsArchivingPrecursor(true);
+    if (!pendingPrecursors) return;
+    setIsArchivingPrecursors(true);
     try {
       const { error: archiveError } = await supabase
         .from('def_records')
         .update({ isactive: 'No' })
-        .eq('id', pendingPrecursor);
+        .eq('id', pendingPrecursors);
 
       if (archiveError) throw archiveError;
 
@@ -325,43 +341,43 @@ export default function DeformationTab({
       setShowPRP(false);
       setPrpAutoFillValues(null);
       setPrpSummary(null);
-      setPendingPrecursor(null);
+      setPendingPrecursors(null);
       await fetchDeformationRecords();
     } catch (err) {
       console.error('Error archiving blast record:', err);
       toast.error('Failed to archive blast record.');
     } finally {
-      setIsArchivingPrecursor(false);
+      setIsArchivingPrecursors(false);
     }
   };
 
-  // Pre-fill values for the AddDeformationForm from the precursor record.
-  const precursorRecord = useMemo(
-    () => deformationList.find((d) => d.id === pendingPrecursor) || null,
-    [deformationList, pendingPrecursor]
+  // Pre-fill values for the AddDeformationForm from the precursors record.
+  const precursorsRecord = useMemo(
+    () => deformationList.find((d) => d.id === pendingPrecursors) || null,
+    [deformationList, pendingPrecursors]
   );
 
   const addFormInitialValues = useMemo(() => {
     if (prpAutoFillValues) return prpAutoFillValues; // auto-fill takes precedence (Requirement 1.6 / design)
-    if (!precursorRecord) return undefined;
+    if (!precursorsRecord) return undefined;
     return {
-      WallFolderID: precursorRecord.wallfolder_id || sensor.wallfolder_id,
-      Location: precursorRecord.location || '',
-      alarmRegions: Array.isArray(precursorRecord.alarm) ? precursorRecord.alarm : [],
+      WallFolderID: precursorsRecord.wallfolder_id || sensor.wallfolder_id,
+      Location: precursorsRecord.location || '',
+      alarmRegions: Array.isArray(precursorsRecord.alarm) ? precursorsRecord.alarm : [],
     };
-  }, [precursorRecord, sensor?.wallfolder_id, prpAutoFillValues]);
+  }, [precursorsRecord, sensor?.wallfolder_id, prpAutoFillValues]);
 
   const handleAddFormClose = () => {
-    // Discard the pending precursor; no records modified (Requirement 11.4).
+    // Discard the pending precursors; no records modified (Requirement 11.4).
     setShowAddForm(false);
-    setPendingPrecursor(null);
+    setPendingPrecursors(null);
     setPrpAutoFillValues(null);
     setPrpSummary(null);
   };
 
   const handleAddFormSuccess = async () => {
     setShowAddForm(false);
-    setPendingPrecursor(null);
+    setPendingPrecursors(null);
     setPrpAutoFillValues(null);
     setPrpSummary(null);
     await fetchDeformationRecords();
@@ -384,8 +400,9 @@ export default function DeformationTab({
       setTimelineRecord(record);
       setTimelineError(null);
 
-      if (record.precursor === null || record.precursor === undefined) {
-        setTimelineChain([record]);
+      // No precursorss → single-node timeline. `related` kept for TimelineView symmetry.
+      if (normalizePrecursorss(record.precursors).length === 0) {
+        setTimelineChain([{ ...record, related: [] }]);
         return;
       }
 
@@ -400,7 +417,7 @@ export default function DeformationTab({
         setTimelineError(chainError);
       } catch (err) {
         console.error('Error resolving timeline chain:', err);
-        setTimelineChain([record]);
+        setTimelineChain([{ ...record, related: [] }]);
         setTimelineError('Timeline may be incomplete.');
       } finally {
         setTimelineLoading(false);
@@ -429,11 +446,12 @@ export default function DeformationTab({
           userID={userID}
           userName={userName}
           clientTimezone={timezone}
-          precursor={pendingPrecursor}
+          precursors={pendingPrecursors}
           initialValues={addFormInitialValues}
           patternRecognitionSummary={prpSummary}
           onClose={handleAddFormClose}
           onSuccess={handleAddFormSuccess}
+          onRainfallSaved={onRainfallSaved}
         />
       </div>
     );
@@ -469,6 +487,7 @@ export default function DeformationTab({
             timelineError={timelineError}
             timezone={timezone}
             onSuccess={fetchDeformationRecords}
+            onRainfallSaved={onRainfallSaved}
           />
         )}
       </div>
@@ -495,11 +514,11 @@ export default function DeformationTab({
         isConfirmDisabled={isDeletePending}
       />
 
-      {/* Update (archive + precursor) Confirm Dialog */}
+      {/* Update (archive + precursors) Confirm Dialog */}
       <ConfirmDialog
         isOpen={Boolean(updateTarget)}
         title="Update Deformation Record"
-        message="This will archive the current record and create a new deformation record with this record set as its precursor. Do you want to continue?"
+        message="This will archive the current record and create a new deformation record with this record set as its precursors. Do you want to continue?"
         onConfirm={handleUpdateConfirm}
         onCancel={handleUpdateCancel}
         confirmLabel="Continue"
@@ -519,13 +538,13 @@ export default function DeformationTab({
       {/* Pattern Recognition Popup (Requirements 1.4, 2.x–8.x) */}
       <PatternRecognitionPopup
         isOpen={showPRP}
-        precursor={pendingPrecursor}
-        precursorInitialValues={addFormInitialValues}
+        precursors={pendingPrecursors}
+        precursorsInitialValues={addFormInitialValues}
         timezone={timezone}
         onClose={handlePRPClose}
         onUseResults={handlePRPUseResults}
         onArchive={handlePRPArchive}
-        isArchiving={isArchivingPrecursor}
+        isArchiving={isArchivingPrecursors}
         sensor={sensor}
         userSite={userSite}
       />

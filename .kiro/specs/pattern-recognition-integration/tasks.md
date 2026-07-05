@@ -59,12 +59,12 @@ Integrate the standalone Python pattern-recognition pipeline into the dtg-focus-
 
 - [x] 4. Auto-fill mapper
   - [x] 4.1 Create `utils/patternRecognitionMapper.ts`
-    - Implement `buildAutoFillInitialValues(vcpResults, precursorInitialValues, timezone)` as a pure function with no side effects
+    - Implement `buildAutoFillInitialValues(vcpResults, precursorsInitialValues, timezone)` as a pure function with no side effects
     - Step 1 — select Longest VCP: sum all Progressive Failure window durations per VCP; use peak velocity in PF stage as tiebreaker for equal durations (derive from `stageSummaryRows["Velocity max (mm/day)"]`)
     - Step 2 — determine `Type` via `PHASE_TO_TYPE_MAP` applied to the final window's phase of the Longest VCP
     - Step 3 — extract PF stage stats: `pfVmax`, `pfVmin` from the PF `stageSummaryRows` row with highest `Velocity max`
     - Step 4 — build mapped values: `Type`, `Start` (onset → `isoToDatetimeLocal`), `VCP` (smoothing window), `Vmax`, `Vmin`, `InverseVelocity1` (`round(1/Vmax, 4)` bypassing form auto-compute), `AverageVelocity` (for Linear type), `ForecastResult1`, `ForecastResult2`
-    - Step 5 — merge with precursor: `Location` and `alarmRegions` from precursor always take precedence
+    - Step 5 — merge with precursors: `Location` and `alarmRegions` from precursors always take precedence
     - When no PF stage exists: set `Type` to "Linear"; leave `Vmax`, `Vmin`, `AverageVelocity`, `InverseVelocity1` as empty strings
     - Export `PHASE_TO_TYPE_MAP` constant for use in tests
     - _Requirements: 8.1, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 8.12, 8.13_
@@ -77,7 +77,7 @@ Integrate the standalone Python pattern-recognition pipeline into the dtg-focus-
 
   - [x]* 4.3 Write property test for auto-fill mapper field mapping (Property 4)
     - **Property 4: Auto-fill Mapper Field Mapping**
-    - Generate arbitrary VCP results and precursor `initialValues`; assert all field mapping rules hold simultaneously: `Type`, `Start`, `VCP`, `Vmax`, `Vmin`, `InverseVelocity1 = round(1/Vmax, 4)`, `Location` and `alarmRegions` from precursor
+    - Generate arbitrary VCP results and precursors `initialValues`; assert all field mapping rules hold simultaneously: `Type`, `Start`, `VCP`, `Vmax`, `Vmin`, `InverseVelocity1 = round(1/Vmax, 4)`, `Location` and `alarmRegions` from precursors
     - Tag: `// Feature: pattern-recognition-integration, Property 4: auto-fill mapper produces correct field values for any VCP results`
     - **Validates: Requirements 8.1, 8.4, 8.5, 8.6, 8.7, 8.8, 8.10, 8.13**
 
@@ -159,8 +159,8 @@ Integrate the standalone Python pattern-recognition pipeline into the dtg-focus-
     - On 90-second timeout: abort, display timeout error, re-enable button (Requirement 4.7)
     - On "Apply Stage Labels": POST to `/api/pattern-recognition/classify-manual`; update `vcpResults[activeVcpIndex]` with response; disable "Reset to Auto" during in-flight (Requirement 6.3)
     - On "Reset to Auto": restore `vcpResults[activeVcpIndex]` to the original analysis response; disable "Apply Stage Labels" during reset (Requirement 6.4)
-    - On "Use Results to Fill Form": call `buildAutoFillInitialValues(vcpResults, precursorInitialValues, timezone)`; build `pattern_recognition_summary` object; call `onUseResults(autoFillValues, summary)`; unmount (Requirement 8.2, 8.3)
-    - Accept props: `isOpen`, `precursor`, `precursorInitialValues`, `timezone`, `onClose`, `onUseResults`
+    - On "Use Results to Fill Form": call `buildAutoFillInitialValues(vcpResults, precursorsInitialValues, timezone)`; build `pattern_recognition_summary` object; call `onUseResults(autoFillValues, summary)`; unmount (Requirement 8.2, 8.3)
+    - Accept props: `isOpen`, `precursors`, `precursorsInitialValues`, `timezone`, `onClose`, `onUseResults`
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.3, 4.4, 4.7, 5.1–5.6, 6.3, 6.4, 8.2, 8.3, 10.1–10.5_
 
 - [x] 11. Checkpoint — popup components complete
@@ -172,9 +172,9 @@ Integrate the standalone Python pattern-recognition pipeline into the dtg-focus-
     - Update `handleUpdateConfirm` to set `showPRPrompt(true)` instead of directly setting `showAddForm(true)`
     - Add `handlePRPromptOpenPRP`: set `showPRPrompt(false)`, set `showPRP(true)`
     - Add `handlePRPromptFillDirectly`: set `showPRPrompt(false)`, set `showAddForm(true)`
-    - Add `handlePRPClose`: set `showPRP(false)`, clear `prpAutoFillValues`, clear `pendingPrecursor`
+    - Add `handlePRPClose`: set `showPRP(false)`, clear `prpAutoFillValues`, clear `pendingPrecursors`
     - Add `handlePRPUseResults(autoFillValues, summary)`: set `prpAutoFillValues`, set `prpSummary`, set `showPRP(false)`, set `showAddForm(true)`
-    - Extend `addFormInitialValues` memo to return `prpAutoFillValues` when present (takes precedence over precursor-derived values)
+    - Extend `addFormInitialValues` memo to return `prpAutoFillValues` when present (takes precedence over precursors-derived values)
     - Render the PR prompt `ConfirmDialog` with `isOpen={showPRPrompt}`, title "Run Pattern Recognition?", message "Would you like to run Pattern Recognition first to auto-fill the form?", `confirmLabel="Open Pattern Recognition"`, `cancelLabel="Fill Form Directly"`, `onConfirm={handlePRPromptOpenPRP}`, `onCancel={handlePRPromptFillDirectly}` — Escape/backdrop maps to `onCancel` (Requirement 1.5)
     - Render `PatternRecognitionPopup` with `isOpen={showPRP}` and all required props; ensure `AddDeformationForm` is not simultaneously open when PRP is open (Requirement 1.4)
     - Pass `patternRecognitionSummary={prpSummary}` to `AddDeformationForm`
