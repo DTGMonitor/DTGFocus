@@ -1,0 +1,152 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Run the SQL migration in Supabase (manual step — not a code task)": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310672337
+      }
+    ],
+    "2.1 Delete the schedule-storage functions from `scheduleUtils.ts`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310672553
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310700391
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310823822
+      }
+    ],
+    "2.2 Write property tests for `scheduleUtils.ts` pure functions (P9, P10, P11, P12, P14)": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310672759
+      }
+    ],
+    "3.1 Add `saving` and `saveError` fields to `SiteReportStatus`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310672924
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310704369
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310828628
+      }
+    ],
+    "3.2 Rewrite `fetchData` to fetch schedules from Supabase in parallel": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673043
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310837443
+      }
+    ],
+    "3.3 Remove `SCHEDULES_UPDATED_EVENT` / `storage` event listeners": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673131
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310841093
+      }
+    ],
+    "3.4 Rewrite `saveSchedule` with optimistic update and Supabase upsert": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673228
+      }
+    ],
+    "3.5 Implement one-time localStorage migration": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673394
+      }
+    ],
+    "3.6 Write unit tests for `useReportSchedules.ts`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673491
+      }
+    ],
+    "4.1 Extract merge logic into a testable pure function": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673630
+      },
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310844723
+      }
+    ],
+    "4.2 Write property tests for merge logic (P1–P8, P13)": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310673735
+      }
+    ],
+    "5.1 Render saving indicator and error message per row": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310691578
+      }
+    ],
+    "5.2 Write unit tests for `ScheduledReports.tsx`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310691762
+      }
+    ],
+    "6.1 Confirm no import cleanup needed in `ReportReminderManager.tsx`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310691913
+      }
+    ],
+    "6.2 Write unit tests for `ReportReminderManager.tsx`": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310692039
+      }
+    ],
+    "7. Final checkpoint": [
+      {
+        "executionId": "606af532-ebcd-4b2b-9a19-8d768717009b",
+        "chatSessionId": "sess_54f67002-7add-40de-a7d2-1b5fafdc29d0",
+        "timestamp": 1783310692163
+      }
+    ]
+  }
+}

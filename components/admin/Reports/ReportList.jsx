@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import toast, { Toaster } from 'react-hot-toast';
 
-const ReportsList = ({refreshTrigger,reportData}) => {
+const ReportsList = ({refreshTrigger, reportData = null}) => {
     const { userSite, loading: siteLoading } = useUserSite();
 
     const clientId = userSite?.site?.id;
@@ -36,9 +36,19 @@ const ReportsList = ({refreshTrigger,reportData}) => {
             setLoading(true);
 
 
+            // radar reports: only the latest 7 days; everything else: latest 6 months
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
             let query = supabase
                 .from('reports')
                 .select('*')
+                .or(
+                    `and(type.eq.radar,created_at.gte.${sevenDaysAgo.toISOString()}),` +
+                    `and(type.neq.radar,created_at.gte.${sixMonthsAgo.toISOString()})`
+                )
                 .order('created_at', { ascending: false });
 
             if (userRole !== 'admin') {

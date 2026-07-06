@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import {
   FileBarChart, FileText, Calendar, Clock, CheckCircle,
   AlertTriangle, TrendingUp, RefreshCw
@@ -91,40 +92,42 @@ function Reports() {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const handleReportLoaded = (reports: any[]) => {
-    setTotalCount(reports.length);
-    console.log(reports);
-    const thisMonthReports = reports.filter(report => {
-      const reportDate = new Date(report.date);
-      return reportDate.getMonth() === thisMonth &&
-        reportDate.getFullYear() === thisYear
-    }
-    );
+  // Count ALL reports directly from the DB, independent of the date-limited list
+  // rendered by <ReportList /> so the stat cards reflect the full dataset.
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const fmt = (d: Date) => d.toISOString().slice(0, 10);
+        const startOfThisMonth = fmt(new Date(thisYear, thisMonth, 1));
+        const startOfNextMonth = fmt(new Date(thisYear, thisMonth + 1, 1));
+        const startOfLastMonth = fmt(new Date(thisYear, thisMonth - 1, 1));
 
-    const lastMonthReports = reports.filter(report => {
-      const reportDate = new Date(report.date);
-      if (thisMonth === 1) return
-      reportDate.getMonth() === thisMonth - 1 &&
-        reportDate.getFullYear() === thisYear - 1;
-      return reportDate.getMonth() === thisMonth - 1 &&
-        reportDate.getFullYear() === thisYear
-    }
-    );
+        const countQuery = () =>
+          supabase.from('reports').select('*', { count: 'exact', head: true });
 
-    const pendingReports = reports.filter(report =>
-      report.status.toLowerCase() === 'pending'
-    );
-    const completedReports = reports.filter(report =>
-      report.status.toLowerCase() === 'completed'
-    );
+        const [totalRes, thisMonthRes, lastMonthRes, pendingRes, completedRes] =
+          await Promise.all([
+            countQuery(),
+            countQuery().gte('date', startOfThisMonth).lt('date', startOfNextMonth),
+            countQuery().gte('date', startOfLastMonth).lt('date', startOfThisMonth),
+            countQuery().ilike('status', 'pending'),
+            countQuery().ilike('status', 'completed'),
+          ]);
 
-    setThisMonthCount(thisMonthReports.length);
-    setPendingCount(pendingReports.length);
-    setCompletedCount(completedReports.length);
-    setLastMonthCount(lastMonthReports.length);
-  };
+        setTotalCount(totalRes.count || 0);
+        setThisMonthCount(thisMonthRes.count || 0);
+        setLastMonthCount(lastMonthRes.count || 0);
+        setPendingCount(pendingRes.count || 0);
+        setCompletedCount(completedRes.count || 0);
+      } catch (error) {
+        console.error('Error fetching report stats:', error);
+      }
+    };
 
-  const percentageCompleted = completedCount / totalCount * 100;
+    fetchStats();
+  }, [refreshTrigger, thisMonth, thisYear]);
+
+  const percentageCompleted = totalCount > 0 ? completedCount / totalCount * 100 : 0;
   const reportIncrement = thisMonthCount - lastMonthCount;
   const getIncrementDisplay = (inc: number) => {
     if (inc > 0) return {text:`+${inc}`, color: 'text-green-500'};
@@ -277,7 +280,7 @@ function Reports() {
         </button>
       </div>
 
-      <ReportList refreshTrigger={refreshTrigger} reportData={handleReportLoaded} />
+      <ReportList refreshTrigger={refreshTrigger} />
 
       {/* Scheduled Reports — per-site deadline & reminder */}
       <ScheduledReports />

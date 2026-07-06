@@ -396,13 +396,20 @@ export default function DeformationTab({
   }, []);
 
   const handleTimelineExpand = useCallback(
-    async (record) => {
+    async (record, tailRecord = null) => {
       setTimelineRecord(record);
       setTimelineError(null);
 
+      // When a timeline card is a precursor of an event (Rainfall/Blast), append
+      // that event as the chain tail so the precursor's continuous history flows
+      // root → precursor → event (Current). `related` is left empty on the tail so
+      // sibling precursors are not merged back into this timeline.
+      const withTail = (chain) =>
+        tailRecord ? [...chain, { ...tailRecord, related: [] }] : chain;
+
       // No precursorss → single-node timeline. `related` kept for TimelineView symmetry.
       if (normalizePrecursorss(record.precursors).length === 0) {
-        setTimelineChain([{ ...record, related: [] }]);
+        setTimelineChain(withTail([{ ...record, related: [] }]));
         return;
       }
 
@@ -413,11 +420,11 @@ export default function DeformationTab({
           fetchRecordById,
           50
         );
-        setTimelineChain(chain);
+        setTimelineChain(withTail(chain));
         setTimelineError(chainError);
       } catch (err) {
         console.error('Error resolving timeline chain:', err);
-        setTimelineChain([{ ...record, related: [] }]);
+        setTimelineChain(withTail([{ ...record, related: [] }]));
         setTimelineError('Timeline may be incomplete.');
       } finally {
         setTimelineLoading(false);

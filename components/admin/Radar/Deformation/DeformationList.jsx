@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import AddDeformationForm from "./AddDeformationForm";
 import TimelineView from "./TimelineView";
+import { normalizePrecursorss } from "@/utils/tabHelpers";
 import toast from "react-hot-toast";
 
 const DeformationList = ({
@@ -89,19 +90,27 @@ const DeformationList = ({
     const renderList = () => {
         if (rawList.length === 0) return <div className="text-sm text-gray-500 mt-4">No deformation observed on this radar.</div>;
 
-        // Only Rain/Blast *events* get the dual-card treatment: a plain
-        // "individual" card (edit/update/archive/delete actions) plus a dedicated
-        // "timeline" card that expands the Blast→…→current chain (added only when a
-        // precursor chain exists). Every other record (deformations) renders as a
-        // single "full" card with actions + an inline timeline toggle, as before.
+        // Only Rain/Blast *events* get the multi-card treatment: a plain
+        // "individual" card (edit/update/archive/delete actions) plus ONE dedicated
+        // "timeline" card per selected precursor. Each timeline card expands that
+        // precursor's own continuous chain (root→precursor) with the event appended
+        // as the tail node. Every other record (deformations) renders as a single
+        // "full" card with actions + an inline timeline toggle, as before.
         const EVENT_TYPES = new Set(['Rainfall Event', 'Blast Event']);
         const cards = filtered.flatMap((item) => {
-            const hasChain = Array.isArray(item.precursors) && item.precursors.length > 0;
             if (!EVENT_TYPES.has(item.def_type)) {
                 return [{ item, variant: 'full' }];
             }
             const entries = [{ item, variant: 'individual' }];
-            if (hasChain) entries.push({ item, variant: 'timeline' });
+            // One timeline card per precursor, titled by the precursor record.
+            // Precursors are hidden from top-level cards (referenced-precursor
+            // filter) but remain in rawList, so we resolve their display data there.
+            normalizePrecursorss(item.precursors).forEach((pid) => {
+                const precursorRecord = rawList.find((r) => String(r.id) === String(pid));
+                if (precursorRecord) {
+                    entries.push({ item: precursorRecord, variant: 'timeline', parentEvent: item });
+                }
+            });
             return entries;
         });
 
@@ -117,7 +126,7 @@ const DeformationList = ({
                     />
                 </div>
                 <div className="w-full max-h-[30vh] overflow-y-auto flex flex-col gap-2">
-                    {cards.map(({ item, variant }) => {
+                    {cards.map(({ item, variant, parentEvent }) => {
                         const isTimelineCard = variant === 'timeline';
                         const showToggle = variant === 'full' || variant === 'timeline';
                         const showActions = variant === 'full' || variant === 'individual';
@@ -157,7 +166,7 @@ const DeformationList = ({
                                     <div className="flex items-center gap-1">
                                         {showToggle && (
                                             <button
-                                                onClick={() => isTimelineOpen ? onTimelineCollapse?.() : onTimelineExpand?.(item)}
+                                                onClick={() => isTimelineOpen ? onTimelineCollapse?.() : onTimelineExpand?.(item, parentEvent)}
                                                 title={isTimelineOpen ? "Hide timeline" : "View timeline"}
                                                 aria-label="Toggle timeline"
                                                 className="p-1 hover:text-[var(--dtg-brand-orange)] rounded text-gray-400"
