@@ -360,6 +360,39 @@ const SensorDetail = ({
         }
     }, [activeTab, fetchDeformationRecords, fetchDataQuality, sensor?.dqp_record_id]);
 
+    // --- Load alarm regions for THIS wall-folder on sensor change ---
+    // sharedRegions is consumed by the DQP feedback check, the DQP email body,
+    // and the modals — none of which should depend on the Alarm tab being
+    // mounted. Previously regions only arrived via AlarmTab's onRegionsLoaded,
+    // so opening a sensor straight to the DQP tab left sharedRegions empty and
+    // the "non-optimal → Optimal" FeedbackModal never fired.
+    useEffect(() => {
+        if (!sensor?.wallfolder_id) return;
+        let cancelled = false;
+
+        const loadRegions = async () => {
+            const { data, error } = await supabase
+                .from('alarm_regions')
+                .select('id, name, alarmtype')
+                .eq('wallfolder', sensor.wallfolder_id);
+
+            if (error) {
+                console.error('Error loading alarm regions:', error);
+                return;
+            }
+            if (cancelled) return;
+
+            setSharedRegions((data || []).map(r => ({
+                id: r.id,
+                name: r.name,
+                type: r.alarmtype,
+            })));
+        };
+
+        loadRegions();
+        return () => { cancelled = true; };
+    }, [sensor?.wallfolder_id]);
+
     // --- 2. Action Handlers for Wrench ---
 
     const handleSaveRename = async () => {
