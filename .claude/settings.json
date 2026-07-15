@@ -6,7 +6,8 @@
       "Bash(ls components/admin/Radar/PatternRecognition/)",
       "Bash(ls utils/patternRecognitionMapper.ts)",
       "Bash(find . -path ./node_modules -prune -o -name \"*.test.*\" -print)",
-      "Bash(ls jest.config* jest.setup*)"
+      "Bash(ls jest.config* jest.setup*)",
+      "Bash(npx tsc *)"
     ]
   }
 }

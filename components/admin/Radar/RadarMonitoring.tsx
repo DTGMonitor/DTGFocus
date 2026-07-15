@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getRiskColor, getStatusColor, getQualityColor } from "@/config/statusConfig";
 import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
@@ -75,7 +75,17 @@ function RadarMonitoring() {
   const { userSite, loading: siteLoading } = useUserSite() as { userSite: UserSiteData | null, loading: boolean };
   const userID = userSite?.user_id;
 
+  // Keep a live ref of the list so serialized toggles read the freshest checklist.
+  const liveViewListRef = useRef<RadarWallFolder[]>([]);
+  // Per-wallfolder promise chain that serializes toggles, preventing the
+  // read-then-insert race that created duplicate dqp_records.
+  const toggleLocks = useRef<Map<number, Promise<unknown>>>(new Map());
+
   const [showPreview, setShowPreview] = useState(false);
+
+  useEffect(() => {
+    liveViewListRef.current = liveViewList;
+  }, [liveViewList]);
 
   const isCheckboxDisabled = (hourIndex: number) => {
     const now = new Date();
@@ -104,7 +114,7 @@ function RadarMonitoring() {
     return false
   };
 
-  const toggleHourlyCheck = async (ssrIndex: number, hourIndex: number) => {
+  const toggleHourlyCheck = (ssrIndex: number, hourIndex: number) => {
     if (!userID) {
       console.error('User ID not available:', userID);
       toast.error('User ID not available. Please refresh the page.');
@@ -116,7 +126,18 @@ function RadarMonitoring() {
       return;
     }
 
-    const sensor = liveViewList[ssrIndex];
+    const wallfolderId = liveViewListRef.current[ssrIndex]?.wallfolder_id;
+    if (wallfolderId == null) return;
+
+    // Serialize all toggles for this wallfolder: the next toggle only runs after
+    // the previous one has fully committed. This kills the read-then-insert race
+    // where a quick check-then-uncheck both saw "no record yet" and each inserted
+    // a row, leaving two dqp_records with the same wall_folder_id + record_date.
+    const previous = toggleLocks.current.get(wallfolderId) ?? Promise.resolve();
+    const current = previous.then(async () => {
+    // Recompute from the freshest state so rapid toggles don't stack on stale checks.
+    const sensor = liveViewListRef.current[ssrIndex];
+    if (!sensor) return;
     const checks = sensor.hourlychecks || Array(24).fill(false);
     const newChecks = [...checks];
     const actualIndex = shifts[selectedShift].indices[hourIndex];
@@ -215,6 +236,30 @@ function RadarMonitoring() {
           .select();
 
         if (insertError) {
+          // Another client (e.g. a second tab) created today's record between our
+          // existence check and this insert. The unique (wall_folder_id, record_date)
+          // constraint caught the duplicate — fall back to updating the existing row
+          // instead of erroring out and reverting the user's tick.
+          if (insertError.code === '23505') {
+            console.warn('Duplicate blocked by unique constraint; updating existing row instead');
+            const { error: conflictUpdateError } = await supabase
+              .from('dqp_records')
+              .update({
+                checklist: newChecks,
+                created_time: new Date().toISOString(),
+                created_by: userID
+              })
+              .eq('wall_folder_id', sensor.wallfolder_id)
+              .eq('record_date', todayDate);
+
+            if (conflictUpdateError) {
+              console.error('Conflict update error:', conflictUpdateError);
+              throw conflictUpdateError;
+            }
+            // The row already existed, so its dqp_values were already seeded — don't
+            // re-copy them (that would create duplicate dqp_values).
+            return;
+          }
           console.error('Insert error:', insertError);
           throw insertError;
         }
@@ -267,6 +312,9 @@ function RadarMonitoring() {
       );
       toast.error(`Failed to update checklist: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+    });
+    // Swallow errors on the stored lock so one failure doesn't break the chain.
+    toggleLocks.current.set(wallfolderId, current.catch(() => {}));
   };
 
   const handleResetChecklist = () => {
