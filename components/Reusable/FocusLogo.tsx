@@ -1,88 +1,110 @@
 import React from 'react';
-import { motion } from 'motion/react';
 
 interface FocusLogoProps {
   className?: string;
-  size?: 'xs'|'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   showTagline?: boolean;
-  highlightColor?: string;
   orientation?: 'vertical' | 'horizontal';
 }
 
-export function FocusLogo({ 
-  className = '', 
-  size = 'md', 
-  showTagline = false,
+export function FocusLogo({
+  className = '',
+  size = 'md',
+  showTagline = true,
   orientation = 'vertical',
-  highlightColor
 }: FocusLogoProps) {
+  // No TM size here: it derives from fontSizeFocus in `em` at the usage site, so
+  // it stays proportional at every size rather than drifting per-entry.
   const dimensions = {
-    xs: { height: 20, fontSizeDTG: '1.2rem', fontSizeFocus: '1rem', fontSizeTM: '0.6rem',iconWidth: 30, gap: 8 },
-    sm: { height: 40, fontSizeDTG: '1.4rem', fontSizeFocus: '1.6rem', fontSizeTM: '0.8rem',iconWidth: 50, gap: 12 },
-    md: { height: 60, fontSizeDTG: '2rem', fontSizeFocus: '2.4rem', fontSizeTM: '1.2rem',iconWidth: 70, gap: 16 },
-    lg: { height: 80, fontSizeDTG: '2.8rem', fontSizeFocus: '3.2rem', fontSizeTM: '1.6rem',iconWidth: 90, gap: 20 },
-    xl: { height: 100, fontSizeDTG: '3.5rem', fontSizeFocus: '4rem', fontSizeTM: '2rem',iconWidth: 120, gap: 24 }
+    xs: { fontSizeDTG: '1.2rem', fontSizeFocus: '1.2rem', fontSizeTagline: '0.5rem', iconWidth: 35, gap: 8 },
+    sm: { fontSizeDTG: '1.6rem', fontSizeFocus: '1.6rem', fontSizeTagline: '0.7rem', iconWidth: 55, gap: 12 },
+    md: { fontSizeDTG: '2.4rem', fontSizeFocus: '2.4rem', fontSizeTagline: '1rem', iconWidth: 80, gap: 16 },
+    lg: { fontSizeDTG: '3.2rem', fontSizeFocus: '3.2rem', fontSizeTagline: '1.4rem', iconWidth: 110, gap: 20 },
+    xl: { fontSizeDTG: '4rem', fontSizeFocus: '4rem', fontSizeTagline: '1.8rem', iconWidth: 140, gap: 24 }
   };
 
-  const { fontSizeDTG, fontSizeFocus, fontSizeTM,iconWidth, gap } = dimensions[size];
-  const paleMint = "#DAF1DE";
-  const seafoam = "#8EB69B";
+  const { fontSizeDTG, fontSizeFocus, fontSizeTagline, iconWidth, gap } = dimensions[size];
   const isVertical = orientation === 'vertical';
-  
+
+  // Get CSS variable values for the gradient
+  const gradientFrom = 'var(--dtg-focus-gradient-from)';
+  const gradientTo = 'var(--dtg-focus-gradient-to)';
+
+  // Tailwind text gradient trick
+  // Light Mode: Soft Blue to Dark Brand Blue
+  // Dark Mode: Electric Cyan to Dark Brand Blue
+  const textGradient = "bg-gradient-to-b from-[var(--dtg-focus-gradient-from)] to-[var(--dtg-focus-gradient-to)] text-transparent bg-clip-text inline-block";
 
   return (
-    <div className={`flex items-center ${className}`}>
-      {/* Refined Hexagon Cluster Icon */}
-      <div className="relative" style={{ width: iconWidth }}>
-        <svg 
-          viewBox="0 0 140 140" 
-          fill="none" 
-          xmlns="http://www.w3.org/2000/svg" 
-          className="w-full h-auto"
-        >
- 
-          {/* Hexagon Layout - Based on Screenshot */}
-          {/* Top Middle Outlined */}
-          <path d="M70 20L88 30V50L70 60L52 50V30L70 20Z" stroke={paleMint} strokeWidth="2.5" />
-          
-          {/* Middle Left Outlined */}
-          <path d="M38 55L56 65V85L38 95L20 85V65L38 55Z" stroke={paleMint} strokeWidth="2.5" />
-          
-          {/* Middle Right Outlined */}
-          <path d="M102 55L120 65V85L102 95L84 85V65L102 55Z" stroke={paleMint} strokeWidth="2.5" />
-          
-          {/* Bottom Center Filled - Highlighted with optional color */}
-          <path 
-            d="M70 90L88 100V120L70 130L52 120V100L70 90Z" 
-            fill={highlightColor || seafoam} 
-            fillOpacity={highlightColor ? "0.8" : "0.6"} 
-          />
-        </svg>
-      </div>
+    <div className={`flex flex-col ${isVertical ? 'items-center' : 'items-start'} ${className}`}>
+      <div className='flex items-center justify-start py-0'>
 
-      {/* Typography - Matches "DTG Focus" */}
-      <div className={`flex ${isVertical ? 'flex-col' : 'flex-row items-baseline gap-1'} justify-center leading-none`} style={{ marginLeft: gap }}>
-        <span 
-          style={{ fontSize: fontSizeDTG, color: paleMint }} 
-          className="font-black tracking-[-0.02em] uppercase"
-        >
-          DTG
-        </span>
-        <div className="flex items-start">
-          <span 
-            style={{ fontSize: fontSizeFocus, color: paleMint }} 
-            className="font-light tracking-[-0.02em]"
+        {/* Refined Hexagon Cluster Icon */}
+        <div className="relative shrink-0" style={{ width: iconWidth }}>
+          <svg
+            viewBox="0 0 152 145"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-auto"
           >
-            Focus
-          </span>
-          <span 
-            style={{ fontSize: fontSizeTM, color: paleMint, marginLeft: '3px'}} 
-            className="font-bold opacity-60"
-          >
-            TM
-          </span>
+            {/* GRADIENT DEFINITIONS - Uses CSS variables that change with theme */}
+            <defs>
+              <linearGradient id="dtgGrad" x1="0" y1="0" x2="0" y2="145" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor={gradientFrom} />
+                <stop offset="100%" stopColor={gradientTo} />
+              </linearGradient>
+            </defs>
+
+            {/* SVG PATHS - Single set that adapts to theme via CSS variables */}
+            <line x1="77" y1="65" x2="77" y2="75" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinecap="round" />
+            <line x1="49.5" y1="80" x2="62" y2="85" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinecap="round" />
+            <line x1="104.5" y1="80" x2="91" y2="85" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinecap="round" />
+            <path d="M 77 10 L 99 22 L 99 52 L 77 65 L 55 52 L 55 22 Z" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinejoin="round" />
+            <path d="M 27.5 50 L 49.5 62 L 49.5 92 L 27.5 105 L 5.5 92 L 5.5 62 Z" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinejoin="round" />
+            <path d="M 126.5 50 L 148.5 62 L 148.5 92 L 126.5 105 L 104.5 92 L 104.5 62 Z" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinejoin="round" />
+            <path d="M 77 75 L 91 84 L 91 103 L 77 112 L 63 103 L 63 84 Z" fill="url(#dtgGrad)" stroke="url(#dtgGrad)" strokeWidth="6" strokeLinejoin="round" />
+          </svg>
+        </div>
+
+        {/* Typography */}
+        <div className="flex flex-col justify-center items-start leading-none" style={{ marginLeft: gap }}>
+          <div className={`flex ${isVertical ? 'flex-col gap-1 items-start' : 'flex-row items-baseline gap-2'}`}>
+            <span
+              style={{ fontSize: fontSizeDTG }}
+              className={`font-bold tracking-tight uppercase leading-[0.9] ${textGradient}`}
+            >
+              DTG
+            </span>
+            {/* The TM is sized and offset in `em` so it tracks fontSizeFocus across
+                every size. 0.06em lands its top on the cap height of "Focus" —
+                retune only against the 0.9 line-height above, which it depends on. */}
+            <div className="flex items-start leading-[0.9]" style={{ fontSize: fontSizeFocus }}>
+              <span className={`font-bold tracking-tight ${textGradient}`}>
+                Focus
+              </span>
+              <span
+                style={{ fontSize: '0.35em', marginLeft: '0.1em', marginTop: '0.06em' }}
+                className={`font-bold opacity-80 ${textGradient}`}
+              >
+                TM
+              </span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Tagline */}
+      {showTagline && (
+        <div
+          style={{
+            fontSize: fontSizeTagline,
+            marginLeft: isVertical ? 0 : `calc(${iconWidth}px + ${gap}px)`
+          }}
+          className={`italic tracking-tight mt-0 md:mt-0 ${isVertical ? 'text-center' : 'text-left'} ${textGradient}`}
+        >
+          Focused Actionable Insight.
+        </div>
+      )}
     </div>
   );
 }

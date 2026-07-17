@@ -41,7 +41,7 @@ function LogoSection({ Subtitle = [] }) {
     return (
         <div className="flex justify-between items-center bg-[image:var(--dtg-bg-header)] py-2 px-5">
             <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-                <FocusLogo size="xs" orientation="horizontal" />
+                <FocusLogo size="xs" orientation="horizontal" showTagline={false}/>
             </div>
             {!loading && userSite && (
                 <div style={{ display: "flex", alignItems: "center", padding: "0 10px", flex: "0 0 auto", gap: 20 }}>

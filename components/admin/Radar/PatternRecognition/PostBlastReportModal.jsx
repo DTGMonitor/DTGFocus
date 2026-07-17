@@ -17,9 +17,30 @@
  *   7. Footer        — grey DTG Focus mark + branding + per-page number
  */
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { displayPhase, shortVcpLabel } from '@/utils/stageBoundaries';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  PAGE_W,
+  NAVY,
+  DARK,
+  ACCENT,
+  INK,
+  MUTED,
+  LINE,
+  ZEBRA,
+  IMAGE_MAX_H as PIT_MAX_H,
+  FALLBACK_LOGO,
+} from '../report/constants';
+import { PageSheet, ReportPages, SectionBar } from '../report/pageFrame';
+import { useReportPagination, resolvePages } from '../report/useReportPagination';
+import { useImageAnnotation } from '../report/useImageAnnotation';
+import { AnnotatedImage } from '../report/AnnotatedImage';
+import {
+  urlToDataUrl,
+  printLocal as printPages,
+  generatePdfBlob as rasterizePages,
+} from '../report/pdfExport';
 
 // Public dashboard link included in the emailed report draft.
 const DASHBOARD_URL = 'https://dashboard.digitaltwingeotechnical.com/';
@@ -37,23 +58,6 @@ function openOutlookDraft(subject, body, toGroup = '', ccGroup = '') {
   window.location.href = mailtoLink;
 }
 
-/** Inject a CDN script once (html2canvas / jsPDF) — mirrors the daily/InSAR flow. */
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve();
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-async function loadPdfScripts() {
-  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-}
-
 /** Human-readable file size (matches ReportTemplateModal). */
 function formatFileSize(bytes) {
   const kb = (bytes / 1024).toFixed(2);
@@ -61,29 +65,7 @@ function formatFileSize(bytes) {
   return bytes > 1024 * 1024 ? `${mb} MB` : `${kb} KB`;
 }
 
-// ── Palette (inline hex so html2canvas reproduces print colours faithfully) ──
-const NAVY = '#142850';
-const DARK = '#0D3036';
-const ACCENT = '#F78E1E';
-const INK = '#1f2937';
-const MUTED = '#6b7280';
-const LINE = '#d1d5db';
-const ZEBRA = '#f5f7f9';
-
-// A4 @ 96dpi
-const PAGE_W = 794;
-const PAGE_H = 1123;
-const PAD_X = 34;
-const PAD_TOP = 28;
-const FOOTER_RESERVE = 64;          // space kept at the bottom for the footer
-const BLOCK_GAP = 10;               // vertical gap between stacked blocks
-const CONTENT_W = PAGE_W - PAD_X * 2;
-const USABLE_H = PAGE_H - PAD_TOP - FOOTER_RESERVE;
-const PIT_MAX_H = 560;              // cap so the pit block always fits one page
 const ROWS_PER_CHUNK = 12;          // stage-table rows per page slice
-
-const DEFAULT_BOUNDARY_COLOR = '#FF1744';
-const FALLBACK_LOGO = '/logo/DTG/DTGlogo.png';
 
 /** Latest deformation stage → TARP level (per spec). Keyed on raw phase. */
 const PHASE_TO_TARP = {
@@ -109,9 +91,6 @@ const PHASE_COLOR = {
   Regressive: '#FFFF00',
   Unclassified: '#9E9E9E',
 };
-
-// SSR-safe layout effect.
-const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 function hexToRgb(h) {
@@ -224,33 +203,6 @@ function printFigure(chartJson) {
   return { data, layout };
 }
 
-function centroid(points) {
-  if (!points.length) return { x: 0, y: 0 };
-  const sx = points.reduce((a, p) => a + p.x, 0);
-  const sy = points.reduce((a, p) => a + p.y, 0);
-  return { x: sx / points.length, y: sy / points.length };
-}
-
-/**
- * Fetch a same-origin image URL and return a data URL, so the export render has
- * the logo decoded and ready (avoids a blank logo if the network <img> hasn't
- * finished loading when html2canvas snapshots). Falls back to the URL on error.
- */
-async function urlToDataUrl(url) {
-  try {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = () => resolve(url);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return url;
-  }
-}
-
 const STAGE_COLS = [
   { key: 'VCP', label: 'VCP' },
   { key: 'Stage', label: 'Stage', phase: true, wrap: true },
@@ -278,23 +230,38 @@ export default function PostBlastReportModal({
   blastEvents = [],
   analysisTitle = 'Post-Blast Analysis',
 }) {
-  const measureRef = useRef(null);
   const imageRef = useRef(null);
 
-  const [pitImage, setPitImage] = useState(null);
   const [chartImgs, setChartImgs] = useState([]); // [{ name, url }]
   const [chartLoading, setChartLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [pages, setPages] = useState(null);       // number[][] of block indices
-  const [measureTick, setMeasureTick] = useState(0);
 
   const [summaryVcpIndex, setSummaryVcpIndex] = useState(0);
 
-  const [boundaries, setBoundaries] = useState([]); // [{ points, color, label }]
-  const [draft, setDraft] = useState(null);
-  const [color, setColor] = useState(DEFAULT_BOUNDARY_COLOR);
+  // Pit image + zone drawing — shared with the Comprehensive radar report.
+  const annotation = useImageAnnotation(null);
+  const {
+    image: pitImage,
+    boundaries,
+    draft,
+    color,
+    setColor,
+    readImageFile,
+    handleDrop,
+    startDraft,
+    undoPoint,
+    finishDraft,
+    clearBoundaries,
+    updateLabel,
+  } = annotation;
+  const handleImageClick = (e) => annotation.addPoint(e, imageRef.current);
 
-  const bumpMeasure = useCallback(() => setMeasureTick((t) => t + 1), []);
+  // Declared before buildBlocks: the blocks close over `bumpMeasure`.
+  // Deps name the *sources* of the old derived deps (latestPhase, transitions,
+  // failureTakeaway all fall out of vcpResults/summaryVcpIndex/blastEvents/pfConfirmed).
+  const { pages, measureRef, measureLayer, bumpMeasure } = useReportPagination([
+    isOpen, pitImage, chartImgs, boundaries, stageRows, summaryVcpIndex, vcpResults, blastEvents, pfConfirmed,
+  ]);
 
   // ── Reset summary VCP to the active one on open ────────────────────────────
   useEffect(() => {
@@ -457,54 +424,6 @@ export default function PostBlastReportModal({
     return `Slope remains in a linear deformation stage for the last ${dur}. Continue monitoring for any transition to progressive failure.`;
   }, [summaryVcp, actualFailureTime, lastWindow, latestRawPhase, pfConfirmed, settlingInfo]);
 
-  // ── Pit image handlers ─────────────────────────────────────────────────────
-  const readImageFile = useCallback((file) => {
-    if (!file || !file.type?.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => setPitImage(e.target.result);
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e) => {
-      e.preventDefault();
-      readImageFile(e.dataTransfer?.files?.[0]);
-    },
-    [readImageFile]
-  );
-
-  // ── Boundary drawing ───────────────────────────────────────────────────────
-  const handleImageClick = useCallback(
-    (e) => {
-      if (!draft || !imageRef.current) return;
-      const rect = imageRef.current.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-      setDraft((d) => ({ ...d, points: [...d.points, { x, y }] }));
-    },
-    [draft]
-  );
-
-  const startDraft = () => setDraft({ points: [], color });
-  const undoPoint = () => setDraft((d) => (d ? { ...d, points: d.points.slice(0, -1) } : d));
-  const finishDraft = () => {
-    setDraft((d) => {
-      if (d && d.points.length >= 2) {
-        setBoundaries((b) => [
-          ...b,
-          { points: d.points, color: d.color, label: `Zone ${String.fromCharCode(65 + b.length)}` },
-        ]);
-      }
-      return null;
-    });
-  };
-  const clearBoundaries = () => {
-    setBoundaries([]);
-    setDraft(null);
-  };
-  const updateLabel = (idx, label) =>
-    setBoundaries((b) => b.map((bd, i) => (i === idx ? { ...bd, label } : bd)));
-
   // ── PDF export ─────────────────────────────────────────────────────────────
   const fileName = useMemo(() => {
     const date = new Date().toLocaleDateString('en-CA').replaceAll('-', '');
@@ -547,154 +466,34 @@ export default function PostBlastReportModal({
     meta.author || '',
   ].join('\n');
 
-  // Local download via the browser's NATIVE print engine (render the pages into a
-  // hidden iframe and print it). The browser rasterizes text itself — vector,
-  // selectable and perfectly aligned — which html2canvas can't do reliably at
-  // small sizes. The user picks "Save as PDF" in the print dialog.
-  const printLocal = async () => {
-    if (!effectivePages || effectivePages.length === 0) return;
-    let iframe = null;
-    let root = null;
-    try {
-      const { createRoot } = await import('react-dom/client');
-      const logoDataUrl = await urlToDataUrl(headerLogo);
-      const exportBlocks = buildBlocks(false, logoDataUrl);
-
-      iframe = document.createElement('iframe');
-      iframe.setAttribute('aria-hidden', 'true');
-      Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
-      document.body.appendChild(iframe);
-
-      const doc = iframe.contentDocument;
-      doc.open();
-      doc.write(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${effectiveTitle}</title><style>` +
-          '@page { size: A4; margin: 0; }' +
-          '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }' +
-          'html, body { margin: 0; padding: 0; background: #fff; }' +
-          // Height a hair under the A4 printable area so the forced break never
-          // spills 1px onto an extra blank page.
-          '.pbr-page { box-shadow: none !important; height: 1120px !important; page-break-after: always; break-after: page; overflow: hidden; }' +
-          '.pbr-page:last-child { page-break-after: auto; break-after: auto; }' +
-          '</style></head><body><div id="pbr-root"></div></body></html>'
-      );
-      doc.close();
-      // Explicitly set the frame's title — the print dialog suggests the saved
-      // PDF filename from the document title (issue: filename was blank).
-      doc.title = effectiveTitle;
-
-      root = createRoot(doc.getElementById('pbr-root'));
-      root.render(
-        <>
-          {effectivePages.map((idxs, i) => (
-            <PageSheet key={i} blocks={exportBlocks} idxs={idxs} pageNum={i + 1} total={effectivePages.length} />
-          ))}
-        </>
-      );
-
-      // Wait for layout + all (data-URL) images.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const imgEls = Array.from(doc.querySelectorAll('img'));
-      await Promise.all(
-        imgEls.map((im) =>
-          im.complete ? Promise.resolve() : new Promise((res) => { im.onload = res; im.onerror = res; })
-        )
-      );
-      await new Promise((r) => setTimeout(r, 120));
-
-      const win = iframe.contentWindow;
-      // Chromium derives the "Save as PDF" filename from the *top* document's
-      // title when printing a same-origin iframe — temporarily swap it so the
-      // dialog pre-fills our report name, then restore it after printing.
-      const prevDocTitle = document.title;
-      document.title = effectiveTitle;
-      let titleRestored = false;
-      const restoreTitle = () => {
-        if (!titleRestored) {
-          document.title = prevDocTitle;
-          titleRestored = true;
-        }
-      };
-      const cleanup = () => {
-        restoreTitle();
-        try { if (root) root.unmount(); } catch { /* ignore */ }
-        if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
-      };
-      win.onafterprint = cleanup;
-      win.focus();
-      win.print();
-      // Fallback cleanup if onafterprint never fires (some browsers).
-      setTimeout(cleanup, 60000);
-    } catch (err) {
-      console.error('PDF print failed:', err);
-      try { if (root) root.unmount(); } catch { /* ignore */ }
-      if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
-    }
-  };
-
-  // Render the export pages off-screen and rasterize them into a single PDF blob
-  // (html2canvas → jsPDF), mirroring the daily/InSAR report export. Used for the
-  // Supabase archive copy; the local download still uses the vector print path.
-  const generatePdfBlob = async () => {
-    const { createRoot } = await import('react-dom/client');
+  /** The export pages, with the logo pre-decoded so nothing snapshots blank. */
+  const buildExportPages = async () => {
     const logoDataUrl = await urlToDataUrl(headerLogo);
     const exportBlocks = buildBlocks(false, logoDataUrl);
-
-    const container = document.createElement('div');
-    Object.assign(container.style, {
-      position: 'absolute',
-      left: '-100000px',
-      top: '0',
-      width: `${PAGE_W}px`,
-      background: '#fff',
-    });
-    document.body.appendChild(container);
-
-    const root = createRoot(container);
-    root.render(
+    return (
       <>
         {effectivePages.map((idxs, i) => (
           <PageSheet key={i} blocks={exportBlocks} idxs={idxs} pageNum={i + 1} total={effectivePages.length} />
         ))}
       </>
     );
+  };
 
+  // Local download via the browser's NATIVE print engine — vector, selectable
+  // text, which html2canvas can't do reliably at small sizes.
+  const printLocal = async () => {
+    if (!effectivePages || effectivePages.length === 0) return;
     try {
-      // Wait for layout + all (data-URL / network) images to settle.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const imgEls = Array.from(container.querySelectorAll('img'));
-      await Promise.all(
-        imgEls.map((im) =>
-          im.complete ? Promise.resolve() : new Promise((res) => { im.onload = res; im.onerror = res; })
-        )
-      );
-      await new Promise((r) => setTimeout(r, 200));
-
-      await loadPdfScripts();
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
-      const mmW = pdf.internal.pageSize.getWidth();
-      const mmH = pdf.internal.pageSize.getHeight();
-
-      const pageEls = Array.from(container.querySelectorAll('.pbr-page'));
-      for (let i = 0; i < pageEls.length; i++) {
-        const canvas = await window.html2canvas(pageEls[i], {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        });
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, 0, mmW, mmH);
-      }
-
-      return pdf.output('blob');
-    } finally {
-      try { root.unmount(); } catch { /* ignore */ }
-      if (container.parentNode) container.parentNode.removeChild(container);
+      await printPages(await buildExportPages(), effectiveTitle);
+    } catch (err) {
+      console.error('PDF print failed:', err);
     }
   };
+
+  // Rasterized copy for the Supabase archive (the print dialog can't give us a
+  // Blob). Page count comes from the DOM, so it can't drift from the measured
+  // pagination.
+  const generatePdfBlob = async () => rasterizePages(await buildExportPages(), PAGE_W);
 
   // Persist the generated report PDF to Supabase — same flow/logic as the daily
   // radar and InSAR water-body reports (reports table + Reports bucket + work_log).
@@ -863,57 +662,18 @@ export default function PostBlastReportModal({
 
     // 3. PIT VIEWPORT
     blocks.push(
-      <div
-        onDragOver={interactive ? (e) => e.preventDefault() : undefined}
-        onDrop={interactive ? handleDrop : undefined}
-        style={{
-          position: 'relative',
-          width: '100%',
-          minHeight: pitImage ? undefined : 170,
-          border: pitImage ? `1px solid ${LINE}` : `2px dashed ${LINE}`,
-          borderRadius: 4,
-          background: '#fafbfc',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-        }}
-      >
-        {pitImage ? (
-          <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', lineHeight: 0 }}>
-            <img
-              ref={interactive ? imageRef : undefined}
-              src={pitImage}
-              alt="Pit wall"
-              onClick={interactive ? handleImageClick : undefined}
-              onLoad={bumpMeasure}
-              crossOrigin="anonymous"
-              style={{ display: 'block', maxWidth: '100%', maxHeight: PIT_MAX_H, width: 'auto', height: 'auto', cursor: interactive && draft ? 'crosshair' : 'default' }}
-            />
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-              {boundaries.map((b, i) => (
-                <polygon key={i} points={b.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={`${b.color}33`} stroke={b.color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-              ))}
-              {interactive && draft && draft.points.length > 0 && (
-                <polyline points={draft.points.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={draft.color} strokeWidth={2} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
-              )}
-            </svg>
-            {boundaries.map((b, i) => {
-              const c = centroid(b.points);
-              return (
-                <span key={i} style={{ position: 'absolute', left: `${c.x}%`, top: `${c.y}%`, transform: 'translate(-50%, -50%)', background: b.color, color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, whiteSpace: 'nowrap', pointerEvents: 'none' }}>
-                  {b.label}
-                </span>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', color: MUTED, fontSize: 12, padding: 20 }}>
-            <div style={{ fontSize: 26, marginBottom: 4 }}>⛰</div>
-            Drag &amp; drop the pit-wall photograph here, or use “Upload pit image”.
-          </div>
-        )}
-      </div>
+      <AnnotatedImage
+        image={pitImage}
+        boundaries={boundaries}
+        draft={draft}
+        interactive={interactive}
+        imageRef={imageRef}
+        onDrop={handleDrop}
+        onImageClick={handleImageClick}
+        onImageLoad={bumpMeasure}
+        maxHeight={PIT_MAX_H}
+        emptyHint="Drag & drop the pit-wall photograph here, or use “Upload pit image”."
+      />
     );
 
     // 4. ANALYSIS CHART(S) — bar grouped with first chart; rest standalone
@@ -1028,32 +788,9 @@ export default function PostBlastReportModal({
 
   const measureBlocks = buildBlocks(false);
   const displayBlocks = buildBlocks(true);
-
-  // ── Measure block heights → paginate ───────────────────────────────────────
-  useIsoLayoutEffect(() => {
-    if (!isOpen || !measureRef.current) return;
-    const children = Array.from(measureRef.current.children);
-    const heights = children.map((c) => c.getBoundingClientRect().height);
-    const result = [];
-    let cur = [];
-    let h = 0;
-    heights.forEach((ht, i) => {
-      const need = ht + (cur.length ? BLOCK_GAP : 0);
-      if (cur.length && h + need > USABLE_H) {
-        result.push(cur);
-        cur = [];
-        h = 0;
-      }
-      cur.push(i);
-      h += ht + (cur.length > 1 ? BLOCK_GAP : 0);
-    });
-    if (cur.length) result.push(cur);
-    setPages(result.length ? result : [heights.map((_, i) => i)]);
-  }, [isOpen, pitImage, chartImgs, boundaries, stageRows, latestPhase, failureTakeaway, transitions, measureTick, summaryVcpIndex]);
+  const effectivePages = resolvePages(pages, displayBlocks);
 
   if (!isOpen) return null;
-
-  const effectivePages = pages ?? [displayBlocks.map((_, i) => i)];
 
   return (
     <div
@@ -1144,21 +881,7 @@ export default function PostBlastReportModal({
       </div>
 
       {/* ── Hidden measurement layer (static, non-interactive) ── */}
-      <div
-        ref={measureRef}
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          left: -100000,
-          top: 0,
-          width: CONTENT_W,
-          boxSizing: 'border-box',
-          fontFamily: 'Arial, Helvetica, sans-serif',
-          color: INK,
-          visibility: 'hidden',
-          pointerEvents: 'none',
-        }}
-      >
+      <div ref={measureRef} aria-hidden="true" style={measureLayer}>
         {measureBlocks.map((node, i) => (
           <div key={i}>{node}</div>
         ))}
@@ -1167,93 +890,8 @@ export default function PostBlastReportModal({
   );
 }
 
-// ── Sub-components / styles ───────────────────────────────────────────────────
-
-function SectionBar({ title }) {
-  return (
-    <div style={{ background: DARK, color: '#fff', padding: '6px 12px', fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-      {title}
-    </div>
-  );
-}
-
-/**
- * A single A4 page sheet. `flexShrink: 0` keeps it at full height inside the
- * preview's flex column (otherwise flexbox squishes it and the footer rides up).
- * Block spacing uses margins, not flex `gap`, because html2canvas 1.x ignores
- * flex gap — margins keep the preview and the exported PDF identical.
- */
-function PageSheet({ blocks, idxs, pageNum, total }) {
-  return (
-    <div
-      className="pbr-page"
-      style={{
-        position: 'relative',
-        flexShrink: 0,
-        width: PAGE_W,
-        height: PAGE_H,
-        background: '#fff',
-        color: INK,
-        boxShadow: '0 0 0 1px rgba(0,0,0,0.12), 0 8px 30px rgba(0,0,0,0.35)',
-        fontFamily: 'Arial, Helvetica, sans-serif',
-        // Explicit line-height keeps html2canvas from placing text low in a
-        // tall `normal` line box (the source of the baseline shift).
-        lineHeight: 1.25,
-        padding: `${PAD_TOP}px ${PAD_X}px`,
-        boxSizing: 'border-box',
-        overflow: 'hidden',
-      }}
-    >
-      <div>
-        {idxs.map((bi, j) => (
-          <div key={bi} style={{ marginBottom: j < idxs.length - 1 ? BLOCK_GAP : 0 }}>
-            {blocks[bi]}
-          </div>
-        ))}
-      </div>
-
-      {/* Footer (per page) */}
-      <div style={{ position: 'absolute', left: PAD_X, right: PAD_X, bottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <FooterLogo />
-          <span style={{ fontSize: 10, color: MUTED }}>Advanced Geotechnical Data Analytics. Powered by DTG Focus</span>
-        </div>
-        <span style={{ fontSize: 10, color: MUTED }}>Page {pageNum} of {total}</span>
-      </div>
-    </div>
-  );
-}
-
-/** The stacked A4 page sheets for the on-screen preview. */
-function ReportPages({ blocks, pages }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
-      {pages.map((idxs, pageIdx) => (
-        <PageSheet key={pageIdx} blocks={blocks} idxs={idxs} pageNum={pageIdx + 1} total={pages.length} />
-      ))}
-    </div>
-  );
-}
-
-/** Grey, background-free DTG Focus mark for the footer (req 3). */
-function FooterLogo() {
-  const c = MUTED;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-      <svg width="24" height="24" viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M70 20L88 30V50L70 60L52 50V30L70 20Z" stroke={c} strokeWidth="3" />
-        <path d="M38 55L56 65V85L38 95L20 85V65L38 55Z" stroke={c} strokeWidth="3" />
-        <path d="M102 55L120 65V85L102 95L84 85V65L102 55Z" stroke={c} strokeWidth="3" />
-        <path d="M70 90L88 100V120L70 130L52 120V100L70 90Z" fill={c} fillOpacity="0.7" />
-      </svg>
-      <span style={{ display: 'flex', alignItems: 'baseline', gap: 3, color: c }}>
-        <span style={{ fontWeight: 900, fontSize: 13, letterSpacing: '-0.02em' }}>DTG</span>
-        <span style={{ fontWeight: 300, fontSize: 13 }}>Focus</span>
-        <span style={{ fontWeight: 700, fontSize: 8, opacity: 0.7 }}>TM</span>
-      </span>
-    </div>
-  );
-}
+// ── Styles ────────────────────────────────────────────────────────────────────
+// PageSheet / ReportPages / FooterLogo / SectionBar now live in ../report/pageFrame.
 
 const tbBtn = {
   padding: '6px 12px',

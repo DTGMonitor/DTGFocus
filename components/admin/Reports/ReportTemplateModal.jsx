@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { X, FileText, Calendar, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from "../../Reusable/useUserSite";
 import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
 import { RadarTemplate } from '@/components/admin/Reports/RadarReportTemplates';
+import { ComprehensiveRadarTemplate, resolveAppendixImages } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
+import { buildAppendixItems } from '@/utils/reportDqp';
+import { useComprehensiveReportData } from '@/components/admin/Reports/useComprehensiveReportData';
+import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
+import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
+import { useImageAnnotation } from '@/components/admin/Radar/report/useImageAnnotation';
+import { AnnotationToolbar } from '@/components/admin/Radar/report/AnnotatedImage';
+
 // Report configuration
 const REPORT_CONFIG = {
     Insar: {
@@ -23,10 +31,37 @@ const REPORT_CONFIG = {
     }
 };
 
+/** Radar categories that render their own template rather than the DQ layout. */
+const COMPREHENSIVE = 'Comprehensive';
 
-const ReportTemplateRenderer = ({ reportType, data, reportInfo, sensor }) => {
+
+/**
+ * `clients.logo_path` holds a repo-relative path like "../CompanyLogo/foo.png";
+ * the public asset lives under "/logo/…". Same rewrite the Post-Blast report uses.
+ */
+const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
+
+const ReportTemplateRenderer = ({ reportType, category, data, reportInfo, sensor, comprehensiveData, logoSrc, annotation, imageRef }) => {
     const config = REPORT_CONFIG[reportType];
-    return config?.template === 'InsarTemplate' ? <InsarTemplate data={data} reportInfo={reportInfo} /> : config?.template === 'RadarTemplate' ? <RadarTemplate data={data} sensor={sensor} reportInfo={reportInfo} /> : <div>Template not found</div>;
+    if (config?.template === 'InsarTemplate') return <InsarTemplate data={data} reportInfo={reportInfo} />;
+    if (config?.template !== 'RadarTemplate') return <div>Template not found</div>;
+
+    // Selection keys on category as well as report type. It previously keyed on
+    // type alone, so every radar category silently rendered the Data Quality
+    // layout — which is why only Data Quality appeared to be available.
+    if (category === COMPREHENSIVE) {
+        return (
+            <ComprehensiveRadarTemplate
+                data={comprehensiveData}
+                sensor={sensor}
+                reportInfo={reportInfo}
+                logoSrc={logoSrc}
+                annotation={annotation}
+                imageRef={imageRef}
+            />
+        );
+    }
+    return <RadarTemplate data={data} sensor={sensor} reportInfo={reportInfo} />;
 };
 
 // --- 2. THE MODAL COMPONENT ---
@@ -48,7 +83,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             try {
                 const { data, error } = await supabase
                     .from('clients')
-                    .select('id, site_name, company,location')
+                    .select('id, site_name, company,location,logo_path')
                     .order('site_name');
 
                 if (error) throw error;
@@ -102,10 +137,44 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     });
 
     const isRadar = formData.reportType === 'Radar';
-    const siteName = clientsList.find(s => String(s.id) === String(formData.clientID))?.site_name || 'Unknown';
-    const company = clientsList.find(s => String(s.id) === String(formData.clientID))?.company || 'Unknown';
-    const location = clientsList.find(s => String(s.id) === String(formData.clientID))?.location || 'Unknown';
-    const completeSiteName = `${siteName}, ${location}`
+    const isComprehensive = isRadar && formData.category === COMPREHENSIVE;
+
+    // Comprehensive pulls its own data (KPIs, timelines, availability, alarms)
+    // rather than reusing the dqpList the Data Quality template renders.
+    const { data: comprehensiveData, loading: comprehensiveLoading } = useComprehensiveReportData(
+        sensor,
+        formData.frequency,
+        formData.endDate,
+        Boolean(sensor) && isComprehensive
+    );
+
+    const selectedClient = clientsList.find(s => String(s.id) === String(formData.clientID));
+    const siteName = selectedClient?.site_name || 'Unknown';
+    const company = selectedClient?.company || 'Unknown';
+    const location = selectedClient?.location || 'Unknown';
+    const completeSiteName = `${siteName}, ${location}`;
+
+    // The header carries the CLIENT's logo, not DTG's — DTG's mark is the footer.
+    const clientLogo = normalizeLogoPath(selectedClient?.logo_path) || FALLBACK_LOGO;
+
+    // Annotation state lives here, not in the template: the export mounts a second
+    // copy of the template in a detached container, and component-local state would
+    // start empty there — the uploaded image would silently vanish from the PDF.
+    const annotation = useImageAnnotation(null);
+    const imageRef = useRef(null);
+
+    // Seed the figure with the sensor's deformation heatmap once it resolves.
+    // Seeds once only: a later refetch must never clobber an analyst's upload.
+    // Depends on setImage (a stable setState setter), not the annotation object,
+    // which is a fresh reference every render.
+    const seededRef = useRef(false);
+    const { setImage: setAnnotationImage } = annotation;
+    useEffect(() => {
+        if (seededRef.current) return;
+        if (!comprehensiveData?.deformationImage) return;
+        seededRef.current = true;
+        setAnnotationImage(comprehensiveData.deformationImage);
+    }, [comprehensiveData?.deformationImage, setAnnotationImage]);
 
     const frequencies = [
         { value: 'daily', label: 'Daily', alt: '24h' },
@@ -123,7 +192,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
     const fileName = (sensor && formData.category === 'Data Quality') ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
-        : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
+        : (sensor && isComprehensive) ?
+            `${compactDate} ${freqAlt} ${formData.category} Report of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
+            : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
         const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
@@ -228,6 +299,56 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     }
 
 
+    /**
+     * Record the report row, upload the PDF, and log the work item.
+     * Shared by the slice-based export (Data Quality / InSAR) and the per-page
+     * export (Comprehensive), so the two can't drift apart.
+     */
+    const persistReport = async (pdfBlob, { title, description, cleanFileName }) => {
+        const fileSizeInBytes = pdfBlob.size;
+        const fileSizeInKB = (fileSizeInBytes / 1024).toFixed(2);
+        const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
+        const formattedSize = fileSizeInBytes > 1024 * 1024 ? `${fileSizeInMB} MB` : `${fileSizeInKB} KB`;
+
+        const { error: metadataError } = await supabase.from('reports').insert({
+            title: title,
+            type: formData.reportType.toLowerCase(),
+            category: formData.category.toLowerCase(),
+            created_at: new Date().toISOString(),
+            status: 'Completed',
+            client_id: formData?.clientID,
+            filename: cleanFileName,
+            description: description,
+            generatedby: displayName,
+            date: formData.endDate,
+            size: formattedSize
+        }).select().single();
+
+        if (metadataError) throw metadataError;
+
+        const { error: uploadError } = await supabase.storage.from('Reports').upload(
+            cleanFileName,
+            pdfBlob,
+            { contentType: 'application/pdf', upsert: false }
+        );
+
+        if (uploadError) throw uploadError;
+
+        // Work log is best-effort — a failure here must not fail the report.
+        try {
+            await supabase.from('work_log').insert([{
+                created_at: new Date().toISOString(),
+                subject: 1,
+                location: siteName,
+                category: `${formData.frequency.toLowerCase()} report`,
+                action: 'No action required',
+                notes: `${title} has been generated`,
+                submitted_by: user?.id,
+                type: formData.reportType.toLowerCase(),
+            }]);
+        } catch (logErr) { console.warn("Failed to create work log.", logErr); }
+    };
+
     const saveReportToSupabase = async () => {
         if (!generatedReport) return;
 
@@ -242,7 +363,40 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             const description = config.description;
             const cleanFileName = `${formData?.clientID}/${fileName}`;
             const isRadarTemplate = config.template === 'RadarTemplate';
-            
+
+            // The Comprehensive report is composed of measured blocks, so its page
+            // count is only known after layout and its pages are 1123px, not 1754.
+            // The slicer below assumes a known count and a fixed page height, so it
+            // cannot render this template — use the shared per-page exporter, which
+            // reads the page count back off the DOM.
+            if (isComprehensive) {
+                // Inline every async resource BEFORE the export render mounts.
+                // html2canvas cannot fetch during rasterization, so a network
+                // <img> would snapshot blank — and anything still resolving in an
+                // effect measures at zero height, which silently drops pages from
+                // the PDF. The template resolves nothing on its own from here.
+                const logoDataUrl = await urlToDataUrl(clientLogo);
+                const appendixItems = await resolveAppendixImages(
+                    buildAppendixItems(comprehensiveData?.dqpRows ?? [])
+                );
+                const pdfBlob = await generatePdfBlob(
+                    <ComprehensiveRadarTemplate
+                        data={comprehensiveData}
+                        sensor={sensor}
+                        reportInfo={generatedReport.info}
+                        logoSrc={logoDataUrl}
+                        annotation={annotation}
+                        appendixItems={appendixItems}
+                        exportMode
+                    />,
+                    PAGE_W
+                );
+                await persistReport(pdfBlob, { title, description, cleanFileName });
+                window.scrollTo(originalScrollX, originalScrollY);
+                setMessage('Report generated successfully!');
+                return;
+            }
+
             // Calculate Radar Pages dynamically
             const appendixCount = isRadarTemplate ? processedRadarData.filter(item => item.notes && (item.image || item.appendix)).length : 0;
             const itemsPerPage = 2;
@@ -320,40 +474,45 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                 compress: true
             });
 
-            for (let i = 0; i < totalPages; i++) {
-                const yOffset = i * pageHeight;
+            const undoBaselineFix = applyHtml2CanvasBaselineFix();
+            try {
+                for (let i = 0; i < totalPages; i++) {
+                    const yOffset = i * pageHeight;
 
-                const canvas = await window.html2canvas(container, {
-                    scale: 1.5,
-                    useCORS: true,
-                    logging: false,
-                    backgroundColor: '#ffffff',
-                    windowWidth: pdfWidth,
-                    windowHeight: contentHeight,
-                    width: pdfWidth,
-                    height: pageHeight,
-                    x: 0,
-                    y: yOffset,
-                    scrollX: 0,
-                    scrollY: 0,
-                });
+                    const canvas = await window.html2canvas(container, {
+                        scale: 1.5,
+                        useCORS: true,
+                        logging: false,
+                        backgroundColor: '#ffffff',
+                        windowWidth: pdfWidth,
+                        windowHeight: contentHeight,
+                        width: pdfWidth,
+                        height: pageHeight,
+                        x: 0,
+                        y: yOffset,
+                        scrollX: 0,
+                        scrollY: 0,
+                    });
 
-                const imgData = canvas.toDataURL('image/jpeg', 0.92);
+                    const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-                // Page dimensions in mm
-                const mmWidth = pdf.internal.pageSize.getWidth();
-                const mmHeight = pdf.internal.pageSize.getHeight();
+                    // Page dimensions in mm
+                    const mmWidth = pdf.internal.pageSize.getWidth();
+                    const mmHeight = pdf.internal.pageSize.getHeight();
 
-                if (i > 0) pdf.addPage();
-                pdf.addImage(imgData, 'JPEG', 0, 0, mmWidth, mmHeight);
+                    if (i > 0) pdf.addPage();
+                    pdf.addImage(imgData, 'JPEG', 0, 0, mmWidth, mmHeight);
 
-                // --- [NEW] ADD PAGE NUMBER ---
-                pdf.setFontSize(8);
-                pdf.setTextColor(128); // Gray color
-                const pageNumText = `Page ${i + 1} of ${totalPages}`;
-                const textX = mmWidth - 15; // 15mm from the right edge
-                const textY = mmHeight - 10; // 10mm from the bottom edge
-                pdf.text(pageNumText, textX, textY, { align: 'right' });
+                    // --- [NEW] ADD PAGE NUMBER ---
+                    pdf.setFontSize(8);
+                    pdf.setTextColor(128); // Gray color
+                    const pageNumText = `Page ${i + 1} of ${totalPages}`;
+                    const textX = mmWidth - 15; // 15mm from the right edge
+                    const textY = mmHeight - 10; // 10mm from the bottom edge
+                    pdf.text(pageNumText, textX, textY, { align: 'right' });
+                }
+            } finally {
+                undoBaselineFix();
             }
 
             // Output as blob
@@ -364,53 +523,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             document.body.removeChild(container);
             window.scrollTo(originalScrollX, originalScrollY);
 
-            // ... (Rest of your upload/Supabase logic) ...
-
-            const fileSizeInBytes = pdfBlob.size;
-            const fileSizeInKB = (fileSizeInBytes / 1024).toFixed(2);
-            const fileSizeInMB = (fileSizeInBytes / (1024 * 1024)).toFixed(2);
-            const formattedSize = fileSizeInBytes > 1024 * 1024 ? `${fileSizeInMB} MB` : `${fileSizeInKB} KB`;
-
-            // DB Insert
-            const { data: metadata, error: metadataError } = await supabase.from('reports').insert({
-                title: title,
-                type: formData.reportType.toLowerCase(),
-                category: formData.category.toLowerCase(),
-                created_at: new Date().toISOString(),
-                status: 'Completed',
-                client_id: formData?.clientID,
-                filename: cleanFileName,
-                description: description,
-                generatedby: displayName,
-                date: formData.endDate,
-                size: formattedSize
-            }).select().single();
-
-            if (metadataError) throw metadataError;
-
-            // Storage Upload
-            const { error: uploadError } = await supabase.storage.from('Reports').upload(
-                cleanFileName,
-                pdfBlob,
-                { contentType: 'application/pdf', upsert: false }
-            );
-
-            if (uploadError) throw uploadError;
-
-            // Work Log (Optional)
-            try {
-                const workLogPayload = {
-                    created_at: new Date().toISOString(),
-                    subject: 1,
-                    location: siteName,
-                    category: `${formData.frequency.toLowerCase()} report`,
-                    action: 'No action required',
-                    notes: `${title} has been generated`,
-                    submitted_by: user?.id,
-                    type: formData.reportType.toLowerCase(),
-                };
-                await supabase.from('work_log').insert([workLogPayload]);
-            } catch (logErr) { console.warn("Failed to create work log.", logErr); }
+            await persistReport(pdfBlob, { title, description, cleanFileName });
 
             setMessage('Report generated successfully!');
 
@@ -433,6 +546,11 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         setMessage('');
         try {
             if (formData.reportType === 'Radar') {
+                if (isComprehensive && comprehensiveLoading) {
+                    setMessage('Still gathering report data — try again in a moment.');
+                    setLoading(false);
+                    return;
+                }
                 setGeneratedReport({
                     data: radarData || [],
                     info: {
@@ -536,8 +654,22 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             </h2>
                             <button onClick={onClose}><X size={24} /></button>
                         </div>
+                        {/* Screen-only annotation controls — never part of the paginated paper. */}
+                        {isComprehensive && (
+                            <AnnotationToolbar annotation={annotation} label="Deformation figure" />
+                        )}
                         <div className="overflow-x-auto">
-                            <ReportTemplateRenderer reportType={formData.reportType} data={isRadar ? processedRadarData : generatedReport.data} reportInfo={generatedReport.info} sensor={sensor} />
+                            <ReportTemplateRenderer
+                                reportType={formData.reportType}
+                                category={formData.category}
+                                data={isRadar ? processedRadarData : generatedReport.data}
+                                reportInfo={generatedReport.info}
+                                sensor={sensor}
+                                comprehensiveData={comprehensiveData}
+                                logoSrc={clientLogo}
+                                annotation={annotation}
+                                imageRef={imageRef}
+                            />
                         </div>
                         {message && (
                             <div className={`mx-6 p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :

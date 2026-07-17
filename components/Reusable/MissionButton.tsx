@@ -25,10 +25,10 @@ export function MissionButton({
       onClick={onClick}
       disabled={disabled || loading}
       className={`
-        relative w-full max-w-xl h-14 md:h-16 rounded-full font-black text-[10px] md:text-[12px] uppercase tracking-[1em] transition-all duration-500 overflow-hidden group shadow-[0_10px_40px_rgba(0,0,0,0.3)]
-        ${!disabled && !loading 
-          ? 'bg-gradient-to-r from-[#8EB69B] to-[#DAF1DE] text-[#051F20] hover:scale-[1.02] cursor-pointer' 
-          : 'bg-white/5 text-white/10 border border-white/5 cursor-not-allowed opacity-40'
+        relative w-full max-w-xl h-14 md:h-16 rounded-full font-black text-[10px] md:text-[12px] uppercase tracking-[1em] transition-all duration-500 overflow-hidden group shadow-[0_10px_40px_rgb(var(--auth-accent-rgb)/0.25)]
+        ${!disabled && !loading
+          ? 'bg-gradient-to-r from-[var(--auth-btn-from)] to-[var(--auth-btn-to)] text-[var(--auth-btn-fg)] hover:scale-[1.02] cursor-pointer'
+          : 'bg-[rgb(var(--auth-muted-rgb)/0.08)] text-[rgb(var(--auth-fg-rgb)/0.25)] border border-[var(--auth-hairline)] cursor-not-allowed opacity-40'
         }
         ${className}
       `}

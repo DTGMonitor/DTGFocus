@@ -3,6 +3,7 @@ import { FaArrowRight, FaRegBell, FaSyncAlt } from "react-icons/fa";
 import { ImWarning } from "react-icons/im";
 import { PiPresentationChartBold } from "react-icons/pi";
 import { supabase } from "@/lib/supabaseClient";
+import { pivotParameterTree } from "@/utils/buildRadarRecord";
 
 function countLevel2StatusesFromParamTree(paramTree) {
   const counts = { Acceptable: 0, "Sub-Optimal": 0, Critical: 0 };
@@ -488,93 +489,15 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
         });
 
         // pivot into nested parameter trees with robust orphan handling
+        // (shared with the Comprehensive report — see utils/buildRadarRecord)
         const pivoted = {};
 
         for (const [aid, rows] of Object.entries(grouped)) {
-          // map of parameter metadata by id (to lookup parent names)
-          const metaById = {};
-          rows.forEach((r) => {
-            const p = r.parameters;
-            metaById[p.id] = metaById[p.id] || { id: p.id, name: p.name, level: p.level, parent_id: p.parent_id };
-          });
-
-          // keyed by cleaned name (e.g. "ScanArea")
-          const paramsByKey = {};
-          const emptyChildren = []; // track children with empty value (helpful to debug)
-
-          // create level-0 and level-1 entries
-          rows.forEach((r) => {
-            const p = r.parameters;
-            if (p.level === 0 || p.level === 1) {
-              const key = p.name;
-              if (!paramsByKey[key]) {
-                paramsByKey[key] = {
-                  id: p.id,
-                  name: p.name,
-                  value: r.value || "",
-                  comments: r.notes || "",
-                  level: p.level,
-                  children: p.level === 1 ? [] : undefined,
-                };
-              }
-
-              // prefer non-empty values if multiple rows exist
-              if (!paramsByKey[key].value && r.value) {
-                paramsByKey[key].value = r.value;
-              }
-              if (!paramsByKey[key].comments && r.notes) {
-                paramsByKey[key].comments = r.notes;
-              }
-            }
-          });
-
-          // attach level-2 rows (children). If parent missing, create a placeholder parent entry.
-          rows.forEach((r) => {
-            const p = r.parameters;
-            if (p.level === 2) {
-              const parentMeta = metaById[p.parent_id];
-              const parentKey = parentMeta ? parentMeta.name.replace(/\s+/g, "") : `Parent_${p.parent_id}`;
-
-              if (!paramsByKey[parentKey]) {
-                // placeholder parent so children are not lost
-                paramsByKey[parentKey] = {
-                  id: parentMeta?.id || p.parent_id,
-                  name: parentMeta?.name || `Unknown (${p.parent_id})`,
-                  value: "",
-                  comments: "",
-                  level: 1,
-                  children: []
-                };
-              }
-
-              const child = {
-                id: p.id,
-                name: p.name,
-                value: r.value || "",
-                comments: r.notes || "",
-                appendix: r.appendix || null,
-                image: r.image || null,
-                level: 2,
-                parent_id: p.parent_id
-              };
-
-              paramsByKey[parentKey].children.push(child);
-
-              if (!r.value) {
-                emptyChildren.push({
-                  id: p.id,
-                  name: p.name,
-                  parent_id: p.parent_id,
-                  dqp_record_id: aid
-                });
-              }
-            }
-          });
-
+          const { parameters, emptyChildren } = pivotParameterTree(rows);
           pivoted[aid] = {
             dqp_record_id: aid,
-            parameters: paramsByKey,
-            _emptyChildren: emptyChildren
+            parameters,
+            _emptyChildren: emptyChildren.map((c) => ({ ...c, dqp_record_id: aid })),
           };
         }
 

@@ -66,7 +66,7 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
       initial={{ opacity: 1 }}
       animate={{ opacity: isExiting ? 0 : 1 }}
       transition={{ duration: 0.8 }}
-      className="fixed inset-0 bg-[#051F20] z-[100] flex flex-col items-center justify-center overflow-hidden font-sans"
+      className="fixed inset-0 bg-[var(--auth-bg-via)] z-[100] flex flex-col items-center justify-center overflow-hidden font-sans"
     >
       {/* Background: Vertical Data Flux Streams (Mission Control Feel) */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -75,18 +75,18 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
           <motion.div
             key={`flux-${i}`}
             initial={{ y: "-100%", x: `${Math.random() * 100}%`, opacity: 0 }}
-            animate={{ 
-              y: "200%", 
+            animate={{
+              y: "200%",
               opacity: [0, 0.3, 0],
               height: [100, 300, 100]
             }}
-            transition={{ 
-              duration: 2 + Math.random() * 4, 
-              repeat: Infinity, 
+            transition={{
+              duration: 2 + Math.random() * 4,
+              repeat: Infinity,
               ease: "linear",
-              delay: Math.random() * 5 
+              delay: Math.random() * 5
             }}
-            className="absolute w-[1px] bg-gradient-to-b from-transparent via-[#FF4D00]/40 to-transparent"
+            className="absolute w-[1px] bg-gradient-to-b from-transparent via-[rgb(var(--auth-accent-rgb)/0.4)] to-transparent"
           />
         ))}
 
@@ -105,25 +105,25 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
               ease: "linear",
               delay: Math.random() * 8 
             }}
-            className={`absolute w-[2px] h-[2px] rounded-full ${Math.random() > 0.7 ? 'bg-[#FF4D00]' : 'bg-[#DAF1DE]'}`}
-            style={{ boxShadow: Math.random() > 0.7 ? '0 0 8px #FF4D00' : 'none' }}
+            className={`absolute w-[2px] h-[2px] rounded-full ${Math.random() > 0.7 ? 'bg-[rgb(var(--auth-accent-rgb))] shadow-[0_0_8px_rgb(var(--auth-accent-rgb))]' : 'bg-[rgb(var(--auth-muted-rgb))]'}`}
           />
         ))}
 
         {/* Subtle Grid Background */}
-        <div 
-          className="absolute inset-0 opacity-[0.03]" 
-          style={{ 
-            backgroundImage: 'linear-gradient(#DAF1DE 1px, transparent 1px), linear-gradient(90deg, #DAF1DE 1px, transparent 1px)', 
-            backgroundSize: '80px 80px' 
-          }} 
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgb(var(--auth-fg-rgb)) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--auth-fg-rgb)) 1px, transparent 1px)',
+            backgroundSize: '80px 80px'
+          }}
         />
-        
-        {/* Radar Ring Effect (Orange Highlight) */}
-        <motion.div 
+
+        {/* Radar Ring Effect */}
+        <motion.div
           animate={{ scale: [1, 1.8], opacity: [0.15, 0] }}
           transition={{ duration: 4, repeat: Infinity, ease: "easeOut" }}
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] border border-orange-500/20 rounded-full"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] border border-[rgb(var(--auth-accent-rgb)/0.35)] rounded-full"
         />
       </div>
       
@@ -137,14 +137,13 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
           transition={{ duration: 1 }}
           className="flex flex-col items-center"
         >
-          {/* Logo with Orange Highlight */}
-          <FocusLogo size="xl" showTagline={false} highlightColor="#FF4D00" />
-          
-          <motion.div 
+          <FocusLogo size="xl" showTagline={false} />
+
+          <motion.div
             initial={{ width: 0 }}
             animate={{ width: "100%" }}
             transition={{ duration: 2, delay: 0.5 }}
-            className="h-px bg-gradient-to-r from-transparent via-[#FF4D00]/30 to-transparent mt-6"
+            className="h-px bg-gradient-to-r from-transparent via-[rgb(var(--auth-accent-rgb)/0.35)] to-transparent mt-6"
           />
         </motion.div>
 
@@ -158,55 +157,55 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.4 }}
-                className="text-[10px] font-black text-[#DAF1DE] uppercase tracking-[0.6em] text-center h-4 drop-shadow-[0_0_8px_rgba(218,241,222,0.3)]"
+                className="text-[10px] font-black text-[rgb(var(--auth-fg-rgb))] uppercase tracking-[0.6em] text-center h-4 drop-shadow-[0_0_8px_rgb(var(--auth-accent-rgb)/0.3)]"
               >
                 {statusMessages[statusIndex]}
               </motion.p>
             </AnimatePresence>
-            
-            <div className="w-full max-w-lg h-[4px] bg-[#0B2B26] rounded-full overflow-hidden border border-white/5 relative">
-              <motion.div 
-                className="h-full bg-gradient-to-r from-[#8EB69B] via-[#DAF1DE] to-[#FF4D00] shadow-[0_0_20px_rgba(255,77,0,0.3)]"
+
+            <div className="w-full max-w-lg h-[4px] bg-[var(--auth-field-bg)] rounded-full overflow-hidden border border-[var(--auth-hairline)] relative">
+              <motion.div
+                className="h-full bg-gradient-to-r from-[var(--auth-btn-from)] to-[var(--auth-btn-to)] shadow-[0_0_20px_rgb(var(--auth-accent-rgb)/0.35)]"
                 animate={{ width: `${progress}%` }}
                 transition={{ ease: "linear" }}
               />
-              
+
               {/* Scanning Glow Effect */}
-              <motion.div 
+              <motion.div
                 animate={{ left: ["-20%", "120%"] }}
                 transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="absolute top-0 bottom-0 w-32 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                className="absolute top-0 bottom-0 w-32 bg-gradient-to-r from-transparent via-[rgb(var(--auth-fg-rgb)/0.12)] to-transparent"
               />
             </div>
           </div>
 
-          {/* Decorative Terminal-style Data Bits (With Orange Highlights) */}
+          {/* Decorative Terminal-style Data Bits */}
           <div className="grid grid-cols-3 gap-16 pt-2">
             <div className="flex flex-col gap-2">
-              <span className="text-[9px] font-black text-[#8EB69B]/40 uppercase tracking-[0.2em]">SATELLITE_LINK</span>
+              <span className="text-[9px] font-black text-[rgb(var(--auth-muted-rgb)/0.9)] uppercase tracking-[0.2em]">SATELLITE_LINK</span>
               <div className="flex gap-1.5">
-                {[...Array(5)].map((_, i) => (
-                  <motion.div 
-                    key={i}
-                    animate={{ 
-                      opacity: progress > (i + 1) * 20 ? 1 : 0.2,
-                      backgroundColor: progress > (i + 1) * 20 && i === 4 ? '#FF4D00' : '#DAF1DE'
-                    }}
-                    className="w-5 h-1.5 bg-[#DAF1DE] rounded-sm transition-colors duration-500"
-                  />
-                ))}
+                {[...Array(5)].map((_, i) => {
+                  const lit = progress > (i + 1) * 20;
+                  return (
+                    <motion.div
+                      key={i}
+                      animate={{ opacity: lit ? 1 : 0.2 }}
+                      className={`w-5 h-1.5 rounded-sm bg-[rgb(var(--auth-accent-rgb))] transition-shadow duration-500 ${lit && i === 4 ? 'shadow-[0_0_10px_rgb(var(--auth-accent-rgb))]' : ''}`}
+                    />
+                  );
+                })}
               </div>
             </div>
             <div className="flex flex-col gap-2 items-center">
-              <span className="text-[9px] font-black text-[#8EB69B]/40 uppercase tracking-[0.2em]">SIGNAL_STRENGTH</span>
-              <span className={`text-[12px] font-black tracking-[0.3em] transition-colors duration-500 ${progress > 80 ? 'text-[#FF4D00]' : 'text-[#DAF1DE]'}`}>
+              <span className="text-[9px] font-black text-[rgb(var(--auth-muted-rgb)/0.9)] uppercase tracking-[0.2em]">SIGNAL_STRENGTH</span>
+              <span className={`text-[12px] font-black tracking-[0.3em] text-[rgb(var(--auth-accent-rgb))] transition-all duration-500 ${progress > 80 ? 'drop-shadow-[0_0_10px_rgb(var(--auth-accent-rgb)/0.7)]' : 'opacity-70'}`}>
                 {Math.min(100, Math.floor(progress * 0.9 + 10))}%
               </span>
             </div>
             <div className="flex flex-col gap-2 items-end">
-              <span className="text-[9px] font-black text-[#8EB69B]/40 uppercase tracking-[0.2em]">GRID_COORDINATE</span>
-              <span className="text-[12px] font-black text-[#DAF1DE] tracking-widest">
-                {progress < 100 ? `REF_${(progress * 123.4).toFixed(0)}` : <span className="text-[#FF4D00]">STABLE_Z_44</span>}
+              <span className="text-[9px] font-black text-[rgb(var(--auth-muted-rgb)/0.9)] uppercase tracking-[0.2em]">GRID_COORDINATE</span>
+              <span className="text-[12px] font-black text-[rgb(var(--auth-fg-rgb))] tracking-widest">
+                {progress < 100 ? `REF_${(progress * 123.4).toFixed(0)}` : <span className="text-[rgb(var(--auth-accent-rgb))] drop-shadow-[0_0_10px_rgb(var(--auth-accent-rgb)/0.7)]">STABLE_Z_44</span>}
               </span>
             </div>
           </div>
@@ -214,7 +213,7 @@ export function TransitionScreen({ onComplete }: TransitionScreenProps) {
       </div>
 
       <style>{`
-        body { background-color: #051F20; }
+        body { background-color: var(--auth-bg-via); }
       `}</style>
     </motion.div>
   );

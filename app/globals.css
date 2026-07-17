@@ -682,7 +682,7 @@
   --dtg-border-light: #e5e7eb;
   --dtg-border-medium: #d1d5db;
   --dtg-border-dark: #9ca3af;
-  --dtg-bg-header: linear-gradient(90deg, #293F6E 0%, #37ACA6 100%);
+    --dtg-bg-header: linear-gradient(90deg, #F0F9FF 0%, #E0F2FE 100%);
 
   /* --- RED --- */
   --red-from: #C00000;
@@ -748,10 +748,45 @@
   --dtg-gradient-primary: linear-gradient(135deg, var(--dtg-primary-teal) 0%, var(--dtg-primary-teal-dark) 100%);
   --dtg-gradient-orange: linear-gradient(135deg, var(--dtg-accent-orange) 0%, var(--dtg-accent-orange-dark) 100%);
   --dtg-gradient-success: linear-gradient(135deg, var(--dtg-success-green) 0%, var(--dtg-success-green-light) 100%);
+  --dtg-focus-brand: #006AAD;
+  --dtg-focus-gradient-from: #5A9BD4;
+  --dtg-focus-gradient-to: #006AAD;
 
   /* --- RGB Helper (For Light Mode Header) --- */
   --rgb-background: 255, 255, 255;
   --dtg-primary-teal-dark-rgb: 64, 64, 64;
+
+  /* --- Auth / Transition Surface (Light) --- */
+  /* Hue is derived from the logo gradient: --dtg-focus-gradient-from/-to.
+     Every value has a counterpart in the html.dark block below. */
+  --auth-bg-from: #E0F2FE;
+  --auth-bg-via: #F0F9FF;
+  --auth-bg-to: #FFFFFF;
+  --auth-vignette: #EAF4FC;
+  --auth-card-bg: rgb(255 255 255 / 0.72);
+  --auth-field-bg: #F7FBFF;
+  --auth-field-bg-focus: #EDF6FF;
+
+  /* Foreground: primary body text on the auth surface */
+  --auth-fg-rgb: 11 60 93;
+  /* Muted: secondary labels, the sage/#8EB69B role in dark mode.
+     Darker than the logo's #5A9BD4 so small text clears WCAG AA on a light surface. */
+  --auth-muted-rgb: 37 96 141;
+  /* Accent: the logo's dominant hue, used for focus rings and highlights */
+  --auth-accent-rgb: 0 106 173;
+  --auth-accent-soft-rgb: 90 155 212;
+  /* Hairline: card borders and dividers */
+  --auth-hairline: rgb(0 106 173 / 0.12);
+  --auth-hairline-strong: rgb(0 106 173 / 0.22);
+
+  /* Gradient ends are both dark enough for white label text to clear AA. */
+  --auth-btn-from: #2A79B8;
+  --auth-btn-to: #006AAD;
+  --auth-btn-fg: #FFFFFF;
+  --auth-card-shadow: 0 40px 80px -30px rgb(0 106 173 / 0.28);
+  /* Decorative line/particle blending: darken against light surfaces */
+  --auth-line-blend: multiply;
+  --auth-line-opacity: 0.35;
 }
 
 /* ------------------------------------------------------------- */
@@ -845,7 +880,7 @@ html.dark {
   --dtg-border-light: #404040;
   --dtg-border-medium: #525252;
   --dtg-border-dark: #6b7280;
-  --dtg-bg-header: linear-gradient(0deg, #1a1a1a, #1a1a1a);
+    --dtg-bg-header: linear-gradient(90deg, #115E59 0%, #0F172A 100%);
 
   /* --- RED --- */
   --red-from: rgb(239 68 68 / 0.2);
@@ -912,11 +947,40 @@ html.dark {
   --dtg-gradient-primary: linear-gradient(135deg, var(--dtg-primary-teal) 0%, var(--dtg-primary-teal-dark) 100%);
   --dtg-gradient-orange: linear-gradient(135deg, var(--dtg-accent-orange) 0%, var(--dtg-accent-orange-dark) 100%);
   --dtg-gradient-success: linear-gradient(135deg, var(--dtg-success-green) 0%, var(--dtg-success-green-light) 100%);
+  --dtg-focus-brand: #22D3EE;
+  --dtg-focus-gradient-from: #8EB69B;
+  --dtg-focus-gradient-to: #DAF1DE;
+
 
   /* --- RGB Helper (For Dark Mode Header) --- */
   --rgb-background: 26, 26, 26;
   /* RGB for #1a1a1a */
   --dtg-primary-teal-dark-rgb: 104, 220, 210;
+
+  /* --- Auth / Transition Surface (Dark) --- */
+  /* Preserves the original mission-control green; see :root for the light pairing. */
+  --auth-bg-from: #0B2B26;
+  --auth-bg-via: #010808;
+  --auth-bg-to: #010808;
+  --auth-vignette: #010808;
+  --auth-card-bg: rgb(11 43 38 / 0.30);
+  --auth-field-bg: #051612;
+  --auth-field-bg-focus: #08201B;
+
+  --auth-fg-rgb: 218 241 222;
+  --auth-muted-rgb: 142 182 155;
+  --auth-accent-rgb: 218 241 222;
+  --auth-accent-soft-rgb: 142 182 155;
+  --auth-hairline: rgb(255 255 255 / 0.06);
+  --auth-hairline-strong: rgb(218 241 222 / 0.30);
+
+  --auth-btn-from: #8EB69B;
+  --auth-btn-to: #DAF1DE;
+  --auth-btn-fg: #051F20;
+  --auth-card-shadow: 0 60px 100px -30px rgb(0 0 0 / 0.80);
+  /* Decorative line/particle blending: lighten against dark surfaces */
+  --auth-line-blend: screen;
+  --auth-line-opacity: 0.15;
 }
 
 
