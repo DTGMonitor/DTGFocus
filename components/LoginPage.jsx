@@ -132,7 +132,7 @@ const LoginPage = () => {
         await supabase.auth.refreshSession();
 
         if (isAdmin) {
-            setTargetPath("/admin/Radar");
+            setTargetPath("/admin/monitoring");
             setShowTransition(true);
         } else {
             const firstClient = sites[0]?.stock_code;
