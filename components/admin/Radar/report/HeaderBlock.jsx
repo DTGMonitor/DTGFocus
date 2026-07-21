@@ -14,7 +14,9 @@
 import { NAVY, MUTED, INK, LINE, FALLBACK_LOGO } from './constants';
 
 /**
- * @param {string} title      Rendered uppercase, with " REPORT" appended.
+ * @param {string} title      Rendered uppercase, followed by `titleSuffix`.
+ * @param {string} titleSuffix  Appended to the title (default " REPORT"); pass
+ *                              "" for titles that already read as a full name.
  * @param {string} company
  * @param {string} siteName
  * @param {{label: string, value: string}[]} metaItems
@@ -26,6 +28,7 @@ import { NAVY, MUTED, INK, LINE, FALLBACK_LOGO } from './constants';
  */
 export function HeaderBlock({
   title,
+  titleSuffix = ' REPORT',
   company,
   siteName,
   metaItems = [],
@@ -44,7 +47,7 @@ export function HeaderBlock({
         />
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: NAVY, letterSpacing: '0.01em' }}>
-            {String(title || '').toUpperCase()} REPORT
+            {String(title || '').toUpperCase()}{titleSuffix}
           </h1>
           <p style={{ margin: '3px 0 0', fontSize: 12, color: MUTED, fontWeight: 600 }}>
             {company || '—'} – {siteName || '—'}

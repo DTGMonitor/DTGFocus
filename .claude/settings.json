@@ -58,7 +58,8 @@
       "Bash(cp \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/verify.test.js\" __tests__/radarParameterSets.tmp.test.js)",
       "Bash(sed -i \"s#require\\('e:/Lintang/dtg-focus-vercel/config/radarParameterSets.ts'\\)#require\\('../config/radarParameterSets'\\)#\" __tests__/radarParameterSets.tmp.test.js)",
       "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/view.mjs\")",
-      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/rec1949.mjs\")"
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/rec1949.mjs\")",
+      "Bash(npx vitest *)"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from "../../Reusable/useUserSite";
 import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
 import { RadarTemplate } from '@/components/admin/Reports/RadarReportTemplates';
-import { ComprehensiveRadarTemplate, resolveAppendixImages } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
+import { ComprehensiveRadarTemplate, resolveAppendixImages, COMPREHENSIVE_TITLE } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
 import { buildAppendixItems } from '@/utils/reportDqp';
 import { useComprehensiveReportData } from '@/components/admin/Reports/useComprehensiveReportData';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
@@ -193,7 +193,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const fileName = (sensor && formData.category === 'Data Quality') ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
         : (sensor && isComprehensive) ?
-            `${compactDate} ${freqAlt} ${formData.category} Report of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
+            // COMPREHENSIVE_TITLE already begins with "Daily", so skip the freq
+            // prefix for daily reports to avoid "Daily Daily ...".
+            `${compactDate} ${freqLabel === 'Daily' ? '' : `${freqLabel} `}${COMPREHENSIVE_TITLE} of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
             : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {

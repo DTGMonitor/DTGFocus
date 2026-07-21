@@ -123,7 +123,7 @@ describe('ComprehensiveRadarTemplate', () => {
     // Validates: Requirements 1.4, 1.7
     // Every assertion here uses *All*: each block renders twice — once on the
     // page sheet, once in the hidden measurement layer that drives pagination.
-    expect((await screen.findAllByText(/DAILY RADAR REPORTING SERVICES REPORT/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/DAILY RADAR REPORTING SERVICES/i)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Greatland Gold – Telfer Gold Mine Operations/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Author:').length).toBeGreaterThan(0);
     // reportInfo must actually reach the page — RadarTemplate silently drops it.

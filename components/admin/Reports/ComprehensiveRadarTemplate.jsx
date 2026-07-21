@@ -188,6 +188,7 @@ export function ComprehensiveRadarTemplate({
       <HeaderBlock
         key="header"
         title={COMPREHENSIVE_TITLE}
+        titleSuffix=""
         company={reportInfo?.company}
         siteName={reportInfo?.site ?? sensor?.site_name}
         metaItems={metaItems}
