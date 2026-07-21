@@ -506,39 +506,114 @@ describe('buildRadarRecord → buildRadarData', () => {
     parameters: { id, name, level: 1, parent_id: null },
   });
 
+  // Level-1 parameter ids as the parameters table defines them.
+  const SYSTEM_HEALTH = 2;
+  const SCAN_AREA = 3;
+  const PHOTOGRAPH = 4;
+  const MASKS = 5;
+  const ALARMS = 6;
+  const ATMOSPHERIC = 7;
+  const VISUAL_DATA = 8;
+
   const allSeven = [
-    paramRow(1, 'System Health', 'Optimal'),
-    paramRow(2, 'Scan Area', 'Acceptable'),
-    paramRow(3, 'Photograph', 'Optimal'),
-    paramRow(4, 'Masks', 'Optimal'),
-    paramRow(5, 'Alarms', 'Critical'),
-    paramRow(6, 'Atmospheric Correction', 'Optimal'),
-    paramRow(7, 'Visual Data', 'Sub-Optimal'),
+    paramRow(SYSTEM_HEALTH, 'System Health', 'Optimal'),
+    paramRow(SCAN_AREA, 'Scan Area', 'Acceptable'),
+    paramRow(PHOTOGRAPH, 'Photograph', 'Optimal'),
+    paramRow(MASKS, 'Masks', 'Optimal'),
+    paramRow(ALARMS, 'Alarms', 'Critical'),
+    paramRow(ATMOSPHERIC, 'Atmospheric Correction', 'Optimal'),
+    paramRow(VISUAL_DATA, 'Visual Data', 'Sub-Optimal'),
   ];
 
-  // Validates: Requirements 4.2, 4.3, 4.4 — the axis count is variable (5–7).
-  it('yields 7 axes for a GroundProbe non-XT radar', () => {
+  const without = (...ids) => allSeven.filter((r) => !ids.includes(r.parameters.id));
+
+  // Validates: Requirements 4.2, 4.3, 4.4 — the axis count is variable, driven
+  // entirely by which parameters the sensor actually has dqp_values rows for.
+  it('yields 7 axes when the radar carries the full parameter set', () => {
     const record = buildRadarRecord({ radar_number: 'SSR461FX', brand: 'GroundProbe' }, allSeven);
     expect(buildRadarData(record)).toHaveLength(7);
   });
 
-  it('drops the Visual Data axis for an XT radar', () => {
-    const record = buildRadarRecord({ radar_number: 'SSR461XT', brand: 'GroundProbe' }, allSeven);
+  it('omits an axis when the parameter has no row — SSR...XT (params 2-7)', () => {
+    const record = buildRadarRecord(
+      { radar_number: 'SSR461XT', brand: 'GroundProbe' },
+      without(VISUAL_DATA)
+    );
     const axes = buildRadarData(record).map((d) => d.subject);
     expect(axes).not.toContain('VisualData');
     expect(axes).toHaveLength(6);
   });
 
-  it('drops the Photograph axis for a non-GroundProbe radar', () => {
-    const record = buildRadarRecord({ radar_number: 'IBIS-FM', brand: 'CHCNAV' }, allSeven);
+  it('omits several axes at once — MSR (params 2, 3, 6, 7, 8)', () => {
+    const record = buildRadarRecord(
+      { radar_number: 'MSR004', brand: 'GroundProbe' },
+      without(PHOTOGRAPH, MASKS)
+    );
     const axes = buildRadarData(record).map((d) => d.subject);
-    expect(axes).not.toContain('Photograph');
-    expect(axes).toHaveLength(6);
+    expect(axes).toEqual([
+      'SystemHealth',
+      'ScanArea',
+      'Alarms',
+      'AtmosphericCorrection',
+      'VisualData',
+    ]);
   });
 
-  it('drops both for a non-GroundProbe XT radar — the 5-axis floor', () => {
-    const record = buildRadarRecord({ radar_number: 'FooXT', brand: 'CHCNAV' }, allSeven);
-    expect(buildRadarData(record)).toHaveLength(5);
+  it('ignores the radar name and brand — only the rows decide', () => {
+    // Same rows, wildly different sensor identity: same axes.
+    const gp = buildRadarRecord({ radar_number: 'SSR461FX', brand: 'GroundProbe' }, allSeven);
+    const chc = buildRadarRecord({ radar_number: 'FooXT', brand: 'CHCNAV' }, allSeven);
+    expect(buildRadarData(chc)).toEqual(buildRadarData(gp));
+  });
+
+  it('orders axes by parameter id regardless of row order', () => {
+    const shuffled = [...allSeven].reverse();
+    const record = buildRadarRecord({ radar_number: 'SSR461FX', brand: 'GroundProbe' }, shuffled);
+    expect(buildRadarData(record).map((d) => d.subject)).toEqual([
+      'SystemHealth',
+      'ScanArea',
+      'Photograph',
+      'Masks',
+      'Alarms',
+      'AtmosphericCorrection',
+      'VisualData',
+    ]);
+  });
+
+  it('does not raise a placeholder parent into an axis', () => {
+    // A level-2 row whose level-1 parent has no row of its own creates a
+    // placeholder entry in the tree. It holds children, not a score, so it
+    // must not become an axis.
+    const orphanChild = {
+      value: 'Optimal',
+      notes: '',
+      appendix: null,
+      image: null,
+      parameters: { id: 99, name: 'Orphan Leaf', level: 2, parent_id: VISUAL_DATA },
+    };
+    const record = buildRadarRecord(
+      { radar_number: 'SSR461XT', brand: 'GroundProbe' },
+      [...without(VISUAL_DATA), orphanChild]
+    );
+    expect(buildRadarData(record).map((d) => d.subject)).not.toContain('VisualData');
+  });
+
+  it('keeps a scored axis whose multi-word name also spawns a placeholder', () => {
+    // "System Health" (real, scored) vs "SystemHealth" (placeholder holding the
+    // children). Exactly one axis, carrying the real value.
+    const record = buildRadarRecord({ radar_number: 'SSR461FX', brand: 'GroundProbe' }, [
+      paramRow(SYSTEM_HEALTH, 'System Health', 'Critical'),
+      {
+        value: 'Critical',
+        notes: '',
+        appendix: null,
+        image: null,
+        parameters: { id: 21, name: 'Amplitude', level: 2, parent_id: SYSTEM_HEALTH },
+      },
+    ]);
+    const data = buildRadarData(record);
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({ subject: 'SystemHealth', score: 1, status: 'Critical' });
   });
 
   it('maps statuses onto the 0–5 score scale', () => {
@@ -548,6 +623,20 @@ describe('buildRadarRecord → buildRadarData', () => {
     expect(byAxis.ScanArea).toBe(3);     // Acceptable
     expect(byAxis.Alarms).toBe(1);       // Critical
     expect(byAxis.VisualData).toBe(2);   // Sub-Optimal
+  });
+
+  it('scores an unassessed parameter as 0 but keeps its axis', () => {
+    const record = buildRadarRecord({ radar_number: 'SSR461FX', brand: 'GroundProbe' }, [
+      paramRow(SYSTEM_HEALTH, 'System Health', ''),
+    ]);
+    expect(buildRadarData(record)).toEqual([
+      { subject: 'SystemHealth', score: 0, fullMark: 5, status: '' },
+    ]);
+  });
+
+  it('tolerates a record with no parameters', () => {
+    expect(buildRadarData({})).toEqual([]);
+    expect(buildRadarData(null)).toEqual([]);
   });
 });
 

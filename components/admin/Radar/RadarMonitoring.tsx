@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getRiskColor, getStatusColor, getQualityColor } from "@/config/statusConfig";
-import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { supabase } from '@/lib/supabaseClient';
@@ -8,6 +8,7 @@ import { useUserSite } from '@/components/Reusable/useUserSite';
 import SensorDetail from '@/components/admin/Radar/SensorDetail';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { HandoverTemplate } from "@/components/admin/Reports/HandoverTemplates";
+import AddSensorModal from '@/components/admin/Radar/AddSensorModal';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -82,6 +83,7 @@ function RadarMonitoring() {
   const toggleLocks = useRef<Map<number, Promise<unknown>>>(new Map());
 
   const [showPreview, setShowPreview] = useState(false);
+  const [showAddSensor, setShowAddSensor] = useState(false);
 
   useEffect(() => {
     liveViewListRef.current = liveViewList;
@@ -418,7 +420,42 @@ function RadarMonitoring() {
   }
 
   if (!liveViewList || liveViewList.length === 0) {
-    return <p className="text-gray-500">No data available</p>;
+    // Still offer "Add Sensor" here — an empty station is exactly when a new
+    // sensor needs commissioning, and the main toolbar below never renders.
+    return (
+      <div className="w-full space-y-4 p-6">
+        <Toaster position="top-center" reverseOrder={false} />
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl text-[var(--dtg-text-primary)]">SSR Monitoring &amp; Hourly Checklist</h1>
+            <p className="text-[var(--dtg-gray-700)] text-sm">No sensors found for station {selectedStation}.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mr-4">
+              <label className="text-sm text-[var(--dtg-gray-700)]">Station:</label>
+              <select
+                value={selectedStation}
+                onChange={(e) => setSelectedStation(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-[var(--dtg-border-medium)] rounded bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)]"
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+            <Button variant="brand" size="sm" onClick={() => setShowAddSensor(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Sensor
+            </Button>
+          </div>
+        </div>
+        <AddSensorModal
+          isOpen={showAddSensor}
+          onClose={() => setShowAddSensor(false)}
+          userID={userID}
+          onSuccess={() => { fetchLiveView(); }}
+        />
+      </div>
+    );
   }
 
   // 2. Your Logic (Safe to run now)
@@ -497,6 +534,11 @@ function RadarMonitoring() {
           <Button variant="outline" size="sm" onClick={handleResetChecklist}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Reset
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={() => setShowAddSensor(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Sensor
           </Button>
 
           <Button size="sm" variant="brand" onClick={() => setShowPreview(true)}>
@@ -709,6 +751,12 @@ function RadarMonitoring() {
           />
         )
       }
+      <AddSensorModal
+        isOpen={showAddSensor}
+        onClose={() => setShowAddSensor(false)}
+        userID={userID}
+        onSuccess={() => { fetchLiveView(); }}
+      />
     </div > // This is the final closing div of your component
   );
 }

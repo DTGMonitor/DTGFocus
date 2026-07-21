@@ -41,7 +41,27 @@
       "PowerShell(npm run dev)",
       "Bash(grep -rn \"Dropbox\\\\|LOCALAPPDATA\\\\|C:\\\\\\\\\\\\\\\\\\\\|\\\\.exe\" --include=*.py .)",
       "Bash(cd \"e:/Lintang/underground/UCM_Underground_Convergence_Monitoring_Apps\" && ls prototype/ 2>/dev/null | head -40 && echo \"--- reqs anywhere ---\" && find . .. -maxdepth 3 -name \"requirements*.txt\" 2>/dev/null)",
-      "Read(//e/Lintang/**)"
+      "Read(//e/Lintang/**)",
+      "Bash(git ls-remote *)",
+      "Bash(gh --version)",
+      "Bash(gh api *)",
+      "PowerShell(Get-Process git,git-gui,gitk,vim,nano,code -ErrorAction SilentlyContinue)",
+      "PowerShell($g = @\\(Get-Process -Name git -ErrorAction Ignore\\); Write-Output \"git processes: $\\($g.Count\\)\"; $c = @\\(Get-Process -Name Code -ErrorAction Ignore\\); Write-Output \"Code processes: $\\($c.Count\\)\")",
+      "Bash(git fsck *)",
+      "Bash(git restore *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/introspect.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/params.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/enums.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/defaults.mjs\")",
+      "Bash(cp \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/verify.test.js\" __tests__/radarParameterSets.tmp.test.js)",
+      "Bash(sed -i \"s#require\\('e:/Lintang/dtg-focus-vercel/config/radarParameterSets.ts'\\)#require\\('../config/radarParameterSets'\\)#\" __tests__/radarParameterSets.tmp.test.js)",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/view.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/rec1949.mjs\")"
+    ],
+    "additionalDirectories": [
+      "E:\\Lintang\\dtg-focus-vercel\\.git"
     ]
   }
 }

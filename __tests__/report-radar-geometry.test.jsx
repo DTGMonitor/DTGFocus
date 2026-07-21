@@ -35,18 +35,27 @@ const H = 220;
 const MARGIN = { top: 14, right: 54, bottom: 14, left: 54 };
 const OUTER = '72%';
 
+// buildRadarData reads the axes off the level-1 entries, so the fixture carries
+// the `id` and `level` a pivoted dqp_values row always has. Ids are the
+// parameters-table ids, which is also the axis order (System Health first, at
+// angle 90).
 const record = (overrides = {}) => ({
   radar: 'IBIS-FM',
   brand: 'GroundProbe',
   parameters: {
-    'System Health': { value: 'Optimal' },
-    'Scan Area': { value: 'Sub-Optimal' },
-    Photograph: { value: 'Optimal' },
-    Masks: { value: 'Optimal' },
-    Alarms: { value: 'Acceptable' },
-    'Atmospheric Correction': { value: 'Optimal' },
-    'Visual Data': { value: 'Critical' },
-    Overall: { value: 'Sub-Optimal' },
+    Overall: { id: 1, name: 'Overall', level: 0, value: 'Sub-Optimal' },
+    'System Health': { id: 2, name: 'System Health', level: 1, value: 'Optimal' },
+    'Scan Area': { id: 3, name: 'Scan Area', level: 1, value: 'Sub-Optimal' },
+    Photograph: { id: 4, name: 'Photograph', level: 1, value: 'Optimal' },
+    Masks: { id: 5, name: 'Masks', level: 1, value: 'Optimal' },
+    Alarms: { id: 6, name: 'Alarms', level: 1, value: 'Acceptable' },
+    'Atmospheric Correction': {
+      id: 7,
+      name: 'Atmospheric Correction',
+      level: 1,
+      value: 'Optimal',
+    },
+    'Visual Data': { id: 8, name: 'Visual Data', level: 1, value: 'Critical' },
   },
   ...overrides,
 });
