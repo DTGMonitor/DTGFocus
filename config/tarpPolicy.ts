@@ -30,6 +30,15 @@ export interface TarpPolicy {
     /** Per deformation type. `null` means "never assign a TARP trigger". */
     rules: Record<string, TarpRule | null>;
     /**
+     * True for policies built from a site's own TARP document. A type with no
+     * rule then has no TARP trigger at all, rather than inheriting the DTG
+     * default — the client's document is the complete statement of their TARP.
+     */
+    exhaustive?: boolean;
+    /** Provenance, for auditing which document produced a subject line. */
+    documentId?: number;
+    documentVersion?: number;
+    /**
      * When a rule is suppressed by `requiresAlarm`, should the risk bracket
      * ([MODERATE RISK] / [CRITICAL]) still follow the underlying TARP level?
      * Default false -> the email falls back to [NOTIFICATION ONLY].
@@ -97,6 +106,8 @@ export const getTarpPolicyForSensor = (sensor: any): TarpPolicy => {
 
 const getRule = (policy: TarpPolicy, type: string): TarpRule | null => {
     const rule = policy.rules[type];
+    // A document-backed policy is complete in itself — no inheriting.
+    if (policy.exhaustive) return rule ?? null;
     return rule === undefined ? DEFAULT_TARP_POLICY.rules[type] ?? null : rule;
 };
 

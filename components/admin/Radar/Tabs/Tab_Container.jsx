@@ -5,7 +5,7 @@
  * Owns no internal state — the parent controls `activeTab` and `onTabChange`.
  *
  * Props:
- *   activeTab   : 'deformation' | 'alarm' | 'dqp' | 'downtime'
+ *   activeTab   : 'deformation' | 'alarm' | 'dqp' | 'downtime' | 'tarp'
  *   onTabChange : (tabKey: string) => void
  *
  * Requirements: 1.1, 1.2, 1.3
@@ -16,6 +16,7 @@ const TABS = [
   { key: 'alarm',       label: 'Alarm' },
   { key: 'dqp',         label: 'Data Quality' },
   { key: 'downtime',    label: 'Downtime' },
+  { key: 'tarp',        label: 'TARP' },
 ];
 
 export default function Tab_Container({ activeTab, onTabChange }) {

@@ -59,7 +59,23 @@
       "Bash(sed -i \"s#require\\('e:/Lintang/dtg-focus-vercel/config/radarParameterSets.ts'\\)#require\\('../config/radarParameterSets'\\)#\" __tests__/radarParameterSets.tmp.test.js)",
       "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/view.mjs\")",
       "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/b8ec2f87-5db6-487d-ab95-1da02f900a96/scratchpad/rec1949.mjs\")",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(node dump.js tarp/genesis sheet1.xml)",
+      "Bash(node dump.js tarp/genesis sheet2.xml)",
+      "Bash(node dump.js tarp/greatland sheet2.xml)",
+      "Bash(node dump.js tarp/ibp sheet2.xml)",
+      "Bash(node dump.js tarp/greatland sheet1.xml)",
+      "Bash(node dump.js tarp/ibp sheet1.xml)",
+      "PowerShell(npx jest __tests__/tarp-policy.test.js 2>&1)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-String -Pattern \"tarp|Tarp|AddDeformationForm\" | Select-Object -First 20; Write-Output \"exit=$LASTEXITCODE\")",
+      "PowerShell(npm install exceljs --save 2>&1)",
+      "Bash(node -e \"console.log\\('exceljs', require\\('exceljs/package.json'\\).version\\)\")",
+      "PowerShell(npx jest __tests__/tarp-export.test.js 2>&1)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 15; Write-Output \"tsc exit=$LASTEXITCODE\")",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 12; Write-Output \"tsc exit=$LASTEXITCODE\")",
+      "PowerShell(npx jest __tests__/tarp-policy.test.js __tests__/tarp-export.test.js 2>&1 | Select-String -Pattern \"✕|●|Tests:|Suites:\" | Select-Object -First 20; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\")",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\"; npx next build 2>&1 | Select-String -Pattern \"Compiled|Failed|Error:\" | Select-Object -First 10)",
+      "PowerShell(npx jest __tests__/tarp-policy.test.js __tests__/tarp-export.test.js 2>&1 | Select-String -Pattern \"✕|●|Tests:|Suites:\" | Select-Object -First 15; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\")"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

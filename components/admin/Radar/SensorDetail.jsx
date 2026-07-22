@@ -16,6 +16,7 @@ import DeformationTab from "./Tabs/DeformationTab";
 import AlarmTab from "./Tabs/AlarmTab";
 import DQPTab from "./Tabs/DQPTab";
 import DowntimeTab from "./Tabs/DowntimeTab";
+import TarpTab from "./Tabs/TarpTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
@@ -1736,6 +1737,14 @@ const SensorDetail = ({
                                         sensor={sensor}
                                         timezone={timezone}
                                         crosscheckers={crosscheckers}
+                                        activeTab={activeTab}
+                                    />
+                                )}
+
+                                {activeTab === 'tarp' && (
+                                    <TarpTab
+                                        sensor={sensor}
+                                        userSite={userSite}
                                         activeTab={activeTab}
                                     />
                                 )}

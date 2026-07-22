@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from "@/lib/supabaseClient";
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, AlertTriangle, ArrowDownRight, FileQuestion } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
 import { getTarpPolicyForSensor, resolveTarpLevel, resolveSeverityTarpLevel } from '../../../../config/tarpPolicy';
+import { useTarpDocument } from '../Tarp/useTarpDocument';
+import { responseRequirementForType, resolveTarpTransition } from '../../../../config/tarpDocument';
 import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
 import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
@@ -137,6 +139,13 @@ const AddDeformationForm = ({
         hasManualEdits.current = false;
     }, [initialValues]);
 
+    // The site's own TARP document, when it has one, drives the TARP trigger.
+    const {
+        document: tarpDocument,
+        policy: documentPolicy,
+        loading: tarpDocumentLoading,
+    } = useTarpDocument(sensor?.site_id);
+
     // 1. Unified Form State
     const [formData, setFormData] = useState<FormDataState>({
         Type: "", // This drives the dynamic fields
@@ -161,6 +170,9 @@ const AddDeformationForm = ({
 
     // Existing active records for this radar that can be picked as precursors(s).
     const [precursorsOptions, setPrecursorsOptions] = useState<PrecursorsOption[]>([]);
+    // Every active record, including the Update-flow original. Needed to work out
+    // whether this record de-escalates the level the original was reported at.
+    const [activeRecords, setActiveRecords] = useState<PrecursorsOption[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -173,6 +185,7 @@ const AddDeformationForm = ({
                 .eq('isactive', 'Yes')
                 .order('created_at', { ascending: false });
             if (cancelled || error) return;
+            setActiveRecords(data || []);
             // Exclude the Update-flow original — it is auto-linked as the primary
             // precursors, so offering it here would be redundant/confusing.
             setPrecursorsOptions(
@@ -684,11 +697,29 @@ const AddDeformationForm = ({
     const selectedRegions = alarmRegion.filter((r: any) => formData.alarmRegions.includes(r.id));
 
     // TARP trigger is resolved per site: some clients only quote a trigger for a
-    // progressive trend, or when a genuine alarm was raised.
-    const tarpPolicy = getTarpPolicyForSensor(sensor);
+    // progressive trend, or when a genuine alarm was raised. The site's own TARP
+    // document wins; sites not yet migrated fall back to the hard-coded map.
+    const tarpPolicy = documentPolicy || getTarpPolicyForSensor(sensor);
     const hasAlarm = selectedRegions.length > 0;
     const effectiveTarp = resolveTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
     const severityTarp = resolveSeverityTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
+
+    // Non-null only when this site's TARP asks for something other than its own
+    // default steady-state response for this trigger.
+    const responseRequirement = responseRequirementForType(tarpDocument, formData.Type);
+
+    // Is this record standing a TARP level DOWN? The prior state is the record
+    // being updated plus any precursors the engineer ticked.
+    const priorRecordIds = [
+        ...(precursors !== null && precursors !== undefined ? [precursors] : []),
+        ...(formData.Precursorss || []),
+    ].map(String);
+
+    const priorTypes = activeRecords
+        .filter(record => priorRecordIds.includes(String(record.id)))
+        .map(record => record.def_type);
+
+    const transition = resolveTarpTransition(priorTypes, formData.Type, tarpDocument);
 
     const logDetails = getWorkLogDetails(severityTarp, formData.NotificationTime);
     const emailSubject = generateEmailSubject(logDetails.subject, effectiveTarp, formData.Type, cleanSensor, selectedRegions);
@@ -706,6 +737,72 @@ const AddDeformationForm = ({
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
+                {/* A site with no TARP document falls back to the DTG standard
+                    mapping. Say so rather than letting it pass unnoticed. */}
+                {!tarpDocumentLoading && !tarpDocument && formData.Type && (
+                    <div className="flex items-start gap-2 rounded-md border border-[var(--dtg-border-medium)] px-3 py-2">
+                        <FileQuestion size={14} className="mt-0.5 shrink-0 text-[var(--dtg-text-muted)]" />
+                        <p className="text-xs text-[var(--dtg-text-muted)]">
+                            No TARP document for {sensor.site_name} — this subject line uses the
+                            DTG standard mapping. Add one from the TARP tab.
+                        </p>
+                    </div>
+                )}
+
+                {/* Standing a TARP level down changes what the crew may do, so the
+                    required action is spelled out before the engineer acts. */}
+                {transition.direction === 'deescalation' && (
+                    <div
+                        role="alert"
+                        className={`flex items-start gap-3 rounded-md border-2 px-4 py-3 ${transition.deviates
+                            ? 'border-amber-400/70 bg-amber-400/15'
+                            : 'border-sky-400/60 bg-sky-400/10'
+                            }`}
+                    >
+                        <ArrowDownRight
+                            size={18}
+                            className={`mt-0.5 shrink-0 ${transition.deviates ? 'text-amber-300' : 'text-sky-300'}`}
+                        />
+                        <div>
+                            <p className={`text-sm font-bold uppercase tracking-wide ${transition.deviates ? 'text-amber-200' : 'text-sky-200'}`}>
+                                De-escalation — {transition.label}
+                            </p>
+                            <p className="mt-0.5 text-sm text-[var(--dtg-text-secondary)]">
+                                {transition.notice}
+                            </p>
+                            <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">
+                                {transition.summary}
+                                {tarpDocument && ` · per ${tarpDocument.heading || sensor.site_name} TARP v${tarpDocument.version}`}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* The site's TARP may require something other than the usual phone
+                    call for this trigger. Surface it before the engineer acts. */}
+                {responseRequirement?.deviates && transition.direction !== 'deescalation' && (
+                    <div
+                        role="alert"
+                        className="flex items-start gap-3 rounded-md border-2 border-amber-400/70 bg-amber-400/15 px-4 py-3"
+                    >
+                        <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-300" />
+                        <div>
+                            <p className="text-sm font-bold text-amber-200 uppercase tracking-wide">
+                                {responseRequirement.label} — site TARP deviates from the default
+                            </p>
+                            <p className="mt-0.5 text-sm text-[var(--dtg-text-secondary)]">
+                                {responseRequirement.notice}
+                            </p>
+                            {tarpDocument && (
+                                <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">
+                                    Per {tarpDocument.heading || sensor.site_name} TARP v{tarpDocument.version}
+                                    {' · '}{formData.Type}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* SECTION 1: MANDATORY (Yellow Columns) */}
                 <div className="grid grid-cols-2 gap-4">
