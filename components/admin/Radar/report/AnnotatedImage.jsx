@@ -10,15 +10,32 @@
  */
 
 import { MUTED, LINE, ACCENT, IMAGE_MAX_H } from './constants';
-import { centroid } from './useImageAnnotation';
+import { centroid, outsideLabelAnchor, PLACEMENT_OUTSIDE } from './useImageAnnotation';
+
+/**
+ * Where one zone's label sits, and the leader line it needs to get there.
+ *
+ * Inside labels sit on the centroid and need no leader. Outside labels are
+ * pushed clear of the polygon and are tied back to it by a line — without one an
+ * offset label is just a caption floating on the image with nothing saying which
+ * zone it belongs to.
+ */
+function labelAnchor(b) {
+  if (b.placement !== PLACEMENT_OUTSIDE) return { at: centroid(b.points), leader: null };
+  const { from, to } = outsideLabelAnchor(b.points);
+  return { at: to, leader: { from, to } };
+}
 
 /**
  * @param {string|null} image        Data URL.
- * @param {object[]} boundaries      [{ points, color, label }]
+ * @param {object[]} boundaries      [{ points, color, label, placement }]
  * @param {object|null} draft        In-progress polygon.
  * @param {boolean} interactive      false for the measurement/export render.
  * @param {object} imageRef          Ref on the <img>, for click → percent maths.
  * @param {Function} onImageLoad     Pass bumpMeasure so pagination re-runs.
+ * @param {Function} onPaste         Clipboard → image. The hook also listens on
+ *   the document, so this only adds the case where the drop zone itself is
+ *   focused; both funnel into the same handler and a paste is consumed once.
  * @param {number} maxHeight
  */
 export function AnnotatedImage({
@@ -28,6 +45,7 @@ export function AnnotatedImage({
   interactive = false,
   imageRef,
   onDrop,
+  onPaste,
   onImageClick,
   onImageLoad,
   maxHeight = IMAGE_MAX_H,
@@ -37,6 +55,10 @@ export function AnnotatedImage({
     <div
       onDragOver={interactive ? (e) => e.preventDefault() : undefined}
       onDrop={interactive ? onDrop : undefined}
+      onPaste={interactive ? onPaste : undefined}
+      // Focusable so a click on the drop zone puts Ctrl+V here explicitly. Not
+      // the only path — the hook's document listener covers the untouched case.
+      tabIndex={interactive ? 0 : undefined}
       style={{
         position: 'relative',
         width: '100%',
@@ -82,6 +104,24 @@ export function AnnotatedImage({
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+            {/* Leader lines, drawn after the polygons so they are never buried
+                under a later zone's translucent fill. */}
+            {boundaries.map((b, i) => {
+              const { leader } = labelAnchor(b);
+              if (!leader) return null;
+              return (
+                <line
+                  key={`leader-${i}`}
+                  x1={leader.from.x}
+                  y1={leader.from.y}
+                  x2={leader.to.x}
+                  y2={leader.to.y}
+                  stroke={b.color}
+                  strokeWidth={1.5}
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
+            })}
             {interactive && draft && draft.points.length > 0 && (
               <polyline
                 points={draft.points.map((p) => `${p.x},${p.y}`).join(' ')}
@@ -94,22 +134,26 @@ export function AnnotatedImage({
             )}
           </svg>
           {boundaries.map((b, i) => {
-            const c = centroid(b.points);
+            const { at } = labelAnchor(b);
             return (
               <span
                 key={i}
                 style={{
                   position: 'absolute',
-                  left: `${c.x}%`,
-                  top: `${c.y}%`,
+                  left: `${at.x}%`,
+                  top: `${at.y}%`,
                   transform: 'translate(-50%, -50%)',
                   background: b.color,
                   color: '#fff',
                   fontSize: 9,
                   fontWeight: 700,
+                  lineHeight: 1.25,
                   padding: '1px 5px',
                   borderRadius: 3,
-                  whiteSpace: 'nowrap',
+                  // pre-line, not nowrap: a label may carry several lines (trend
+                  // on one, velocity on the next) and each must keep its break.
+                  whiteSpace: 'pre-line',
+                  textAlign: 'center',
                   pointerEvents: 'none',
                 }}
               >
@@ -144,7 +188,10 @@ const btn = {
  * appear in the PDF.
  */
 export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
-  const { image, boundaries, draft, color, setColor, readImageFile, startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel } = annotation;
+  const {
+    image, boundaries, draft, color, setColor, readImageFile,
+    startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement,
+  } = annotation;
 
   return (
     <div style={{ background: '#111418', color: '#fff', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>
@@ -190,14 +237,19 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
       </div>
 
       {boundaries.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#cbd5e1' }}>Zone labels:</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8, alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 11, color: '#cbd5e1', paddingTop: 4 }}>Zone labels:</span>
           {boundaries.map((b, i) => (
-            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 9, height: 9, background: b.color, borderRadius: 2, display: 'inline-block' }} />
-              <input
+            <span key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+              <span
+                style={{ width: 9, height: 9, background: b.color, borderRadius: 2, display: 'inline-block', marginTop: 5 }}
+              />
+              {/* textarea, not input: Enter has to insert a line break so a label
+                  can carry the trend on one line and the velocity on the next. */}
+              <textarea
                 value={b.label}
                 onChange={(e) => updateLabel(i, e.target.value)}
+                rows={2}
                 aria-label={`Zone ${i + 1} label`}
                 style={{
                   border: '1px solid rgba(255,255,255,0.2)',
@@ -206,9 +258,27 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
                   borderRadius: 3,
                   padding: '2px 5px',
                   fontSize: 11,
-                  width: 90,
+                  width: 110,
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
                 }}
               />
+              <select
+                value={b.placement ?? 'inside'}
+                onChange={(e) => updatePlacement(i, e.target.value)}
+                aria-label={`Zone ${i + 1} label placement`}
+                style={{
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'rgba(255,255,255,0.08)',
+                  color: '#fff',
+                  borderRadius: 3,
+                  padding: '2px 4px',
+                  fontSize: 11,
+                }}
+              >
+                <option value="inside" style={{ color: '#111' }}>Inside</option>
+                <option value="outside" style={{ color: '#111' }}>Outside</option>
+              </select>
             </span>
           ))}
         </div>

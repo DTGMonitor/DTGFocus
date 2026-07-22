@@ -2,7 +2,7 @@
 // Radar Types
 // ─────────────────────────────────────────────────────────────
 
-export const RADAR_TYPES = ["PS", "XT", "FX", "SARx", "Omni"] as const;
+export const RADAR_TYPES = ["PS", "XT", "FX", "SARx", "Omni", "MSR"] as const;
 export type RadarType = (typeof RADAR_TYPES)[number];
 
 // Sentinel value — term appears for ALL radar types (including Omni)
@@ -32,6 +32,9 @@ export function parseRadarType(modelName: string): RadarType {
 
   // PS — prefix style: starts with "PS" followed by digits
   if (/^ps\d/i.test(name)) return "PS";
+
+  // PS — prefix style: starts with "PS" followed by digits
+  if (/^msr\d/i.test(name)) return "MSR";
 
   // SARx — suffix style: ends with "SARx" (x must be lowercase per spec)
   if (/sarx$/i.test(name)) return "SARx";
@@ -68,15 +71,15 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   THREE_D_DTM: {
     term: "3D DTM",
     definition:
-      "A 3D representation of the mine's surface used in SSR systems to display radar data over realistic terrain within the Monitor IQ software. It provides accurate spatial context, helping users visualize slope movement and radar measurements in relation to the actual ground surface.",
-    radars: ["PS","FX"],
+      "A 3D representation of the mine's surface used in radar systems to display radar data over realistic terrain within the software. It provides accurate spatial context, helping users visualize slope movement and radar measurements in relation to the actual ground surface.",
+    radars: ["PS", "FX", "MSR"],
   },
 
   AMPLITUDE: {
     term: "Amplitude",
     definition:
       "A measure of the strength of the radar signal returned from the surface. High amplitude indicates a strong, clear signal, which is essential for accurate surface displacement measurements. Low amplitude may suggest issues such as poor signal reflection or potential mechanical problems with the radar system.",
-    radars: ["PS", "XT", "FX", "SARx"],
+    radars: ["PS", "XT", "FX", "SARx", "MSR"],
   },
 
   COHERENCE: {
@@ -86,39 +89,53 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     radars: ["XT", "FX", "SARx"],
   },
 
+  CONFIDENCE: {
+    term: "Confidence",
+    definition:
+      "Confidence/coherence is a measure of data reliability between consecutive scans. Low coherence may indicate a system issue or disturbance on the slope surface, leading to unreliable or noisy data that complicates accurate deformation measurement. Consistently high coherence is required for measuring confidence in data.",
+    radars: ["MSR"],
+  },
+
   DSRA: {
     term: "DSRA (Dynamic Stable Reference Area)",
     definition:
       "An enhanced version of the Stable Reference Area (SRA) used in Monitor IQ to correct deformation measurements affected by atmospheric changes. DSRA improves accuracy by automatically filtering out low-quality (low coherence) data from the Stable Reference Zone (SRZ) in each scan, ensuring more reliable deformation correction.",
-    radars: ["XT","FX"],
+    radars: ["XT", "FX"],
   },
 
   EDM: {
     term: "EDM (Enhanced Deformation Mask)",
     definition:
       "A tool used to protect non-Area of Interest (non-AOI) regions during scans when ambiguities are detected. Instead of replacing the entire scan, EDM preserves stable data outside the AOI. This feature is available only when Enhanced Deformation Algorithms (EDA) is selected as the primary algorithm for the wall folder.",
-    radars: ["XT","FX"],
+    radars: ["XT", "FX"],
   },
 
   GEO_POSITIONING: {
     term: "Geo-Positioning",
     definition:
       "A technique developed by GroundProbe to overlay and align two spatially referenced images—such as a plan view of radar data and a plan view photograph from the SSR camera or other sources. This allows for accurate visual correlation between radar measurements and real-world terrain features.",
-    radars: ["PS","FX"],
+    radars: ["PS", "FX"],
   },
 
   REFRACTIVITY: {
     term: "Refractivity",
     definition:
       "Atmospheric refractivity is a comparison chart between SRA calculations and Weather Station (WS) calculations, used to measure the difference between the two in order to ensure that atmospheric corrections applied in the radar system align with actual weather conditions, maintaining accuracy in radar targeting and wall displacement measurements.",
-    radars: ["XT","FX"],
+    radars: ["XT", "FX"],
+  },
+
+  REFRACTIVITY2: {
+    term: "Refractivity",
+    definition:
+      "Refractivity is atmospheric calculation derived from Known Stable Region (KSR) and/or Weather Station (WS), used to enable corrections to atmospheric variations, maintaining accuracy in radar targeting and wall displacement measurements.",
+    radars: ["MSR"],
   },
 
   VECTOR_LOSS: {
     term: "Vector Loss",
     definition:
       "All line-of-sight measurement tools can potentially measure less movement than the actual occurrence due to the targets and the instrument's geometry. The greater the difference between the measurement tool's vector impact angle and the wall's movement, the less the movement will be detected.",
-    radars: ["PS", "XT", "FX", "SARx"],
+    radars: ["PS", "XT", "FX", "SARx", "MSR"],
   },
 
   WALL_PERCENTAGE: {

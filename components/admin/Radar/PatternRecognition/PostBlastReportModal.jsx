@@ -239,7 +239,9 @@ export default function PostBlastReportModal({
   const [summaryVcpIndex, setSummaryVcpIndex] = useState(0);
 
   // Pit image + zone drawing — shared with the Comprehensive radar report.
-  const annotation = useImageAnnotation(null);
+  // `isOpen`, not the default: this modal stays mounted while closed, and an
+  // armed document paste listener would swallow clipboard images app-wide.
+  const annotation = useImageAnnotation(null, { pasteEnabled: isOpen });
   const {
     image: pitImage,
     boundaries,
@@ -248,6 +250,7 @@ export default function PostBlastReportModal({
     setColor,
     readImageFile,
     handleDrop,
+    handlePaste,
     startDraft,
     undoPoint,
     finishDraft,
@@ -669,10 +672,11 @@ export default function PostBlastReportModal({
         interactive={interactive}
         imageRef={imageRef}
         onDrop={handleDrop}
+        onPaste={handlePaste}
         onImageClick={handleImageClick}
         onImageLoad={bumpMeasure}
         maxHeight={PIT_MAX_H}
-        emptyHint="Drag & drop the pit-wall photograph here, or use “Upload pit image”."
+        emptyHint="Drag, drop or paste (Ctrl+V) the pit-wall photograph here, or use “Upload pit image”."
       />
     );
 

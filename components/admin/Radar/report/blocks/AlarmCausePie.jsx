@@ -7,6 +7,10 @@
  * zero dependencies and completely predictable rasterization. Recharts' Pie
  * would need the same fixed-size workaround and buys nothing here.
  *
+ * Slice colours come from alarmCauseColor(), keyed by the cause NAME — see the
+ * note there. They were index-based, which made the palette drift between
+ * editions and encode nothing.
+ *
  * Labels show "cause: count (pct%)". The source mockup labelled raw counts with
  * a "%" suffix ("Machinery Activity: 3500", "Vegetation: 1500%") which summed
  * far past 100 — that is not reproduced. Counts and percentages here agree by
@@ -17,12 +21,7 @@
  */
 
 import { INK, MUTED, LINE } from '../constants';
-
-/** Categorical palette — distinguishable in print and colour-blind-safe-ish. */
-const SLICE_COLORS = [
-  '#F78E1E', '#2563eb', '#008000', '#C00000', '#7c3aed',
-  '#0891b2', '#FFC000', '#db2777', '#4b5563', '#65a30d',
-];
+import { alarmCauseColor } from '../severity';
 
 const R = 62;
 const CX = 70;
@@ -91,16 +90,16 @@ export function AlarmCausePie({ slices = [], title = 'Alarm Causes' }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <svg width={140} height={140} viewBox="0 0 140 140" style={{ flexShrink: 0 }}>
             {slices.length === 1 ? (
-              <circle cx={CX} cy={CY} r={R} fill={SLICE_COLORS[0]} />
+              <circle cx={CX} cy={CY} r={R} fill={alarmCauseColor(slices[0].cause)} />
             ) : (
               slices.reduce(
-                (acc, s, i) => {
+                (acc, s) => {
                   const frac = s.count / total;
                   acc.nodes.push(
                     <path
                       key={s.cause}
                       d={arcPath(acc.cursor, acc.cursor + frac)}
-                      fill={SLICE_COLORS[i % SLICE_COLORS.length]}
+                      fill={alarmCauseColor(s.cause)}
                       stroke="#fff"
                       strokeWidth={1}
                     />
@@ -116,13 +115,13 @@ export function AlarmCausePie({ slices = [], title = 'Alarm Causes' }) {
           {/* Legend carries the labels — the pie itself stays unlabelled, so long
               cause names can't overflow the slice or get clipped. */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            {slices.map((s, i) => (
+            {slices.map((s) => (
               <div key={s.cause} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
                 <span
                   style={{
                     width: 7,
                     height: 7,
-                    background: SLICE_COLORS[i % SLICE_COLORS.length],
+                    background: alarmCauseColor(s.cause),
                     flexShrink: 0,
                   }}
                 />

@@ -110,6 +110,134 @@ export function alarmToneColor(tone) {
 }
 
 /**
+ * Alarm CAUSE → print colour, fixed per cause.
+ *
+ * Previously the cause pie coloured slices by their INDEX in the aggregated
+ * list, which is sorted by count. The same cause therefore changed colour
+ * between two reports — "Progressive Deformation Trend" could be orange on
+ * Monday and green on Tuesday — and a reader comparing editions was reading a
+ * palette that carried no meaning. These bindings are by name, so a cause looks
+ * the same in every report and its colour states its severity.
+ *
+ * The scheme (the two families are the point — warm/dark means the ground moved,
+ * cool means it did not):
+ *
+ *   VALID — ranked by what the movement implies
+ *     Progressive trend            red        (the SEV.critical red)
+ *     Linear trend                 orange     (SEV.subOptimal)
+ *     Regressive trend             yellow     (SEV.acceptable)
+ *     Failure / Slip / Material
+ *       Detachment / Rock Fall     dark reds  — past a trend; something failed
+ *     Rapid Movement               black      — the most severe, and the one
+ *                                              colour nothing else can be
+ *
+ *   FALSE — one cool family, so any false alarm is distinguishable from a valid
+ *     one at a glance without reading the legend. The individual hues are only
+ *     required to be stable and mutually distinct.
+ */
+export const ALARM_CAUSE_COLORS = {
+  // Valid — deformation trends.
+  'Progressive Deformation Trend': SEV.critical,
+  'Linear Deformation Trend': SEV.subOptimal,
+  'Regressive Deformation Trend': SEV.acceptable,
+  // Valid — failure family, dark red variants.
+  'Failure Pattern Indication': '#6B0000',
+  'Slip Pattern Indication': '#8B1A1A',
+  'Material Detachment Indication': '#A3352B',
+  'Rock Fall': '#7A2E1E',
+  // Valid — the extreme.
+  'Rapid Movement': '#000000',
+  // False — cool family.
+  'Machinery Activity': '#2563eb',
+  'Rapid Atmospheric Changes': '#0891b2',
+  'Rainfall Event': '#0ea5e9',
+  'Riling Material': '#64748b',
+  'Vegetation': '#65a30d',
+  'Pushed Material': '#0d9488',
+  'Water Refraction': '#155e75',
+  'Sandstorm Event': '#94a3b8',
+  'Blasting Event': '#7c3aed',
+  'Diurnal Pattern': '#a855f7',
+  'Wire Mesh': '#475569',
+  'Mine Facility': '#334155',
+  'Step After Link Down': '#1e40af',
+  // aggregateAlarmCauses' bucket for records with no cause.
+  Uncategorised: SEV.neutral,
+};
+
+/**
+ * Keyword fallback, most specific first.
+ *
+ * The exact map above covers CAUSE_OPTIONS, but `alarm_records.cause` is NOT
+ * restricted to it — records written from the deformation side carry the bare
+ * def_type ('Linear', 'Progressive', 'Rock Fall') instead of the long taxonomy
+ * name ('Linear Deformation Trend'). Those missed the map entirely and hashed to
+ * an arbitrary cool colour, so a Linear alarm printed green.
+ *
+ * Order is load-bearing:
+ *   - 'linear accelerating' before 'linear', or the accelerating case would be
+ *     caught by the plain-linear rule and printed a tier too calm.
+ *   - 'failure' before 'forecast' is irrelevant (they get the same family), but
+ *     both must precede nothing else — 'Failure Forecast' should read as failure.
+ */
+const CAUSE_KEYWORD_RULES = [
+  ['rapid movement', '#000000'],
+  ['rock fall', '#7A2E1E'],
+  ['material detachment', '#A3352B'],
+  ['failure', '#6B0000'],
+  ['forecast', '#8B0000'],
+  ['slip', '#8B1A1A'],
+  ['regressive', SEV.acceptable],
+  ['progressive', SEV.critical],
+  // Accelerating is TARP 4, the same tier as Progressive — printing it the
+  // orange of a TARP 3 Linear would understate it.
+  ['linear accelerating', SEV.critical],
+  ['linear', SEV.subOptimal],
+  // False-alarm causes, so the short forms land in the cool family too.
+  ['machinery', '#2563eb'],
+  ['atmospheric', '#0891b2'],
+  ['rainfall', '#0ea5e9'],
+  ['riling', '#64748b'],
+  ['vegetation', '#65a30d'],
+  ['pushed material', '#0d9488'],
+  ['water refraction', '#155e75'],
+  ['sandstorm', '#94a3b8'],
+  ['blast', '#7c3aed'],
+  ['diurnal', '#a855f7'],
+  ['wire mesh', '#475569'],
+  ['mine facility', '#334155'],
+  ['link down', '#1e40af'],
+];
+
+/**
+ * Colours for a cause outside the taxonomy. Cool, like the false-alarm family:
+ * an unrecognised cause must not borrow the warm ink that means "the ground
+ * moved" — that would be a severity claim the report cannot support.
+ */
+const UNKNOWN_CAUSE_COLORS = ['#3b82f6', '#14b8a6', '#8b5cf6', '#22c55e', '#6366f1', '#78716c'];
+
+/**
+ * @param {string} cause  An alarm_records.cause value.
+ * @returns {string} hex. Unknown causes hash to a stable cool colour rather than
+ *   falling to a shared grey, so two unrecognised causes stay tellable apart.
+ */
+export function alarmCauseColor(cause) {
+  const key = String(cause ?? '').trim();
+  const known = ALARM_CAUSE_COLORS[key];
+  if (known) return known;
+
+  const lower = key.toLowerCase();
+  for (const [needle, hex] of CAUSE_KEYWORD_RULES) {
+    if (lower.includes(needle)) return hex;
+  }
+
+  // Hash the name, not the position: stable across reports and orderings.
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return UNKNOWN_CAUSE_COLORS[h % UNKNOWN_CAUSE_COLORS.length];
+}
+
+/**
  * Map a status / TARP / quality label to a print colour.
  * Mirrors getStatusStyle's keyword matching in RadarReportTemplates.
  *

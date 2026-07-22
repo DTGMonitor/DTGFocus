@@ -22,6 +22,7 @@ import { SectionBar } from '../pageFrame';
 import { AnnotatedImage } from '../AnnotatedImage';
 import { resolveDetectedBy } from '@/utils/tabHelpers';
 import { DAY_MS } from '@/utils/reportTimeline';
+import { buildEventDetails } from '@/utils/reportDefDetails';
 
 /** Text tone for a node that is neither current nor from the last 24h. */
 const FAINT = '#9ca3af';
@@ -95,6 +96,7 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers })
   const sev = severityColor(node?.tarp_level);
   const dotColor = isCurrent ? sev.color : muted ? LINE : MUTED;
   const subColor = muted ? FAINT : MUTED;
+  const details = buildEventDetails(node);
 
   return (
     <div style={{ display: 'flex', gap: 8 }}>
@@ -143,6 +145,30 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers })
         <div style={{ fontSize: 9, color: subColor }}>
           By: {detectedByName(node?.detected_by, crosscheckers)}
         </div>
+
+        {/* The measured numbers behind the badge — velocities for a trend, the
+            event time for an occurrence, the predicted date for a forecast.
+            Set on its own hairline-separated row so it reads as evidence rather
+            than as more metadata. */}
+        {details.length > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0 10px',
+              marginTop: 3,
+              paddingTop: 3,
+              borderTop: `1px solid ${muted ? LINE : tint(sev.color, 0.25)}`,
+            }}
+          >
+            {details.map((d) => (
+              <span key={d.label} style={{ fontSize: 9, color: subColor, whiteSpace: 'nowrap' }}>
+                {d.label}:{' '}
+                <strong style={{ color: muted ? MUTED : INK, fontWeight: 700 }}>{d.value}</strong>
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -220,8 +246,21 @@ function TimelineChain({ timeline, index, count, crosscheckers, now }) {
  * and draw labelled zones on it, exactly as in the Post-Blast report. The
  * annotation state is owned by the caller (see useImageAnnotation) because the
  * export mounts a second copy of this tree.
+ *
+ * `figure` is the document-wide figure number this image claims. It is the
+ * report's first figure, so the appendix must start counting after it — see
+ * ComprehensiveRadarTemplate's `figureOffset`. The caption only renders once an
+ * image is actually present: an empty drop zone is not a figure, and numbering
+ * it would leave the export (which drops the empty block) one ahead.
  */
-export function DeformationImage({ annotation, interactive = false, imageRef, onImageLoad }) {
+export function DeformationImage({
+  annotation,
+  interactive = false,
+  imageRef,
+  onImageLoad,
+  figure = 1,
+  caption = 'Deformation overview.',
+}) {
   if (!annotation?.image && !interactive) return null;
   return (
     <div>
@@ -234,11 +273,18 @@ export function DeformationImage({ annotation, interactive = false, imageRef, on
           interactive={interactive}
           imageRef={imageRef}
           onDrop={annotation?.handleDrop}
+          onPaste={annotation?.handlePaste}
           onImageClick={(e) => annotation?.addPoint(e, imageRef?.current)}
           onImageLoad={onImageLoad}
           maxHeight={IMAGE_MAX_H}
-          emptyHint="Drag & drop the deformation image here, or use “Upload image”."
+          emptyHint="Drag, drop or paste (Ctrl+V) the deformation image here, or use “Upload image”."
         />
+        {annotation?.image ? (
+          <div style={{ fontSize: 8, fontStyle: 'italic', color: MUTED, marginTop: 3, textAlign: 'left' }}>
+            <strong>Figure {figure}. </strong>
+            {caption}
+          </div>
+        ) : null}
       </div>
     </div>
   );

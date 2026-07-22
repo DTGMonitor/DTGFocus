@@ -149,7 +149,26 @@ export const HandoverTemplate = ({ data, reportInfo, exportMode = false, onClose
             notificationChunks.push(notifications.slice(i, i + ITEMS_PER_PAGE));
         }
     }
-    const totalPages = 1 + notificationChunks.length;
+
+    // The page box is a fixed 720px with overflow hidden, so the checklist has to be
+    // chunked or it pushes the Monitoring Summary off the bottom of the page.
+    // ~42px per row: a checklist-only page fits 9, and 6 still leaves room for the summary.
+    const CHECKLIST_ROWS_PER_PAGE = 9;
+    const CHECKLIST_ROWS_WITH_SUMMARY = 6;
+
+    const sensors = data || [];
+    const sensorChunks = [];
+    if (sensors.length === 0) {
+        sensorChunks.push([]);
+    } else {
+        for (let i = 0; i < sensors.length; i += CHECKLIST_ROWS_PER_PAGE) {
+            sensorChunks.push(sensors.slice(i, i + CHECKLIST_ROWS_PER_PAGE));
+        }
+    }
+    // Only tuck the summary under the final chunk if that chunk is short enough.
+    const summaryFitsOnLastChunk = sensorChunks[sensorChunks.length - 1].length <= CHECKLIST_ROWS_WITH_SUMMARY;
+
+    const totalPages = sensorChunks.length + (summaryFitsOnLastChunk ? 0 : 1) + notificationChunks.length;
 
     // ... (fetchNotifications and fetchUsers effects remain the same) ...
     const fetchNotifications = useCallback(async () => {
@@ -262,17 +281,38 @@ ${userName}`;
     const centerCellStyle = { ...tableCellStyle, textAlign: 'center' };
 
 
+    const summarySection = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+            <h2 style={{ fontSize: '24px', color: C.slate900, fontWeight: 'bold', borderBottom: `2px solid ${C.slate900}`, paddingBottom: '10px', margin: 0 }}>Monitoring Summary</h2>
+            <div style={{ display: 'flex', gap: '100px', fontSize: '14px', color: C.slate900 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <div><strong>Total Event:</strong> {reportInfo.totalevent}</div>
+                    <div><strong>Total Alarm:</strong> {reportInfo.totalalarm}</div>
+                    <div><strong>Online Devices:</strong> {(reportInfo.onlinedevice * 100).toFixed(0)}%</div>
+                    <div><strong>Overall Quality:</strong> {reportInfo.quality}</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <div><strong>Completed Checks:</strong> {reportInfo.completedcheck}</div>
+                    <div><strong>Missed Checks:</strong> {reportInfo.misscheck}</div>
+                    <div><strong>Completion Rate:</strong> {reportInfo.completion}%</div>
+                    <div><strong>Attention Required:</strong> {reportInfo.attentionreq}</div>
+                </div>
+            </div>
+        </div>
+    );
+
     const pages = [
-        // --- PAGE 1 ---
-        <div key="page-1" style={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', backgroundColor: C.white }}>
+        // --- CHECKLIST PAGES ---
+        ...sensorChunks.map((sensorChunk, chunkIndex) => (
+        <div key={`page-checklist-${chunkIndex}`} style={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', backgroundColor: C.white }}>
             {/* Header */}
             <Header header={header} longDate={longDate} userName={userName} gradientPage1={gradientPage1} />
 
             {/* Content */}
-
-            {/* Content */}
             <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <h2 style={{ fontSize: '24px', color: C.slate900, fontWeight: 'bold', borderBottom: `2px solid ${C.slate900}`, paddingBottom: '10px', margin: 0 }}>Radar Monitoring Checklist</h2>
+                <h2 style={{ fontSize: '24px', color: C.slate900, fontWeight: 'bold', borderBottom: `2px solid ${C.slate900}`, paddingBottom: '10px', margin: 0 }}>
+                    Radar Monitoring Checklist {sensorChunks.length > 1 ? `(${chunkIndex + 1}/${sensorChunks.length})` : ''}
+                </h2>
 
                 {/* Table - Explicit Styles (No Classes) */}
                 <div style={{ border: `1px solid ${C.gray200}`, width: '100%' }}>
@@ -298,7 +338,7 @@ ${userName}`;
                             </tr>
                         </thead>
                         <tbody>
-                            {data?.map((sensor) => {
+                            {sensorChunk.map((sensor) => {
                                 const allChecks = sensor.hourlychecks || Array(24).fill(false);
                                 const shiftChecks = currentShift.indices.map(idx => allChecks[idx]);
 
@@ -343,25 +383,20 @@ ${userName}`;
                     </table>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                    <h2 style={{ fontSize: '24px', color: C.slate900, fontWeight: 'bold', borderBottom: `2px solid ${C.slate900}`, paddingBottom: '10px', margin: 0 }}>Monitoring Summary</h2>
-                    <div style={{ display: 'flex', gap: '100px', fontSize: '14px', color: C.slate900 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            <div><strong>Total Event:</strong> {reportInfo.totalevent}</div>
-                            <div><strong>Total Alarm:</strong> {reportInfo.totalalarm}</div>
-                            <div><strong>Online Devices:</strong> {(reportInfo.onlinedevice * 100).toFixed(0)}%</div>
-                            <div><strong>Overall Quality:</strong> {reportInfo.quality}</div>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            <div><strong>Completed Checks:</strong> {reportInfo.completedcheck}</div>
-                            <div><strong>Missed Checks:</strong> {reportInfo.misscheck}</div>
-                            <div><strong>Completion Rate:</strong> {reportInfo.completion}%</div>
-                            <div><strong>Attention Required:</strong> {reportInfo.attentionreq}</div>
-                        </div>
-                    </div>
+                {chunkIndex === sensorChunks.length - 1 && summaryFitsOnLastChunk && summarySection}
+            </div>
+        </div>
+        )),
+
+        // --- STANDALONE SUMMARY PAGE (when the last checklist page is too full) ---
+        ...(summaryFitsOnLastChunk ? [] : [
+            <div key="page-summary" style={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', backgroundColor: C.white }}>
+                <Header header={header} longDate={longDate} userName={userName} gradientPage1={gradientPage1} />
+                <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {summarySection}
                 </div>
             </div>
-        </div>,
+        ]),
 
         // --- DYNAMIC WORK LOG PAGES ---
         ...notificationChunks.map((chunk, pageIndex) => (

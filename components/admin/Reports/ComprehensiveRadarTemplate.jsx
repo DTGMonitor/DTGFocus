@@ -174,6 +174,12 @@ export function ComprehensiveRadarTemplate({
   // one (preview), so the drop zone is reachable even before an upload.
   const hasImageBlock = Boolean(annotation?.image) || !exportMode;
 
+  // The deformation image is Figure 1 when one has actually been uploaded, so
+  // the appendix figures start at 2. Keyed off the image and NOT `hasImageBlock`
+  // — the block also renders as an empty drop zone in preview, and numbering
+  // that would make the preview disagree with the export, which omits it.
+  const figureOffset = annotation?.image ? 1 : 0;
+
   /**
    * Built twice, exactly as the Post-Blast report does — an interactive set for
    * the visible page and a static set for the hidden measurement layer.
@@ -213,6 +219,7 @@ export function ComprehensiveRadarTemplate({
           interactive={interactive}
           imageRef={imageRef}
           onImageLoad={bumpMeasure}
+          figure={1}
         />
       );
     }
@@ -255,7 +262,12 @@ export function ComprehensiveRadarTemplate({
     // fixed items-per-page constant to drift out of sync with the export loop.
     appendixItems.forEach((item, i) => {
       out.push(
-        <AppendixItem key={`appendix-${item.letter}`} item={item} onImageLoad={bumpMeasure} withHeader={i === 0} />
+        <AppendixItem
+          key={`appendix-${item.letter}`}
+          item={figureOffset ? { ...item, figure: item.figure + figureOffset } : item}
+          onImageLoad={bumpMeasure}
+          withHeader={i === 0}
+        />
       );
     });
 

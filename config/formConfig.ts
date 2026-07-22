@@ -248,28 +248,12 @@ export const generateEmailBody = (
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
   - Forecast Result (1): ${fmt(formData.ForecastResult1) || "-"}
-  
+
 > LONG VCP
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
   - Forecast Result (2): ${fmt(formData.ForecastResult2) || "-"}
-        
-  `.trim();
-    }
 
-    else if (["Forecast"].includes(formData.Type)) {
-        metricsBlock = `
-
-> SHORT VCP
-  - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
-  - VCP (1): ${formData.VCP1 || "-"}
-  - Forecast Result (1): ${fmt(formData.ForecastResult1) || "-"}
-  
-> LONG VCP
-  - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
-  - VCP (2): ${formData.VCP2 || "-"}
-  - Forecast Result (2): ${fmt(formData.ForecastResult2) || "-"}
-        
   `.trim();
     }
 
@@ -292,6 +276,11 @@ export const generateEmailBody = (
                     ? '⚠️ ATTENTION: Constant close attention to velocity for the next 24hrs.'
                     : '';
     }
+
+    // Standing caveat appended to every failure forecast notification.
+    const forecastNote = formData.Type === "Forecast"
+        ? 'ℹ️ NOTE: Slope failure may occur prior to the predicted timeframe, particularly if accelerated by external triggers such as heavy rainfall, blasting activities, or intense machinery operation near the deforming wall. Consequently, the failure forecast will be updated as new data or changing site conditions require.'
+        : '';
 
     let alarmRegionLine = "";
 
@@ -319,7 +308,7 @@ ${metricsBlock}
 CONTEXT & NOTES
 --------------------------------------------------
 ${formData.Notes ? formData.Notes : "No additional notes provided."}
-
+${forecastNote ? `\n${forecastNote}\n` : ""}
 ${actionBlock}
 
 DETAILS

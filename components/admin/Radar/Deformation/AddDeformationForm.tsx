@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
+import { getTarpPolicyForSensor, resolveTarpLevel, resolveSeverityTarpLevel } from '../../../../config/tarpPolicy';
 import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
 import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
@@ -518,7 +519,7 @@ const AddDeformationForm = ({
                 wallfolder_id: formData.WallFolderID || null,
                 location: formData.Location,
                 isactive: "Yes",
-                tarp_level: currentConfig.tarp,
+                tarp_level: effectiveTarp,
                 start: formData.Start ? toUTC(formData.Start, clientTimezone) : null,
                 notes: formData.Notes,
                 detected_by: formData.DetectedBy,
@@ -679,10 +680,18 @@ const AddDeformationForm = ({
     const siteName = `"${sensor.site_name} [All]"` || "Unknown Site";
     const selectedCrosschecker = crosscheckers.find(u => u.id === formData.CrosscheckedBy);
     const crosscheckerName = selectedCrosschecker ? `& ${selectedCrosschecker.full_name}` : "";
-    const logDetails = getWorkLogDetails(currentConfig.tarp, formData.NotificationTime);
 
     const selectedRegions = alarmRegion.filter((r: any) => formData.alarmRegions.includes(r.id));
-    const emailSubject = generateEmailSubject(logDetails.subject, currentConfig.tarp, formData.Type, cleanSensor, selectedRegions);
+
+    // TARP trigger is resolved per site: some clients only quote a trigger for a
+    // progressive trend, or when a genuine alarm was raised.
+    const tarpPolicy = getTarpPolicyForSensor(sensor);
+    const hasAlarm = selectedRegions.length > 0;
+    const effectiveTarp = resolveTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
+    const severityTarp = resolveSeverityTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
+
+    const logDetails = getWorkLogDetails(severityTarp, formData.NotificationTime);
+    const emailSubject = generateEmailSubject(logDetails.subject, effectiveTarp, formData.Type, cleanSensor, selectedRegions);
 
     const emailFormData = { ...formData, alarmRegions: selectedRegions };
     const emailBody = generateEmailBody(emailFormData, cleanSensor, logDetails.subject, userName, crosscheckerName);

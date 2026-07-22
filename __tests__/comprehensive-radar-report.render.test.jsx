@@ -241,7 +241,7 @@ describe('ComprehensiveRadarTemplate', () => {
   describe('deformation figure — upload and zone drawing', () => {
     it('shows the drop zone in preview when no image has been added', async () => {
       renderReport(buildData(), { annotation: stubAnnotation() });
-      expect((await screen.findAllByText(/Drag & drop the deformation image here/)).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText(/paste \(Ctrl\+V\) the deformation image here/)).length).toBeGreaterThan(0);
     });
 
     it('renders the uploaded image and its drawn zones', async () => {
@@ -257,7 +257,7 @@ describe('ComprehensiveRadarTemplate', () => {
     it('omits the figure block entirely on export when no image was added', () => {
       // Export must not print an empty dashed drop zone.
       renderReport(buildData(), { annotation: stubAnnotation(), exportMode: true });
-      expect(screen.queryByText(/Drag & drop the deformation image here/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/paste \(Ctrl\+V\) the deformation image here/)).not.toBeInTheDocument();
     });
 
     it('keeps the image on export, since the annotation is caller-owned', () => {
