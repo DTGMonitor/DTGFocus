@@ -119,6 +119,10 @@ const SensorDetail = ({
     const [renameInput, setRenameInput] = useState(wallFolderData?.name || "");
     const [newFolderInput, setNewFolderInput] = useState("");
     const [newAreaInput, setNewAreaInput] = useState("");
+    // "Same/overlay with previous location": when checked, the new folder inherits
+    // the current folder's location_group so the report clusters them as one wall;
+    // when unchecked it is treated as a different location (its own report section).
+    const [sameLocation, setSameLocation] = useState(false);
 
     const now = new Date();
     const menuRef = useRef(null);
@@ -419,17 +423,35 @@ const SensorDetail = ({
             toast.error("Please enter both Name and Area");
             return;
         }
+
+        // "Same/overlay with previous location": inherit the current folder's
+        // location_group so the report clusters both under one wall. Otherwise
+        // pass null and let the RPC default the group to the new area (a distinct
+        // location → its own report section). The current group is read straight
+        // from radar_wall_folders because the sensor row does not carry it.
+        let locationGroup = null;
+        if (sameLocation) {
+            const { data: prev } = await supabase
+                .from('radar_wall_folders')
+                .select('location_group, area')
+                .eq('id', sensor.wallfolder_id)
+                .maybeSingle();
+            locationGroup = prev?.location_group || prev?.area || newAreaInput;
+        }
+
         const { data, error } = await supabase
             .rpc('create_wall_folder_with_defaults', {
                 _radar_id: sensor.id,
                 _name: newFolderInput,
-                _area: newAreaInput
+                _area: newAreaInput,
+                _location_group: locationGroup
             });
 
         if (!error) {
             toast.success(`Folder "${newFolderInput}" created successfully!`);
             setNewFolderInput("");
             setNewAreaInput("");
+            setSameLocation(false);
             setIsCreating(false);
             setShowWrenchMenu(false);
             if (onRefresh) await onRefresh();
@@ -1455,9 +1477,28 @@ const SensorDetail = ({
                                                                     onChange={(e) => setNewAreaInput(e.target.value)}
                                                                 />
                                                             </div>
+
+                                                            {/* SAME/OVERLAY LOCATION — clusters this folder with the
+                                                                current one in the comprehensive report (same wall);
+                                                                leave unchecked when re-aiming at a different location. */}
+                                                            <label className="mb-3 flex items-start gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="mt-0.5 accent-[var(--dtg-brand-orange)]"
+                                                                    checked={sameLocation}
+                                                                    onChange={(e) => setSameLocation(e.target.checked)}
+                                                                />
+                                                                <span className="text-xs text-[var(--dtg-text-primary)] leading-tight">
+                                                                    Same / overlay with previous location
+                                                                    <span className="block text-[10px] text-[var(--dtg-gray-500)]">
+                                                                        Reports group both folders as one wall.
+                                                                    </span>
+                                                                </span>
+                                                            </label>
+
                                                             <div className="flex justify-end gap-2">
                                                                 <button
-                                                                    onClick={() => setIsCreating(false)}
+                                                                    onClick={() => { setIsCreating(false); setSameLocation(false); }}
                                                                     className="text-xs text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
                                                                 >
                                                                     Back

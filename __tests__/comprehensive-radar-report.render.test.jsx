@@ -402,6 +402,37 @@ describe('DeformationTimeline', () => {
     expect(screen.getByText('Chain 2 of 2')).toBeInTheDocument();
   });
 
+  it('labels each wall folder and marks the archived one when the report spans more than one', () => {
+    const current = { id: 2, name: 'NEW WALL', area: 'North', type: 'Live' };
+    const archived = { id: 1, name: 'OLD WALL', area: 'North', type: 'Archive', decommissioned_at: new Date(NOW - 5 * HOUR).toISOString() };
+    render(
+      <DeformationTimeline
+        timelines={[
+          { ...chain([node()]), folder: current, isCurrent: true },
+          { ...chain([node({ location: 'EAST DOME' })]), folder: archived, isCurrent: false },
+        ]}
+        now={NOW}
+      />
+    );
+    // Both folders are labelled (grouped rendering), the retired one badged Archived.
+    expect(screen.getByText(/NEW WALL/)).toBeInTheDocument();
+    expect(screen.getByText(/OLD WALL/)).toBeInTheDocument();
+    expect(screen.getByText('Current folder')).toBeInTheDocument();
+    expect(screen.getByText(/Archived/)).toBeInTheDocument();
+  });
+
+  it('stays in the flat legacy layout for a single folder (no folder labels)', () => {
+    const current = { id: 2, name: 'ONLY WALL', area: 'North', type: 'Live' };
+    render(
+      <DeformationTimeline
+        timelines={[{ ...chain([node()]), folder: current, isCurrent: true }]}
+        now={NOW}
+      />
+    );
+    expect(screen.queryByText(/ONLY WALL/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Current folder')).not.toBeInTheDocument();
+  });
+
   it('does not caption a lone chain', () => {
     render(<DeformationTimeline timelines={[chain([node()])]} now={NOW} />);
     expect(screen.queryByText(/^Chain \d+ of/)).not.toBeInTheDocument();

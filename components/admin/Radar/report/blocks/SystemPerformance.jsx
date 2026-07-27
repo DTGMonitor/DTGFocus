@@ -27,6 +27,7 @@ import { INK, MUTED, LINE, SECTION_TITLE_SYSTEM_PERFORMANCE } from '../constants
 import { severityColor, uptimeSeverityLabel } from '../severity';
 import { SectionBar } from '../pageFrame';
 import { AlarmCausePie } from './AlarmCausePie';
+import { folderDisplayLabel } from '@/utils/reportWallFolders';
 
 const MA_COLOR = '#3B7D23';
 const UA_COLOR = '#156082';
@@ -160,9 +161,17 @@ const Breakdown = ({ heading, pct, color, buckets }) => {
 /**
  * @param {object} availability  A computeAvailability() result.
  * @param {{cause: string, count: number, percentage: number}[]} alarmCauses
+ *   The combined breakdown across every folder — the KPI-level view.
+ * @param {{folder: object, causes: array, total: number}[]} alarmFolders
+ *   Per-folder breakdowns. When more than one folder raised alarms in the window
+ *   (a wall-folder change within the last 24h), each is shown labelled with its
+ *   folder rather than fused into one pie — different folders can be different
+ *   locations. Otherwise the single combined pie renders as before.
  */
-export function SystemPerformance({ availability, alarmCauses = [] }) {
+export function SystemPerformance({ availability, alarmCauses = [], alarmFolders = [] }) {
   const a = availability;
+  const foldersWithAlarms = (alarmFolders ?? []).filter((f) => (f.total ?? 0) > 0);
+  const perFolderAlarms = foldersWithAlarms.length > 1;
 
   return (
     <div>
@@ -199,7 +208,20 @@ export function SystemPerformance({ availability, alarmCauses = [] }) {
 
         <div style={{ width: 1, background: LINE, flexShrink: 0 }} />
 
-        <AlarmCausePie slices={alarmCauses} />
+        {perFolderAlarms ? (
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            {foldersWithAlarms.map((f, i) => (
+              <div
+                key={f.folder?.id ?? i}
+                style={{ borderTop: i > 0 ? `1px solid ${LINE}` : 'none' }}
+              >
+                <AlarmCausePie slices={f.causes} title={folderDisplayLabel(f.folder)} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <AlarmCausePie slices={alarmCauses} />
+        )}
       </div>
     </div>
   );

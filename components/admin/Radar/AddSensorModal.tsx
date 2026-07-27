@@ -219,6 +219,9 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
           radar_id: radar.id,
           name: wallFolderName.trim(),
           area: wallFolderArea.trim(),
+          // First folder of a new radar: no previous location to overlay, so its
+          // location_group seeds from its own area (matches the DB backfill).
+          location_group: wallFolderArea.trim(),
           type: "Live",
           commenced_at: now, // radar_wall_folders.commenced_at is a timestamptz
         })

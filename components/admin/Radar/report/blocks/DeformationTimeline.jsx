@@ -23,6 +23,7 @@ import { AnnotatedImage } from '../AnnotatedImage';
 import { resolveDetectedBy } from '@/utils/tabHelpers';
 import { DAY_MS } from '@/utils/reportTimeline';
 import { buildEventDetails } from '@/utils/reportDefDetails';
+import { groupTimelinesByFolder, folderDisplayLabel } from '@/utils/reportWallFolders';
 
 /** Text tone for a node that is neither current nor from the last 24h. */
 const FAINT = '#9ca3af';
@@ -239,6 +240,78 @@ function TimelineChain({ timeline, index, count, crosscheckers, now }) {
   );
 }
 
+/** 'DD/MM/YYYY' from an ISO timestamp, by parts so no timezone can shift the day. */
+const fmtDay = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+};
+
+/**
+ * One wall folder's chains, under a labelled header.
+ *
+ * Rendered only when the report spans more than one folder (a wall-folder change
+ * within the window). Because different folders can scan different locations, the
+ * header keeps each folder's events attributed to it rather than fused with the
+ * current folder's — the current folder is badged Current, a retired one Archived
+ * with the day it was decommissioned.
+ */
+function FolderTimelineSection({ group, crosscheckers, now, isLastGroup }) {
+  const { folder, isArchived, timelines } = group;
+  const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at) : null;
+
+  return (
+    <div style={{ marginBottom: isLastGroup ? 0 : 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 6,
+          paddingBottom: 3,
+          borderBottom: `1px solid ${LINE}`,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            color: INK,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {folderDisplayLabel(folder)}
+        </span>
+        <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
+          {isArchived ? (
+            <Badge text={archivedDay ? `Archived ${archivedDay}` : 'Archived'} color={MUTED} bg="#fff" border={LINE} />
+          ) : (
+            <Badge text="Current folder" color={MUTED} bg="#fff" border={LINE} />
+          )}
+        </span>
+      </div>
+
+      {timelines.map((t, ti) => (
+        <TimelineChain
+          key={t.folder?.id != null ? `${t.folder.id}-${ti}` : ti}
+          timeline={t}
+          index={ti}
+          count={timelines.length}
+          crosscheckers={crosscheckers}
+          now={now}
+        />
+      ))}
+    </div>
+  );
+}
+
 /**
  * The deformation figure, as its own block so it paginates independently.
  *
@@ -315,6 +388,12 @@ export function DeformationTimeline({
 }) {
   const visible = timelines.filter((t) => (t.trimmed?.length ?? 0) > 0);
 
+  // Group by folder only when the report actually spans more than one — a radar
+  // that never changed folders renders exactly as before (a flat run of chains).
+  const distinctFolders = new Set(visible.map((t) => t.folder?.id ?? '—')).size;
+  const grouped = distinctFolders > 1;
+  const folderGroups = grouped ? groupTimelinesByFolder(visible, null) : [];
+
   return (
     <div>
       {withHeader ? <SectionBar title="Deformation / Event" /> : null}
@@ -341,6 +420,16 @@ export function DeformationTimeline({
           <div style={{ fontSize: 10, color: MUTED, padding: '6px 0' }}>
             No active deformation events for this period.
           </div>
+        ) : grouped ? (
+          folderGroups.map((g, gi) => (
+            <FolderTimelineSection
+              key={g.folderId}
+              group={g}
+              crosscheckers={crosscheckers}
+              now={now}
+              isLastGroup={gi === folderGroups.length - 1}
+            />
+          ))
         ) : (
           visible.map((t, ti) => (
             <TimelineChain

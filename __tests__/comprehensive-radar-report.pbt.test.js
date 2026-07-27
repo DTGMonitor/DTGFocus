@@ -15,6 +15,16 @@ import {
   USE_OF_REASONS,
 } from '@/utils/reportAvailability';
 import { aggregateAlarmCauses, countValidTotal, deriveAlarmTone, ALARM_HIERARCHY } from '@/utils/reportAlarms';
+import {
+  folderGroupKey,
+  isArchivedFolder,
+  folderDisplayLabel,
+  nodeInWindow,
+  chainInWindow,
+  shouldIncludeChain,
+  groupTimelinesByFolder,
+  folderChangedInWindow,
+} from '@/utils/reportWallFolders';
 import { buildKeyFindings } from '@/components/admin/Radar/report/blocks/KeyFindings';
 import { severityColor, uptimeSeverityLabel, SEV, ALARM_SEV } from '@/components/admin/Radar/report/severity';
 import { pivotParameterTree, buildRadarRecord } from '@/utils/buildRadarRecord';
@@ -349,19 +359,162 @@ describe('computeAvailability', () => {
     });
   });
 
+  // Feature: comprehensive-radar-report, wall-folder change: downtime is unioned
+  // across folders with overlaps merged (Requirement: downtime joined & calculated
+  // across wall folders).
+  describe('mergeOverlaps (across wall folders)', () => {
+    const iso = (hoursAgo) => new Date(NOW - hoursAgo * HOUR_MS).toISOString();
+
+    it('counts an outage logged under two folders once, not twice', () => {
+      // Same 10h Maintenance recorded under the old and the new wall folder.
+      const dup = [
+        { reason: 'Maintenance', from: iso(10), to: iso(0) },
+        { reason: 'Maintenance', from: iso(10), to: iso(0) },
+      ];
+      const naive = computeAvailability(dup, start, end);
+      const merged = computeAvailability(dup, start, end, { mergeOverlaps: true });
+
+      expect(naive.mechanical.Maintenance.hours).toBeCloseTo(20, 6); // double-counted
+      expect(merged.mechanical.Maintenance.hours).toBeCloseTo(10, 6); // counted once
+      expect(merged.downtimeHours).toBeCloseTo(10, 6);
+      expect(merged.uptimePercentage).toBeCloseTo(((24 - 10) / 24) * 100, 6);
+    });
+
+    it('merges partially overlapping same-reason intervals across a changeover', () => {
+      // Old folder: 12h→4h ago. New folder: 6h→0h ago. Union = 12h→0h = 12h.
+      const rows = [
+        { reason: 'Relocation', from: iso(12), to: iso(4) },
+        { reason: 'Relocation', from: iso(6), to: iso(0) },
+      ];
+      const merged = computeAvailability(rows, start, end, { mergeOverlaps: true });
+      expect(merged.mechanical.Relocation.hours).toBeCloseTo(12, 6);
+    });
+
+    it('does not merge two distinct non-overlapping outages', () => {
+      const rows = [
+        { reason: 'Maintenance', from: iso(20), to: iso(16) }, // 4h
+        { reason: 'Maintenance', from: iso(8), to: iso(4) }, // 4h
+      ];
+      const merged = computeAvailability(rows, start, end, { mergeOverlaps: true });
+      const naive = computeAvailability(rows, start, end);
+      expect(merged.mechanical.Maintenance.hours).toBeCloseTo(8, 6);
+      expect(naive.mechanical.Maintenance.hours).toBeCloseTo(8, 6);
+    });
+
+    it('overall downtime unions across different reasons (cross-reason overlap counts once)', () => {
+      // A Maintenance and a Connection outage overlapping the same 6h: distinct
+      // reasons keep their own hours, but the overall downtime is the union.
+      const rows = [
+        { reason: 'Maintenance', from: iso(10), to: iso(4) }, // 6h
+        { reason: 'Connection', from: iso(8), to: iso(2) }, // 6h, overlaps 8→4
+      ];
+      const merged = computeAvailability(rows, start, end, { mergeOverlaps: true });
+      // Union of [10→4] and [8→2] is [10→2] = 8h down.
+      expect(merged.downtimeHours).toBeCloseTo(8, 6);
+      expect(merged.uptimePercentage).toBeCloseTo(((24 - 8) / 24) * 100, 6);
+    });
+
+    // Feature: comprehensive-radar-report, Property 10: merging never inflates downtime.
+    it('Property 10: merged downtime is always <= the naive sum and stays bounded', () => {
+      fc.assert(
+        fc.property(downtimeRecordsArb, (records) => {
+          const naive = computeAvailability(records, start, end);
+          const merged = computeAvailability(records, start, end, { mergeOverlaps: true });
+          expect(merged.downtimeHours).toBeLessThanOrEqual(naive.downtimeHours + 1e-9);
+          expect(merged.downtimeHours).toBeLessThanOrEqual(merged.windowHours + 1e-9);
+          expect(merged.uptimePercentage).toBeGreaterThanOrEqual(0);
+          expect(merged.uptimePercentage).toBeLessThanOrEqual(100);
+        }),
+        RUNS
+      );
+    });
+
+    it('with no overlaps, merged and naive agree (flag is a no-op)', () => {
+      fc.assert(
+        fc.property(
+          fc.array(fc.integer({ min: 0, max: 5 }), { minLength: 1, maxLength: 5 }),
+          (gaps) => {
+            // Build strictly non-overlapping 1h Maintenance blocks marching back in time.
+            let cursor = 0;
+            const rows = gaps.map((g) => {
+              cursor += g + 1; // at least 1h gap so nothing touches
+              const from = iso(cursor);
+              const to = iso(cursor - 1);
+              return { reason: 'Maintenance', from, to };
+            });
+            const naive = computeAvailability(rows, start, end);
+            const merged = computeAvailability(rows, start, end, { mergeOverlaps: true });
+            expect(merged.mechanical.Maintenance.hours).toBeCloseTo(naive.mechanical.Maintenance.hours, 6);
+          }
+        ),
+        RUNS
+      );
+    });
+  });
+
   describe('windowForFrequency', () => {
+    // Perth never observes DST, so the window span is exactly N*24h.
+    const TZ = 'Australia/Perth';
+    const reportDay = '2026-07-17';
+    // A `now` well AFTER reportDay → a closed (historical) period, whose window
+    // ends at the fixed 05:00 boundary, so the span is exactly N*24h.
+    const nowAfter = new Date('2026-08-01T00:00:00Z');
+
     it.each([
       ['daily', 24],
       ['weekly', 24 * 7],
       ['monthly', 24 * 30],
-    ])('%s spans %i hours', (freq, hours) => {
-      const { windowStart, windowEnd } = windowForFrequency(freq, end);
+    ])('%s spans %i hours for a past report day', (freq, hours) => {
+      const { windowStart, windowEnd } = windowForFrequency(freq, reportDay, TZ, nowAfter);
       expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(hours, 6);
     });
 
     it('an unknown frequency falls back to daily', () => {
-      const { windowStart, windowEnd } = windowForFrequency('fortnightly', end);
+      const { windowStart, windowEnd } = windowForFrequency('fortnightly', reportDay, TZ, nowAfter);
       expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(24, 6);
+    });
+
+    it('starts at 05:00 site-local on the prior day and includes that day', () => {
+      // 05:00 Jakarta (UTC+7, no DST) on 2026-07-27 == 22:00Z on 2026-07-26, so the
+      // window start (a day earlier) is 22:00Z on 2026-07-25. now is in the past
+      // relative to reportDay → the window ends at the fixed 05:00 boundary.
+      const past = new Date('2026-07-27T00:00:00Z');
+      const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-27', 'Asia/Jakarta', past);
+      expect(windowStart.toISOString()).toBe('2026-07-25T22:00:00.000Z');
+
+      // The reported record (2026-07-26 02:04Z → 16:04Z, Maintenance) must land in
+      // the 2026-07-27 daily report — the original bug was that it did not.
+      // Exact Postgres/Supabase wire format from the reported record (space + '+00').
+      const rec = { from: '2026-07-26 02:04:51+00', to: '2026-07-26 16:04:56+00', reason: 'Maintenance' };
+      const a = computeAvailability([rec], windowStart, windowEnd);
+      expect(a.mechanical.Maintenance.hours).toBeCloseTo(14, 1);
+    });
+
+    it('ends at now (not the 05:00 schedule) while the report day is current, counting still-open downtime', () => {
+      // Report day is TODAY; now is 15:00 Jakarta (08:00Z) on 2026-07-27.
+      const now = new Date('2026-07-27T08:00:00Z');
+      const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-27', 'Asia/Jakarta', now);
+      // End tracks `now`, NOT the 05:00 boundary (which was 2026-07-26T22:00Z).
+      expect(windowEnd.toISOString()).toBe('2026-07-27T08:00:00.000Z');
+      expect(windowStart.toISOString()).toBe('2026-07-25T22:00:00.000Z');
+
+      // A still-open incident (to == null) that started at 06:00Z today is counted
+      // from its start up to `now` — 2h — and never beyond it.
+      const open = { from: '2026-07-27 06:00:00+00', to: null, reason: 'Relocation' };
+      const a = computeAvailability([open], windowStart, windowEnd);
+      expect(a.mechanical.Relocation.hours).toBeCloseTo(2, 2);
+    });
+
+    it('does NOT extend a past report day to now (historical reports stay bounded)', () => {
+      // reportDay 2026-07-20 is history relative to now (2026-07-27).
+      const now = new Date('2026-07-27T08:00:00Z');
+      const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-20', 'Asia/Jakarta', now);
+      // Fixed 05:00 boundary: 05:00 Jakarta 2026-07-20 == 2026-07-19T22:00Z.
+      expect(windowEnd.toISOString()).toBe('2026-07-19T22:00:00.000Z');
+      // An open record inside the window still stops at the fixed end, not now.
+      const open = { from: '2026-07-19 10:00:00+00', to: null, reason: 'Maintenance' };
+      const a = computeAvailability([open], windowStart, windowEnd);
+      expect(a.mechanical.Maintenance.hours).toBeCloseTo(12, 2); // 10:00Z → 22:00Z
     });
   });
 });
@@ -738,6 +891,114 @@ describe('deriveAlarmTone', () => {
   });
 });
 
+// ── reportWallFolders (wall folder change handling) ───────────────────────────
+
+describe('reportWallFolders', () => {
+  const WSTART = new Date(NOW - 24 * HOUR_MS);
+  const WEND = new Date(NOW);
+  const at = (hoursAgo) => new Date(NOW - hoursAgo * HOUR_MS).toISOString();
+
+  describe('folderGroupKey', () => {
+    it('prefers location_group, then area, then name, then id', () => {
+      expect(folderGroupKey({ location_group: 'LG', area: 'A', name: 'N', id: 1 })).toBe('LG');
+      expect(folderGroupKey({ area: 'A', name: 'N', id: 1 })).toBe('A');
+      expect(folderGroupKey({ name: 'N', id: 1 })).toBe('N');
+      expect(folderGroupKey({ id: 7 })).toBe('folder-7');
+      expect(folderGroupKey(null)).toBe('—');
+    });
+  });
+
+  describe('isArchivedFolder', () => {
+    it('is true only for type Archive (case-insensitive)', () => {
+      expect(isArchivedFolder({ type: 'Archive' })).toBe(true);
+      expect(isArchivedFolder({ type: 'archive' })).toBe(true);
+      expect(isArchivedFolder({ type: 'Live' })).toBe(false);
+      expect(isArchivedFolder({ type: 'Link Down' })).toBe(false);
+      expect(isArchivedFolder(null)).toBe(false);
+    });
+  });
+
+  describe('folderDisplayLabel', () => {
+    it('appends the area only when it adds information', () => {
+      expect(folderDisplayLabel({ name: 'North', area: 'North Wall' })).toBe('North (North Wall)');
+      expect(folderDisplayLabel({ name: 'North', area: 'North' })).toBe('North');
+      expect(folderDisplayLabel({ name: 'North' })).toBe('North');
+      expect(folderDisplayLabel({ area: 'South' })).toBe('South');
+      expect(folderDisplayLabel({})).toBe('Unnamed wall folder');
+    });
+  });
+
+  describe('nodeInWindow / chainInWindow', () => {
+    it('is inclusive of the window bounds and excludes outside', () => {
+      expect(nodeInWindow({ created_at: at(1) }, WSTART, WEND)).toBe(true);
+      expect(nodeInWindow({ created_at: at(0) }, WSTART, WEND)).toBe(true); // == end
+      expect(nodeInWindow({ created_at: at(24) }, WSTART, WEND)).toBe(true); // == start
+      expect(nodeInWindow({ created_at: at(25) }, WSTART, WEND)).toBe(false);
+      expect(nodeInWindow({ created_at: 'not-a-date' }, WSTART, WEND)).toBe(false);
+    });
+
+    it('chainInWindow is true when ANY node lands inside', () => {
+      expect(chainInWindow([{ created_at: at(100) }, { created_at: at(2) }], WSTART, WEND)).toBe(true);
+      expect(chainInWindow([{ created_at: at(100) }, { created_at: at(50) }], WSTART, WEND)).toBe(false);
+      expect(chainInWindow([], WSTART, WEND)).toBe(false);
+    });
+  });
+
+  describe('shouldIncludeChain', () => {
+    it('always keeps the current folder, regardless of window', () => {
+      const stale = [{ created_at: at(500) }];
+      expect(shouldIncludeChain({ isCurrent: true, chain: stale, windowStart: WSTART, windowEnd: WEND })).toBe(true);
+    });
+
+    it('keeps an archived folder only when it has in-window activity', () => {
+      const inWin = [{ created_at: at(100) }, { created_at: at(3) }];
+      const stale = [{ created_at: at(100) }, { created_at: at(40) }];
+      expect(shouldIncludeChain({ isCurrent: false, chain: inWin, windowStart: WSTART, windowEnd: WEND })).toBe(true);
+      expect(shouldIncludeChain({ isCurrent: false, chain: stale, windowStart: WSTART, windowEnd: WEND })).toBe(false);
+    });
+  });
+
+  describe('groupTimelinesByFolder', () => {
+    const tl = (folder, isCurrent, loc = 'X') => ({
+      folder,
+      isCurrent,
+      trimmed: [{ id: 1, location: loc }],
+    });
+    const current = { id: 2, name: 'NEW', area: 'North', type: 'Live', location_group: 'North', commenced_at: at(10) };
+    const archivedSameLoc = { id: 1, name: 'OLD', area: 'North', type: 'Archive', location_group: 'North', commenced_at: at(200) };
+    const archivedOtherLoc = { id: 3, name: 'FAR', area: 'South', type: 'Archive', location_group: 'South', commenced_at: at(300) };
+
+    it('orders the current folder first, its location cluster next, others last', () => {
+      const groups = groupTimelinesByFolder(
+        [tl(archivedOtherLoc, false), tl(archivedSameLoc, false), tl(current, true)],
+        2
+      );
+      expect(groups.map((g) => g.folderId)).toEqual([2, 1, 3]);
+      expect(groups[0].isCurrent).toBe(true);
+      expect(groups[1].isArchived).toBe(true);
+      expect(groups[2].groupKey).toBe('South');
+    });
+
+    it('collects every timeline of a folder under one group', () => {
+      const groups = groupTimelinesByFolder(
+        [tl(current, true), tl(current, true)],
+        2
+      );
+      expect(groups).toHaveLength(1);
+      expect(groups[0].timelines).toHaveLength(2);
+    });
+  });
+
+  describe('folderChangedInWindow', () => {
+    it('is true when a folder commenced or was decommissioned inside the window', () => {
+      expect(folderChangedInWindow([{ commenced_at: at(5) }], WSTART, WEND)).toBe(true);
+      expect(folderChangedInWindow([{ decommissioned_at: at(5) }], WSTART, WEND)).toBe(true);
+      expect(folderChangedInWindow([{ commenced_at: at(500) }], WSTART, WEND)).toBe(false);
+      expect(folderChangedInWindow([], WSTART, WEND)).toBe(false);
+    });
+  });
+});
+
 // ── KPI tile / findings dot agreement ─────────────────────────────────────────
 
 describe('Executive Summary tile and Key Findings dot agree', () => {
@@ -769,5 +1030,40 @@ describe('Executive Summary tile and Key Findings dot agree', () => {
     expect(dot({ total: 4, valid: 1, tone: 'red' })).toBe(SEV.critical);
     expect(dot({ total: 4, valid: 1, tone: 'purple' })).toBe(ALARM_SEV.purple);
     expect(dot({ total: 4, valid: 1, tone: 'blue' })).toBe(ALARM_SEV.blue);
+  });
+});
+
+// ── Key Findings: wall-folder-change note ─────────────────────────────────────
+
+describe('buildKeyFindings — wall folder change note', () => {
+  const base = { risk: 'TARP 1' };
+
+  it('adds a neutral note when more than one folder contributed', () => {
+    const findings = buildKeyFindings({
+      ...base,
+      wallFolders: {
+        multiFolder: true,
+        contributing: [
+          { id: 2, name: 'NEW', area: 'North', type: 'Live' },
+          { id: 1, name: 'OLD', area: 'North', type: 'Archive' },
+        ],
+      },
+    });
+    const note = findings.find((f) => /combines 2 wall folders/i.test(f.text));
+    expect(note).toBeTruthy();
+    expect(note.color).toBe(SEV.neutral);
+    expect(note.detail).toContain('NEW');
+    expect(note.detail).toMatch(/OLD.*—\s*archived/);
+  });
+
+  it('adds no note for a single-folder report', () => {
+    const one = buildKeyFindings({
+      ...base,
+      wallFolders: { multiFolder: false, contributing: [{ id: 2, name: 'NEW', type: 'Live' }] },
+    });
+    expect(one.some((f) => /wall folders/i.test(f.text))).toBe(false);
+
+    const none = buildKeyFindings(base);
+    expect(none.some((f) => /wall folders/i.test(f.text))).toBe(false);
   });
 });

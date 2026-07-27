@@ -19,12 +19,15 @@ import { supabase } from '@/lib/supabaseClient';
 import { resolveTimelineChain, normalizePrecursorss, resolveDetectedBy } from '@/utils/tabHelpers';
 import { trimChain, isTrimmedHeadTrueRoot } from '@/utils/reportTimeline';
 import { computeAvailability, windowForFrequency } from '@/utils/reportAvailability';
+import { fromUTC } from '@/utils/timezoneUtils';
 import { aggregateAlarmCauses, countValidTotal, deriveAlarmTone } from '@/utils/reportAlarms';
+import { shouldIncludeChain, folderChangedInWindow } from '@/utils/reportWallFolders';
 import { buildRadarRecord } from '@/utils/buildRadarRecord';
+import { normalizeTarpDocument } from '@/config/tarpDocument';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 
 const TIMELINE_SELECT =
-  'id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties';
+  'id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties, wallfolder_id';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,6 +70,46 @@ export function deriveRisk(records) {
 }
 
 /**
+ * The calendar day a TARP revision took effect. Prefers the modified date (when
+ * the change was actually made) and falls back to the approval date. Returned as
+ * a 'YYYY-MM-DD' string — both columns are Postgres `date`s, so the slice is a
+ * no-op guard rather than a truncation.
+ */
+function revisionDay(revision) {
+  return String(revision?.modifiedDate || revision?.approvalDate || '').slice(0, 10);
+}
+
+/**
+ * TARP procedural updates whose effective day falls inside the report window.
+ *
+ * A revision is a controlled-document change to the site's TARP; this surfaces
+ * only the ones dated within the chosen period, newest first. Window bounds are
+ * absolute instants, so they are converted to the SITE's calendar day (the same
+ * boundary the rest of the report uses) before the inclusive day comparison.
+ * Lexical compare on 'YYYY-MM-DD' is chronological.
+ *
+ * @param {import('@/config/tarpDocument').TarpRevision[]} revisions
+ * @param {Date|string|number} windowStart
+ * @param {Date|string|number} windowEnd
+ * @param {string} timeZone  Site IANA timezone.
+ */
+export function filterTarpUpdatesInWindow(revisions, windowStart, windowEnd, timeZone = 'UTC') {
+  const startDay = (fromUTC(new Date(windowStart).toISOString(), timeZone) || '').slice(0, 10);
+  const endDay = (fromUTC(new Date(windowEnd).toISOString(), timeZone) || '').slice(0, 10);
+  if (!startDay || !endDay) return [];
+
+  return (revisions ?? [])
+    .filter((r) => {
+      const day = revisionDay(r);
+      return day && day >= startDay && day <= endDay;
+    })
+    .sort((a, b) => {
+      const cmp = revisionDay(b).localeCompare(revisionDay(a));
+      return cmp !== 0 ? cmp : (b?.seq ?? 0) - (a?.seq ?? 0);
+    });
+}
+
+/**
  * @param {object} sensor      { wallfolder_id, radar_number, brand, dqp_record_id, site_name, ... }
  * @param {string} frequency   'daily' | 'weekly' | 'monthly'
  * @param {string} endDate     ISO date string ('YYYY-MM-DD') — the window end.
@@ -79,10 +122,23 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
   // current request key.
   const [state, setState] = useState({ key: null, data: null, error: null });
 
-  // Freeze the window so re-renders don't shift it mid-report.
+  // The report-day boundary is 05:00 in the SITE's timezone (never the viewer's
+  // browser clock), so a report opened in the morning covers the previous day's
+  // overnight downtime. Default to UTC when the sensor carries no timezone.
+  const timeZone = sensor?.timezone || 'UTC';
+
+  // The report day ('YYYY-MM-DD'): the chosen End Date, else today in the site tz.
+  const reportDay = useMemo(
+    () => endDate || (fromUTC(new Date().toISOString(), timeZone) || '').slice(0, 10),
+    [endDate, timeZone]
+  );
+
+  // Freeze the window so re-renders don't shift it mid-report. The window end
+  // tracks `now` for the current/open period (so still-open downtime counts up to
+  // the present), captured once here rather than on every render.
   const { windowStart, windowEnd } = useMemo(
-    () => windowForFrequency(frequency, endDate ? new Date(`${endDate}T23:59:59`) : new Date()),
-    [frequency, endDate]
+    () => windowForFrequency(frequency, reportDay, timeZone, Date.now()),
+    [frequency, reportDay, timeZone]
   );
 
   const requestKey = useMemo(
@@ -105,27 +161,32 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
     };
 
     (async () => {
-      // ── Fetch every independent section in parallel ────────────────────────
+      // ── Phase 1: folder-independent sections + the folder registry ─────────
+      // The folder registry has to resolve before deformation / downtime / alarm
+      // can query, since those now span every folder this radar has ever had.
       const [
         crosscheckersRes,
-        defRes,
+        foldersRes,
         dqpRes,
-        downtimeRes,
-        regionsRes,
+        tarpRes,
       ] = await Promise.all([
         supabase
           .rpc('get_safe_crosscheckers', { target_names: CROSSCHECKER_NAMES })
           .then((r) => r.data)
           .catch(warn('crosscheckers')),
 
-        supabase
-          .from('def_records')
-          .select(TIMELINE_SELECT)
-          .eq('wallfolder_id', sensor.wallfolder_id)
-          .eq('isactive', 'Yes')
-          .order('created_at', { ascending: false })
-          .then((r) => { if (r.error) throw r.error; return r.data; })
-          .catch(warn('deformation records')),
+        // Every wall folder for this RADAR (current + archived), so records logged
+        // under a now-archived folder within the window are not lost. `sensor.id`
+        // is the radar id (the sensor is a latest_radar_wall_folders row).
+        sensor.id != null
+          ? supabase
+              .from('radar_wall_folders')
+              .select('id, name, area, type, commenced_at, decommissioned_at, location_group')
+              .eq('radar_id', sensor.id)
+              .order('commenced_at', { ascending: true })
+              .then((r) => { if (r.error) throw r.error; return r.data; })
+              .catch(warn('wall folders'))
+          : Promise.resolve(null),
 
         sensor.dqp_record_id
           ? supabase
@@ -137,18 +198,64 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
               .catch(warn('data quality values'))
           : Promise.resolve(null),
 
+        // The active TARP document carries the FULL revision history (each new
+        // version copies its predecessors' rows forward — see tarp_save_revision),
+        // so the one active row is enough to find every procedural update.
+        sensor.site_id
+          ? supabase
+              .from('tarp_documents')
+              .select('heading, version, revisions:tarp_revisions(id, seq, version_no, approval_date, approved_by_site, site_role, approved_by_dtg, dtg_role, modified_date, sections_modified, remark)')
+              .eq('site_id', sensor.site_id)
+              .eq('status', 'active')
+              .maybeSingle()
+              .then((r) => { if (r.error) throw r.error; return r.data; })
+              .catch(warn('TARP document'))
+          : Promise.resolve(null),
+      ]);
+
+      if (cancelled) return;
+
+      // The folder set. Fall back to the current folder alone if discovery failed
+      // or the sensor carries no radar id — the report must still render. The
+      // fallback's location_group degrades to `area` (matching the DB backfill).
+      const folders = foldersRes && foldersRes.length
+        ? foldersRes
+        : [{
+            id: sensor.wallfolder_id,
+            name: sensor.wallfoldername ?? sensor.wall_name ?? null,
+            area: sensor.area ?? null,
+            type: 'Live',
+            commenced_at: null,
+            decommissioned_at: null,
+            location_group: sensor.location_group ?? sensor.area ?? null,
+          }];
+      const folderIds = folders.map((f) => f.id);
+      const folderById = new Map(folders.map((f) => [f.id, f]));
+      const currentFolderId = sensor.wallfolder_id;
+
+      // ── Phase 2: folder-dependent sections, spanning every folder ──────────
+      const [defRes, downtimeRes, regionsRes] = await Promise.all([
+        supabase
+          .from('def_records')
+          .select(TIMELINE_SELECT)
+          .in('wallfolder_id', folderIds)
+          .eq('isactive', 'Yes')
+          .order('created_at', { ascending: false })
+          .then((r) => { if (r.error) throw r.error; return r.data; })
+          .catch(warn('deformation records')),
+
         supabase
           .from('downtime_records')
           .select('id, reason, from, to, wallfolder')
-          .eq('wallfolder', sensor.wallfolder_id)
+          .in('wallfolder', folderIds)
           .or(`to.gte.${windowStart.toISOString()},to.is.null`)
           .then((r) => { if (r.error) throw r.error; return r.data; })
           .catch(warn('downtime records')),
 
         supabase
           .from('alarm_regions')
-          .select('id, name, alarmtype')
-          .eq('wallfolder', sensor.wallfolder_id)
+          .select('id, name, alarmtype, wallfolder')
+          .in('wallfolder', folderIds)
           .then((r) => { if (r.error) throw r.error; return r.data; })
           .catch(warn('alarm regions')),
       ]);
@@ -202,11 +309,22 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         try {
           const { chain, error } = await resolveTimelineChain(head, fetchRecordById);
           if (error) timelineError = error;
+
+          // Tag the chain with the folder its head belongs to. The current folder
+          // always contributes; an archived folder only when the chain has a node
+          // inside the window (see shouldIncludeChain), so stale history from a
+          // long-retired wall does not resurface.
+          const folder = folderById.get(head.wallfolder_id) ?? null;
+          const isCurrent = head.wallfolder_id === currentFolderId;
+          if (!shouldIncludeChain({ isCurrent, chain, windowStart, windowEnd })) continue;
+
           const trimmed = trimChain(chain, timelineNow);
           timelines.push({
             chain,
             trimmed,
             headIsTrueRoot: isTrimmedHeadTrueRoot(chain, trimmed),
+            folder,
+            isCurrent,
           });
         } catch (err) {
           console.warn('[Comprehensive report] timeline resolution failed:', err);
@@ -231,13 +349,69 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
       // ── Derivations ───────────────────────────────────────────────────────
       const dqpRows = dqpRes ?? [];
       const radarRecord = buildRadarRecord(sensor, dqpRows);
+      // Downtime spans every folder of the radar (hardware availability), so the
+      // same outage logged under the old and the new folder during a changeover is
+      // unioned rather than double-counted — hence mergeOverlaps.
       const availability = computeAvailability(downtimeRes ?? [], windowStart, windowEnd, {
         isOff: String(sensor.status ?? '').toLowerCase().includes('lost'),
+        mergeOverlaps: true,
       });
+
+      // Overall alarm figures (all folders) drive the KPI tile and the single-pie
+      // fallback; the per-folder breakdown drives the labelled rendering.
       const alarmCauses = aggregateAlarmCauses(alarmRecords ?? []);
       const alarmCounts = countValidTotal(alarmRecords ?? []);
       // Severity lives on the region, so the tone needs both sides of the join.
       const alarmTone = deriveAlarmTone(alarmRecords ?? [], regionsRes ?? []);
+
+      // Attribute each alarm to its wall folder (record → region → folder).
+      const regionToFolder = new Map((regionsRes ?? []).map((r) => [r.id, r.wallfolder]));
+      const alarmByFolder = new Map();
+      for (const rec of alarmRecords ?? []) {
+        const fid = regionToFolder.get(rec.alarm_region);
+        if (!alarmByFolder.has(fid)) alarmByFolder.set(fid, []);
+        alarmByFolder.get(fid).push(rec);
+      }
+      const alarmFolders = [...alarmByFolder.entries()].map(([fid, recs]) => ({
+        folder: folderById.get(fid) ?? null,
+        causes: aggregateAlarmCauses(recs),
+        ...countValidTotal(recs),
+        tone: deriveAlarmTone(recs, regionsRes ?? []),
+      }));
+
+      // Which folders actually fed this report — downtime, deformation, or alarm.
+      // A single note under the KPIs fires whenever more than one contributed.
+      const overlapsWindow = (d) => {
+        const from = new Date(d?.from).getTime();
+        const to = d?.to ? new Date(d.to).getTime() : windowEnd.getTime();
+        return from <= windowEnd.getTime() && to >= windowStart.getTime();
+      };
+      const contributing = new Set();
+      (downtimeRes ?? []).forEach((d) => {
+        if (folderById.has(d.wallfolder) && overlapsWindow(d)) contributing.add(d.wallfolder);
+      });
+      timelines.forEach((t) => { if (t.folder?.id != null) contributing.add(t.folder.id); });
+      alarmFolders.forEach((a) => { if (a.folder?.id != null && a.total > 0) contributing.add(a.folder.id); });
+
+      const contributingFolders = [...contributing]
+        .map((id) => folderById.get(id))
+        .filter(Boolean);
+      const wallFolders = {
+        all: folders,
+        contributing: contributingFolders,
+        multiFolder: contributingFolders.length > 1,
+        changedInWindow: folderChangedInWindow(folders, windowStart, windowEnd),
+        currentFolderId,
+      };
+
+      // Procedural (TARP) updates dated within the report window.
+      const tarpDoc = normalizeTarpDocument(tarpRes);
+      const tarpUpdates = filterTarpUpdatesInWindow(
+        tarpDoc?.revisions ?? [],
+        windowStart,
+        windowEnd,
+        timeZone,
+      );
 
       setState({
         key: requestKey,
@@ -250,7 +424,14 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
             score: typeof sensor.normalised_score === 'number' ? sensor.normalised_score : null,
           },
           availability,
-          alarms: { causes: alarmCauses, ...alarmCounts, tone: alarmTone, regions: regionsRes ?? [] },
+          alarms: {
+            causes: alarmCauses,
+            ...alarmCounts,
+            tone: alarmTone,
+            regions: regionsRes ?? [],
+            byFolder: alarmFolders,
+          },
+          wallFolders,
           radarRecord,
           dqpRows,
           timelines,
@@ -258,6 +439,12 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
           timelineNow,
           deformationImage,
           crosscheckers: crosscheckersRes ?? [],
+          tarp: {
+            heading: tarpDoc?.heading ?? null,
+            version: tarpDoc?.version ?? null,
+            hasDocument: Boolean(tarpDoc),
+            updates: tarpUpdates,
+          },
         },
       });
     })().catch((err) => {

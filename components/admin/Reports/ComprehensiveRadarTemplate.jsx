@@ -11,8 +11,8 @@
  *
  * Block order:
  *   Header → Executive Summary → Key Findings → Deformation image → Deformation
- *   timeline → Data Quality → System Performance → Glossary → Appendix[] →
- *   Disclaimer
+ *   timeline → Data Quality → System Performance → Procedural Updates (TARP) →
+ *   Glossary → Appendix[] → Disclaimer
  *
  * Unlike RadarTemplate, this destructures `reportInfo`. RadarTemplate is declared
  * ({ data, sensor, exportMode }) while both call sites pass reportInfo, so it is
@@ -33,6 +33,7 @@ import { KeyFindings, buildKeyFindings } from '@/components/admin/Radar/report/b
 import { DeformationImage, DeformationTimeline } from '@/components/admin/Radar/report/blocks/DeformationTimeline';
 import { DataQuality } from '@/components/admin/Radar/report/blocks/DataQuality';
 import { SystemPerformance } from '@/components/admin/Radar/report/blocks/SystemPerformance';
+import { ProceduralUpdates } from '@/components/admin/Radar/report/blocks/ProceduralUpdates';
 import { Glossary, AppendixItem, Disclaimer } from '@/components/admin/Radar/report/blocks/GlossaryAppendix';
 
 import { buildStatusGroups, buildAppendixItems } from '@/utils/reportDqp';
@@ -253,8 +254,15 @@ export function ComprehensiveRadarTemplate({
         key="sysperf"
         availability={data?.availability}
         alarmCauses={data?.alarms?.causes ?? []}
+        alarmFolders={data?.alarms?.byFolder ?? []}
       />
     );
+
+    // Only when the TARP actually changed inside the window — an unchanged plan
+    // gets no section at all (the block also guards this).
+    if ((data?.tarp?.updates?.length ?? 0) > 0) {
+      out.push(<ProceduralUpdates key="tarp-updates" tarp={data.tarp} />);
+    }
 
     out.push(<Glossary key="glossary" radarNumber={sensor?.radar_number} />);
 

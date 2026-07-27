@@ -92,7 +92,7 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   CONFIDENCE: {
     term: "Confidence",
     definition:
-      "Confidence/coherence is a measure of data reliability between consecutive scans. Low coherence may indicate a system issue or disturbance on the slope surface, leading to unreliable or noisy data that complicates accurate deformation measurement. Consistently high coherence is required for measuring confidence in data.",
+      "Confidence is a measure of data reliability between consecutive scans. Low confidence may indicate a system issue or disturbance on the slope surface, leading to unreliable or noisy data that complicates accurate deformation measurement. Consistently high confidence is required for measuring confidence in data.",
     radars: ["MSR"],
   },
 

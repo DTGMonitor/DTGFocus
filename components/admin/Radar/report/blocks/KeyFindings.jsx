@@ -8,7 +8,14 @@
  */
 
 import { INK, MUTED, LINE } from '../constants';
-import { severityColor, alarmToneColor, uptimeSeverityLabel, UPTIME_TARGET } from '../severity';
+import { severityColor, alarmToneColor, uptimeSeverityLabel, UPTIME_TARGET, SEV } from '../severity';
+import { folderDisplayLabel, isArchivedFolder } from '@/utils/reportWallFolders';
+
+/** 'YYYY-MM-DD' → 'DD/MM/YYYY', reformatted by parts so no timezone can shift it. */
+const fmtDay = (value) => {
+  const m = String(value ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
 
 /**
  * @param {{text: string, detail?: string, tone?: string, color?: string}[]} findings
@@ -62,9 +69,9 @@ export function buildKeyFindings(d) {
 
   const riskLabel =
     d.risk === 'TARP 4' ? 'Critical'
-      : d.risk === 'TARP 3' ? 'Sub-Optimal'
-        : d.risk === 'TARP 2' ? 'Acceptable'
-          : 'Optimal';
+      : d.risk === 'TARP 3' ? 'Moderate'
+        : d.risk === 'TARP 2' ? 'Intermediate'
+          : 'No significant';
   const areas = (d.timelines ?? [])
     .map((t) => t.trimmed?.[t.trimmed.length - 1]?.location)
     .filter(Boolean);
@@ -109,6 +116,43 @@ export function buildKeyFindings(d) {
     out.push({
       text: 'No alarm events recorded in the last 24 hours.',
       color: alarmToneColor(alarmTone ?? 'none').color,
+    });
+  }
+
+  // Wall folder change — a neutral note whenever more than one folder fed this
+  // report (a change within the period, or an archived folder still holding
+  // window-dated records). Different folders can scan different locations, so the
+  // deformation and alarm sections above attribute their data per folder; this
+  // line tells the reader why the report spans more than one.
+  const wf = d.wallFolders;
+  if (wf?.multiFolder && (wf.contributing?.length ?? 0) > 1) {
+    const names = wf.contributing.map((f) => {
+      const label = folderDisplayLabel(f);
+      return isArchivedFolder(f) ? `${label} — archived` : label;
+    });
+    out.push({
+      text: `This report combines ${wf.contributing.length} wall folders for this radar.`,
+      detail: names.join('; '),
+      // Informational provenance, not a severity verdict — the neutral grey dot.
+      color: SEV.neutral,
+    });
+  }
+
+  // Procedural (TARP) updates — a summary point only when the plan actually
+  // changed this period; an unchanged plan contributes no bullet, matching the
+  // Procedural Updates section, which drops out entirely.
+  const tarpUpdates = d.tarp?.updates ?? [];
+  if (tarpUpdates.length > 0) {
+    const latest = tarpUpdates[0]; // pre-sorted newest-first
+    const when = fmtDay(latest.modifiedDate || latest.approvalDate);
+    const ver = latest.versionNo != null ? `v${latest.versionNo}` : null;
+    out.push({
+      text: `Trigger Action Response Plan updated ${tarpUpdates.length} time${tarpUpdates.length === 1 ? '' : 's'} this period.`,
+      detail: latest.remark
+        ? `Latest${ver ? ` (${ver}${when ? `, ${when}` : ''})` : when ? ` (${when})` : ''}: ${latest.remark}`
+        : undefined,
+      // Informational, not a severity verdict — the neutral grey dot.
+      color: SEV.neutral,
     });
   }
 
