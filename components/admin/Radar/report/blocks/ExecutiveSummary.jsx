@@ -9,7 +9,8 @@
  */
 
 import { INK, MUTED, LINE } from '../constants';
-import { severityColor, alarmToneColor, uptimeSeverityLabel, UPTIME_TARGET, tint } from '../severity';
+import { severityColor, alarmToneColor, bandColor, uptimeSeverityLabel, UPTIME_TARGET, tint } from '../severity';
+import { presentationFromLabel } from '@/config/riskDisplay';
 
 const Tile = ({ label, value, sub, accent, valueColor, background }) => (
   <div
@@ -35,13 +36,21 @@ const Tile = ({ label, value, sub, accent, valueColor, background }) => (
 );
 
 /**
- * @param {string} risk        e.g. 'TARP 4'
+ * @param {string} risk        the printed label — 'TARP 4', 'Red Notification', 'Regressive'
+ * @param {import('@/config/riskDisplay').RiskPresentation} riskPresentation
+ *        The resolved risk. Carries the band colour, which follows the
+ *        deformation TYPE, not the TARP level — a site that quotes no TARP
+ *        numbers still has a red trend. Falls back to reading the label when a
+ *        caller has only that.
  * @param {{label: string|null, score: number|null}} quality  score is 0..1
  * @param {number} uptime      percentage 0..100
  * @param {{valid: number, total: number, tone: string}} alarms  `tone` per deriveAlarmTone.
  */
-export function ExecutiveSummary({ risk, quality, uptime, alarms }) {
-  const riskSev = severityColor(risk);
+export function ExecutiveSummary({ risk, riskPresentation, quality, uptime, alarms }) {
+  // No risk at all is "unknown", not "nothing active" — a report still loading
+  // must not assert a verdict it has not read yet.
+  const riskInfo = riskPresentation ?? (risk ? presentationFromLabel(risk) : null);
+  const riskSev = riskInfo ? bandColor(riskInfo.colour) : { color: MUTED };
   const qualitySev = severityColor(quality?.label);
   const alarmSev = alarmToneColor(alarms?.tone);
 
@@ -58,8 +67,8 @@ export function ExecutiveSummary({ risk, quality, uptime, alarms }) {
     <div style={{ display: 'flex', gap: 8 }}>
       <Tile
         label="Risk Level"
-        value={risk || '—'}
-        sub={risk === 'TARP 4' ? 'Critical' : risk === 'TARP 3' ? 'Moderate Risk' : risk === 'TARP 2' ? 'Intermediate Risk' : risk ? 'No Significant' : ''}
+        value={riskInfo?.label || '—'}
+        sub={riskInfo?.subtitle ?? ''}
         accent={riskSev.color}
         valueColor={riskSev.color}
         background={tint(riskSev.color, 0.1)}

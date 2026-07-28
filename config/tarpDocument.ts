@@ -9,7 +9,8 @@
 // Keeping both on one row is deliberate: a client's TARP chart and the emails
 // they receive cannot drift apart.
 
-import type { TarpPolicy, TarpRule } from './tarpPolicy';
+import type { AlarmPrefixStyle, TarpPolicy, TarpRule } from './tarpPolicy';
+import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from './tarpPolicy';
 import { TYPE_MATRIX } from './formConfig';
 
 export type TarpColour = 'red' | 'orange' | 'yellow' | 'grey' | 'green';
@@ -47,6 +48,14 @@ export interface TarpTrigger {
     tarpLevel: number | null;       // 0-4
     requiresAlarm: boolean;
     severityBracket: string | null;
+
+    /**
+     * Subject token wording for this row. Null inherits the document template.
+     * `subjectLabel` applies when no alarm accompanies the record,
+     * `subjectLabelAlarm` when one does. Tokens: {level} {colour} {Colour} {band}.
+     */
+    subjectLabel: string | null;
+    subjectLabelAlarm: string | null;
 }
 
 export interface TarpContact {
@@ -91,6 +100,13 @@ export interface TarpDocument {
     /** How this site wants a TARP level stood DOWN. DTG standard is a call. */
     deescalationResponseMethod: TarpResponseMethod;
     deescalationNotice: string | null;
+    /**
+     * How this site's emails announce a trigger. DTG standard quotes the TARP
+     * number; sites that name their bands instead put their own wording here.
+     */
+    subjectLabelTemplate: string;
+    subjectLabelTemplateAlarm: string | null;
+    alarmPrefixStyle: AlarmPrefixStyle;
     triggers: TarpTrigger[];
     contacts: TarpContact[];
     revisions: TarpRevision[];
@@ -140,7 +156,9 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
         defType: t.def_type ?? null,
         tarpLevel: t.tarp_level ?? null,
         requiresAlarm: Boolean(t.requires_alarm),
-        severityBracket: t.severity_bracket ?? null
+        severityBracket: t.severity_bracket ?? null,
+        subjectLabel: t.subject_label ?? null,
+        subjectLabelAlarm: t.subject_label_alarm ?? null
     })).sort(bySortOrder);
 
     const contacts: TarpContact[] = (row.contacts || row.tarp_contacts || []).map((c: any) => ({
@@ -184,6 +202,9 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
         deescalationResponseMethod:
             (row.deescalation_response_method ?? 'call') as TarpResponseMethod,
         deescalationNotice: row.deescalation_notice ?? null,
+        subjectLabelTemplate: row.subject_label_template ?? DEFAULT_SUBJECT_LABEL_TEMPLATE,
+        subjectLabelTemplateAlarm: row.subject_label_template_alarm ?? null,
+        alarmPrefixStyle: (row.alarm_prefix_style ?? 'regions') as AlarmPrefixStyle,
         triggers,
         contacts,
         revisions
@@ -205,7 +226,13 @@ export const buildPolicyFromDocument = (doc: TarpDocument): TarpPolicy => {
         if (!trigger.defType) continue;
         rules[trigger.defType] = {
             tarp: tarpLevelLabel(trigger.tarpLevel),
-            requiresAlarm: trigger.requiresAlarm
+            requiresAlarm: trigger.requiresAlarm,
+            // Carried so the subject can quote the row's own band wording.
+            subjectLabel: trigger.subjectLabel,
+            subjectLabelAlarm: trigger.subjectLabelAlarm,
+            colour: trigger.colour,
+            bandLabel: trigger.bandLabel,
+            severityBracket: trigger.severityBracket
         };
     }
 
@@ -215,7 +242,10 @@ export const buildPolicyFromDocument = (doc: TarpDocument): TarpPolicy => {
         rules,
         exhaustive: true,
         documentId: doc.id,
-        documentVersion: doc.version
+        documentVersion: doc.version,
+        subjectLabelTemplate: doc.subjectLabelTemplate,
+        subjectLabelTemplateAlarm: doc.subjectLabelTemplateAlarm,
+        alarmPrefixStyle: doc.alarmPrefixStyle
     };
 };
 

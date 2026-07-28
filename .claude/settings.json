@@ -75,7 +75,16 @@
       "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 12; Write-Output \"tsc exit=$LASTEXITCODE\")",
       "PowerShell(npx jest __tests__/tarp-policy.test.js __tests__/tarp-export.test.js 2>&1 | Select-String -Pattern \"✕|●|Tests:|Suites:\" | Select-Object -First 20; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\")",
       "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\"; npx next build 2>&1 | Select-String -Pattern \"Compiled|Failed|Error:\" | Select-Object -First 10)",
-      "PowerShell(npx jest __tests__/tarp-policy.test.js __tests__/tarp-export.test.js 2>&1 | Select-String -Pattern \"✕|●|Tests:|Suites:\" | Select-Object -First 15; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\")"
+      "PowerShell(npx jest __tests__/tarp-policy.test.js __tests__/tarp-export.test.js 2>&1 | Select-String -Pattern \"✕|●|Tests:|Suites:\" | Select-Object -First 15; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 10; Write-Output \"tsc exit=$LASTEXITCODE\")",
+      "Bash(cp \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/cb40288c-78c5-4046-b575-c5885f31613d/scratchpad/hv.mjs\" ./hv-tmp.mjs)",
+      "Bash(node ./hv-tmp.mjs)",
+      "Bash(rm -f ./hv-tmp.mjs)",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,1\\)\\)\")",
+      "Bash(timeout 540 npx next build)",
+      "Bash(git diff *)",
+      "Bash(node -e \"console.log\\('machine tz offset \\(min\\):', new Date\\(\\).getTimezoneOffset\\(\\)\\); process.env.TZ='America/New_York'; console.log\\('after override:', new Date\\('2026-07-28T15:00:00Z'\\).getHours\\(\\)\\);\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\)\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/dd5c3e46-38b3-41e7-bd11-f697523ef711/scratchpad/preview.js\")"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

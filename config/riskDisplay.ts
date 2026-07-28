@@ -1,0 +1,355 @@
+// riskDisplay.ts
+//
+// How a sensor's overall risk is WORDED and COLOURED.
+//
+// Every surface used to say the same thing — the highest TARP level across the
+// active deformation records — because that is what the email engine stores on
+// `def_records.tarp_level`. But a TARP level is a NOTIFICATION decision, and the
+// three sites do not notify the same way:
+//
+//   Telfer         quotes the TARP number for everything, blast and rain included
+//   Leonora        quotes it only for the levels that demand a response (3 and 4);
+//                  anything below is reported as the deformation type it is
+//   Hidden Valley  never quotes a number at all — it names the band colour
+//                  ("Red Notification", "Yellow Notification")
+//
+// A Hidden Valley board reading "TARP 3" is telling the operator something their
+// TARP chart does not contain. So the risk LABEL is resolved per site here, and
+// every surface (report tile, key findings, checklist board, sensor detail)
+// reads it from this one module rather than formatting `tarp_level` itself.
+//
+// Two things are deliberately kept apart:
+//
+//   colour  always follows the DEFORMATION TYPE — what the ground is doing is
+//           the same fact at every site, so a Linear trend is orange whether or
+//           not the site calls it TARP 3.
+//   label   follows the site's notification logic, above.
+//
+// The TARP badge on an individual record is unaffected: where a record carries a
+// TARP level it is still shown, at every site. This module governs the sensor's
+// ROLLED-UP risk, not the provenance of each record.
+
+import type { TarpColour } from './tarpDocument';
+
+/** The four bands a deformation can be reported in, plus green for "nothing". */
+export type RiskColour = TarpColour;
+
+/**
+ * Deformation type → band colour.
+ *
+ * Red and orange are trends that are still developing and demand a response.
+ * Yellow is a trend or event that is understood and bounded (a regressive trend
+ * is decelerating; a blast or rainfall event has a known cause). Grey is past
+ * tense — the ground has already moved, so there is no trend left to escalate.
+ */
+export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
+    Progressive: 'red',
+    'Linear Accelerating': 'red',
+    Linear: 'orange',
+    Regressive: 'yellow',
+    'Blast Event': 'yellow',
+    'Rainfall Event': 'yellow',
+    'Rock Fall': 'grey',
+    Failure: 'grey',
+    'Material Detachment': 'grey',
+    'Rapid Movement': 'grey',
+    // Not in the client wording, but it is a TYPE_MATRIX type and has to land
+    // somewhere: a forecast is a prediction about a failure, not a live trend.
+    Forecast: 'grey'
+};
+
+/**
+ * Keyword fallback, most specific first, for values that are not TYPE_MATRIX
+ * keys — historical records and free-typed types. Order is load-bearing:
+ * 'linear accelerating' must be tested before 'linear' or the accelerating case
+ * would be coloured a band too calm.
+ */
+const COLOUR_KEYWORD_RULES: Array<[string, RiskColour]> = [
+    ['linear accelerating', 'red'],
+    ['progressive', 'red'],
+    ['linear', 'orange'],
+    ['regressive', 'yellow'],
+    ['blast', 'yellow'],
+    ['rainfall', 'yellow'],
+    ['rock fall', 'grey'],
+    ['material detachment', 'grey'],
+    ['rapid movement', 'grey'],
+    ['failure', 'grey'],
+    ['forecast', 'grey']
+];
+
+/** Band colour of a deformation type, or null when the type is unrecognised. */
+export const defTypeColour = (defType?: string | null): RiskColour | null => {
+    const key = String(defType ?? '').trim();
+    if (!key) return null;
+    const exact = DEF_TYPE_COLOUR[key];
+    if (exact) return exact;
+
+    const lower = key.toLowerCase();
+    for (const [needle, colour] of COLOUR_KEYWORD_RULES) {
+        if (lower.includes(needle)) return colour;
+    }
+    return null;
+};
+
+/** 'TARP 4' → 4. 0 for a blank, suppressed or unparseable level. */
+export const tarpPriority = (tarpLabel?: string | null): number => {
+    const match = String(tarpLabel ?? '').match(/TARP\s*([1-4])\b/i);
+    return match ? Number(match[1]) : 0;
+};
+
+/** Last-resort colour for a record whose type we cannot read but whose level we can. */
+const TARP_LEVEL_COLOUR: Record<number, RiskColour> = { 4: 'red', 3: 'orange', 2: 'yellow', 1: 'green' };
+
+/** Severity order used to pick which record speaks for the sensor. */
+export const COLOUR_RANK: Record<RiskColour, number> = { red: 4, orange: 3, yellow: 2, grey: 1, green: 0 };
+
+export interface RiskRecordLike {
+    def_type?: string | null;
+    tarp_level?: string | null;
+    created_at?: string | null;
+    location?: string | null;
+}
+
+/** The band a single record sits in. */
+export const recordColour = (record: RiskRecordLike): RiskColour =>
+    defTypeColour(record?.def_type) ?? TARP_LEVEL_COLOUR[tarpPriority(record?.tarp_level)] ?? 'grey';
+
+// ---------------------------------------------------------------------------
+// Site notification logic
+// ---------------------------------------------------------------------------
+
+/**
+ * 'tarp'         DTG standard — the highest TARP level, 'TARP 1' when none.
+ * 'tarp-major'   Only TARP 3 and 4 are quoted; below that the deformation type.
+ * 'notification' Never quotes a TARP level; names the band colour instead.
+ */
+export type RiskDisplayMode = 'tarp' | 'tarp-major' | 'notification';
+
+export const DEFAULT_RISK_DISPLAY_MODE: RiskDisplayMode = 'tarp';
+
+/**
+ * Keyed by lower-cased site name, mirroring SITE_TARP_POLICY_OVERRIDES in
+ * tarpPolicy.ts. This is a presentation choice, not a TARP-document fact — the
+ * same document can be worded as a number or as a colour — so it lives here and
+ * not on `tarp_documents`. A site absent from the map uses the DTG standard.
+ */
+export const SITE_RISK_DISPLAY_OVERRIDES: Record<string, RiskDisplayMode> = {
+    // Genesis Minerals — quotes a TARP level only when one must be responded to.
+    leonora: 'tarp-major',
+    // Newmont — names the band colour; the chart carries no TARP numbers.
+    'hidden valley': 'notification'
+};
+
+/** The fields of a sensor row this module reads. */
+export interface RiskSensorLike {
+    site_name?: string | null;
+    /** The view's stored risk — the highest TARP level. */
+    risk?: string | null;
+    /** Reserved for a future `sites.risk_display` column; overrides the map below. */
+    risk_display?: string | null;
+    site?: { risk_display?: string | null } | null;
+}
+
+export const getRiskDisplayMode = (sensor: RiskSensorLike | null | undefined): RiskDisplayMode => {
+    const fromDb = sensor?.risk_display || sensor?.site?.risk_display;
+    if (fromDb && (fromDb === 'tarp' || fromDb === 'tarp-major' || fromDb === 'notification')) {
+        return fromDb;
+    }
+    const siteName = String(sensor?.site_name || '').trim().toLowerCase();
+    return SITE_RISK_DISPLAY_OVERRIDES[siteName] ?? DEFAULT_RISK_DISPLAY_MODE;
+};
+
+/** What every mode falls back to when nothing is active on the sensor. */
+export const NO_SIGNIFICANT = 'No Significant';
+
+/** The DTG-standard "nothing active" level. Only 'tarp' mode quotes it. */
+export const NO_RISK_TARP = 'TARP 1';
+
+/**
+ * Plain-language severity of a band, for the sub-line under a risk value.
+ *
+ * Grey is 'Event Recorded' rather than 'No Significant': a rock fall is not a
+ * severity the reader should skim past, it just is not an escalating trend.
+ */
+const COLOUR_SUBTITLE: Record<RiskColour, string> = {
+    red: 'Critical',
+    orange: 'Moderate Risk',
+    yellow: 'Intermediate Risk',
+    grey: 'Event Recorded',
+    green: 'No Significant'
+};
+
+export interface RiskPresentation {
+    /** What to print: 'TARP 4' | 'Regressive' | 'Red Notification' | 'No Significant'. */
+    label: string;
+    /** Band colour, always from the deformation type. Drives every colour on screen and in print. */
+    colour: RiskColour;
+    /** Plain-language severity, for the tile sub-line. */
+    subtitle: string;
+    /** The driving record's own TARP level, '' when it carries none. Drives the TARP badge. */
+    tarpLevel: string;
+    /** The record the label and colour were read from, null when nothing is active. */
+    driver: RiskRecordLike | null;
+    mode: RiskDisplayMode;
+}
+
+const titleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+
+/** Most recent first, for tie-breaking between records of equal severity. */
+const newer = (a: RiskRecordLike, b: RiskRecordLike) =>
+    new Date(b?.created_at ?? 0).getTime() - new Date(a?.created_at ?? 0).getTime();
+
+/** The record that speaks for the sensor on the colour scale. */
+const worstByColour = (records: RiskRecordLike[]): RiskRecordLike | null =>
+    records.reduce<RiskRecordLike | null>((worst, r) => {
+        if (!worst) return r;
+        const diff = COLOUR_RANK[recordColour(r)] - COLOUR_RANK[recordColour(worst)];
+        if (diff !== 0) return diff > 0 ? r : worst;
+        const byTarp = tarpPriority(r.tarp_level) - tarpPriority(worst.tarp_level);
+        if (byTarp !== 0) return byTarp > 0 ? r : worst;
+        return newer(r, worst) < 0 ? r : worst;
+    }, null);
+
+/** The record carrying the highest TARP level, or null when none carries one. */
+const worstByTarp = (records: RiskRecordLike[]): RiskRecordLike | null =>
+    records.reduce<RiskRecordLike | null>((worst, r) => {
+        if (tarpPriority(r.tarp_level) === 0) return worst;
+        if (!worst) return r;
+        const diff = tarpPriority(r.tarp_level) - tarpPriority(worst.tarp_level);
+        if (diff !== 0) return diff > 0 ? r : worst;
+        const byColour = COLOUR_RANK[recordColour(r)] - COLOUR_RANK[recordColour(worst)];
+        if (byColour !== 0) return byColour > 0 ? r : worst;
+        return newer(r, worst) < 0 ? r : worst;
+    }, null);
+
+const present = (
+    label: string,
+    driver: RiskRecordLike | null,
+    mode: RiskDisplayMode
+): RiskPresentation => {
+    const colour = driver ? recordColour(driver) : 'green';
+    return {
+        label,
+        colour,
+        subtitle: COLOUR_SUBTITLE[colour],
+        tarpLevel: driver && tarpPriority(driver.tarp_level) > 0 ? String(driver.tarp_level) : '',
+        driver,
+        mode
+    };
+};
+
+/**
+ * Roll a sensor's ACTIVE deformation records up into the one risk line its site
+ * expects to read.
+ *
+ * @param records  active def_records rows ({def_type, tarp_level, created_at})
+ * @param sensorOrMode  a sensor row (site_name is read from it) or a mode directly
+ */
+export function resolveRiskPresentation(
+    records: RiskRecordLike[] | null | undefined,
+    sensorOrMode: RiskSensorLike | RiskDisplayMode | null | undefined
+): RiskPresentation {
+    const mode: RiskDisplayMode =
+        typeof sensorOrMode === 'string' ? sensorOrMode : getRiskDisplayMode(sensorOrMode);
+
+    const active = (records ?? []).filter(Boolean);
+
+    if (mode === 'notification') {
+        const driver = worstByColour(active);
+        if (!driver) return present(NO_SIGNIFICANT, null, mode);
+        const colour = recordColour(driver);
+        // Grey has no notification band on the chart, so the event names itself.
+        const label = colour === 'grey'
+            ? String(driver.def_type || NO_SIGNIFICANT)
+            : `${titleCase(colour)} Notification`;
+        return present(label, driver, mode);
+    }
+
+    if (mode === 'tarp-major') {
+        const byTarp = worstByTarp(active);
+        // Only a level that demands a response is quoted as one.
+        if (byTarp && tarpPriority(byTarp.tarp_level) >= 3) {
+            return present(String(byTarp.tarp_level), byTarp, mode);
+        }
+        const driver = worstByColour(active);
+        if (!driver) return present(NO_SIGNIFICANT, null, mode);
+        return present(String(driver.def_type || NO_SIGNIFICANT), driver, mode);
+    }
+
+    // 'tarp' — the DTG standard.
+    const byTarp = worstByTarp(active);
+    if (byTarp) return present(String(byTarp.tarp_level), byTarp, mode);
+    // Active records that carry no level (a rock fall, a suppressed event) still
+    // colour the tile, but the level itself is the no-risk baseline.
+    const driver = worstByColour(active);
+    return present(NO_RISK_TARP, driver, mode);
+}
+
+/**
+ * Band colour of an already-resolved risk LABEL.
+ *
+ * For surfaces that hold a risk string and not the records behind it — the
+ * `risk` column on `latest_radar_wall_folders`, a handover row. Reads a TARP
+ * level, a band name ("Red Notification") or a deformation type, in that order.
+ */
+export const labelColour = (label?: string | null): RiskColour => {
+    const text = String(label ?? '').trim();
+    if (!text) return 'green';
+
+    const level = tarpPriority(text);
+    if (level > 0) return TARP_LEVEL_COLOUR[level];
+
+    const lower = text.toLowerCase();
+    const band = (Object.keys(COLOUR_RANK) as RiskColour[]).find((c) => lower.startsWith(c));
+    if (band) return band;
+
+    return defTypeColour(text) ?? 'green';
+};
+
+/**
+ * A presentation built from a bare label, for callers that never had the
+ * records. Carries no driver, so it cannot re-word the label — it only supplies
+ * the colour and severity that go with what it was handed.
+ */
+export const presentationFromLabel = (
+    label?: string | null,
+    mode: RiskDisplayMode = DEFAULT_RISK_DISPLAY_MODE
+): RiskPresentation => {
+    const text = String(label ?? '').trim() || NO_SIGNIFICANT;
+    const colour = labelColour(text);
+    return {
+        label: text,
+        colour,
+        subtitle: COLOUR_SUBTITLE[colour],
+        tarpLevel: tarpPriority(text) > 0 ? text : '',
+        driver: null,
+        mode
+    };
+};
+
+/**
+ * What to show for a sensor whose deformation records have not loaded yet.
+ *
+ * The `risk` column on `latest_radar_wall_folders` is the highest TARP level, so
+ * it is only the truth for sites that word their risk that way. Showing it on a
+ * Hidden Valley sensor would print a TARP number their chart does not contain,
+ * so those sites wait the one fetch out rather than flash a wrong label.
+ */
+export const pendingPresentation = (sensor: RiskSensorLike | null | undefined): RiskPresentation => {
+    const mode = getRiskDisplayMode(sensor);
+    if (mode === 'tarp') return presentationFromLabel(sensor?.risk, mode);
+    return { label: '—', colour: 'grey', subtitle: '', tarpLevel: '', driver: null, mode };
+};
+
+/**
+ * The Key Findings sentence for the risk bullet.
+ *
+ * One template for every mode: "Overall risk is on <label> – <severity>
+ * condition." reads correctly whether the label is a TARP level, a band name or
+ * a deformation type. Only the empty case needs its own wording.
+ */
+export const riskSentence = (presentation: RiskPresentation): string =>
+    presentation.label === NO_SIGNIFICANT
+        ? 'No significant deformation risk recorded for this period.'
+        : `Overall risk is on ${presentation.label} – ${presentation.subtitle} condition.`;

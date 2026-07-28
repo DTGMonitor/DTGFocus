@@ -24,6 +24,7 @@ import { aggregateAlarmCauses, countValidTotal, deriveAlarmTone } from '@/utils/
 import { shouldIncludeChain, folderChangedInWindow } from '@/utils/reportWallFolders';
 import { buildRadarRecord } from '@/utils/buildRadarRecord';
 import { normalizeTarpDocument } from '@/config/tarpDocument';
+import { resolveRiskPresentation, tarpPriority } from '@/config/riskDisplay';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 
 const TIMELINE_SELECT =
@@ -41,32 +42,23 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
  */
 const CROSSCHECKER_NAMES = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
 
-/** TARP label → priority. Mirrors SensorDetail's getRiskPriority. */
-export function getRiskPriority(tarpString) {
-  if (!tarpString) return 0;
-  const clean = String(tarpString).toUpperCase();
-  if (clean === 'TARP 4') return 4;
-  if (clean === 'TARP 3') return 3;
-  if (clean === 'TARP 2') return 2;
-  if (clean === 'TARP 1') return 1;
-  return 0;
-}
+/** TARP label → priority. Re-exported from riskDisplay, which owns the scale. */
+export const getRiskPriority = tarpPriority;
 
 /**
- * Highest TARP among active records; 'TARP 1' when there are none.
- * Mirrors SensorDetail's localRisk derivation.
+ * The sensor's rolled-up risk, worded the way its SITE words it.
+ *
+ * Telfer reads the highest TARP level; Leonora reads one only when it is a
+ * TARP 3 or 4 and otherwise names the deformation; Hidden Valley names the band
+ * colour and never a level. See config/riskDisplay.ts — the same resolution the
+ * checklist board and sensor detail run, so a report cannot disagree with the
+ * screen it was generated from.
+ *
+ * @param {object[]} records  active def_records rows
+ * @param {object} sensor     the sensor row; its site decides the wording
  */
-export function deriveRisk(records) {
-  let maxPriority = 0;
-  let maxLabel = 'TARP 1';
-  for (const r of records ?? []) {
-    const p = getRiskPriority(r?.tarp_level);
-    if (p > maxPriority) {
-      maxPriority = p;
-      maxLabel = r.tarp_level;
-    }
-  }
-  return maxPriority > 0 ? maxLabel : 'TARP 1';
+export function deriveRisk(records, sensor) {
+  return resolveRiskPresentation(records, sensor);
 }
 
 /**
@@ -404,6 +396,8 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         currentFolderId,
       };
 
+      const riskPresentation = deriveRisk(defRecords, sensor);
+
       // Procedural (TARP) updates dated within the report window.
       const tarpDoc = normalizeTarpDocument(tarpRes);
       const tarpUpdates = filterTarpUpdatesInWindow(
@@ -418,7 +412,10 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         error: null,
         data: {
           window: { windowStart, windowEnd },
-          risk: deriveRisk(defRecords),
+          // `risk` stays the printed label so every existing consumer keeps
+          // working; `riskPresentation` carries the colour and severity behind it.
+          risk: riskPresentation.label,
+          riskPresentation,
           quality: {
             label: sensor.quality ?? null,
             score: typeof sensor.normalised_score === 'number' ? sensor.normalised_score : null,

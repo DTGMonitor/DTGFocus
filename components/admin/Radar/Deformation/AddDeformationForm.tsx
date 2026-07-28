@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
-import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, getWorkLogDetails, generateEmailBody, generateEmailSubject } from '../../../../config/formConfig';
-import { getTarpPolicyForSensor, resolveTarpLevel, resolveSeverityTarpLevel } from '../../../../config/tarpPolicy';
+import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
+import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
+import { composeDeformationSubject } from '../../../../config/emailSubject';
 import { useTarpDocument } from '../Tarp/useTarpDocument';
 import { responseRequirementForType, resolveTarpTransition } from '../../../../config/tarpDocument';
 import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
@@ -532,7 +533,7 @@ const AddDeformationForm = ({
                 wallfolder_id: formData.WallFolderID || null,
                 location: formData.Location,
                 isactive: "Yes",
-                tarp_level: effectiveTarp,
+                tarp_level: composed.tarpLevel,
                 start: formData.Start ? toUTC(formData.Start, clientTimezone) : null,
                 notes: formData.Notes,
                 detected_by: formData.DetectedBy,
@@ -648,7 +649,7 @@ const AddDeformationForm = ({
                 // 2. Prepare Log Payload
                 const workLogPayload = {
                     created_at: new Date().toISOString(),
-                    subject: logDetails.id, // Fixed ID as requested
+                    subject: composed.workLogSubjectId,
                     wallfolder: sensor.wallfolder_id,
                     location: formData.Location,
                     category: 'deformation',
@@ -700,9 +701,6 @@ const AddDeformationForm = ({
     // progressive trend, or when a genuine alarm was raised. The site's own TARP
     // document wins; sites not yet migrated fall back to the hard-coded map.
     const tarpPolicy = documentPolicy || getTarpPolicyForSensor(sensor);
-    const hasAlarm = selectedRegions.length > 0;
-    const effectiveTarp = resolveTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
-    const severityTarp = resolveSeverityTarpLevel(formData.Type, { hasAlarm, policy: tarpPolicy });
 
     // Non-null only when this site's TARP asks for something other than its own
     // default steady-state response for this trigger.
@@ -721,11 +719,19 @@ const AddDeformationForm = ({
 
     const transition = resolveTarpTransition(priorTypes, formData.Type, tarpDocument);
 
-    const logDetails = getWorkLogDetails(severityTarp, formData.NotificationTime);
-    const emailSubject = generateEmailSubject(logDetails.subject, effectiveTarp, formData.Type, cleanSensor, selectedRegions);
+    // Both the bracket and the trigger wording are the site's, not ours — see
+    // config/emailSubject.ts.
+    const composed = composeDeformationSubject({
+        type: formData.Type,
+        sensor: cleanSensor,
+        alarmRegions: selectedRegions,
+        policy: tarpPolicy,
+        notificationTime: formData.NotificationTime
+    });
+    const emailSubject = composed.subject;
 
     const emailFormData = { ...formData, alarmRegions: selectedRegions };
-    const emailBody = generateEmailBody(emailFormData, cleanSensor, logDetails.subject, userName, crosscheckerName);
+    const emailBody = generateEmailBody(emailFormData, cleanSensor, composed.bracket, userName, crosscheckerName);
     const visibleDynamicFields = currentConfig.fields;
 
     return (

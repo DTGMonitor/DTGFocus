@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getRiskColor, getStatusColor, getQualityColor } from "@/config/statusConfig";
+import { getRiskColor, getStatusColor, getQualityColor, getBandColor } from "@/config/statusConfig";
+import { resolveRiskPresentation, pendingPresentation } from "@/config/riskDisplay";
+import type { RiskPresentation, RiskRecordLike } from "@/config/riskDisplay";
 import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -9,6 +11,7 @@ import SensorDetail from '@/components/admin/Radar/SensorDetail';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { HandoverTemplate } from "@/components/admin/Reports/HandoverTemplates";
 import AddSensorModal from '@/components/admin/Radar/AddSensorModal';
+import { blankChecks, localClock, localRecordDate, nextChecks, toChecks } from '@/utils/checklistDay';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -21,7 +24,10 @@ interface RadarWallFolder {
   dqp_record_id: number;
   type: string;
   area: string;
+  /** Highest TARP level, straight from the view. Kept as the raw fact. */
   risk: string;
+  /** How this sensor's site words that risk. Resolved in withRiskPresentation. */
+  riskInfo?: RiskPresentation;
   status: string;
   quality: string;
   hourlychecks: boolean[] | null;
@@ -90,9 +96,8 @@ function RadarMonitoring() {
   }, [liveViewList]);
 
   const isCheckboxDisabled = (hourIndex: number) => {
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    // The operator's own clock — the columns are their hours, in their day.
+    const { hour: currentHour, minute: currentMinute } = localClock();
 
     const targetHour = shifts[selectedShift].indices[hourIndex];
 
@@ -116,216 +121,288 @@ function RadarMonitoring() {
     return false
   };
 
-  const toggleHourlyCheck = (ssrIndex: number, hourIndex: number) => {
-    if (!userID) {
-      console.error('User ID not available:', userID);
-      toast.error('User ID not available. Please refresh the page.');
-      return;
+  /**
+   * Persist the checklist of one sensor's current day.
+   *
+   * `decide` receives the checklist already stored against that day — null when
+   * the day has no record yet — and returns the array to write. The new array is
+   * derived from the row just read, never from what is on screen: the view hands
+   * back the newest dqp_record whatever its date, so a sensor nobody checked
+   * yesterday displays an older day's ticks, and writing those forward stamped
+   * them onto today's record. They then sat on hours the gate had already
+   * locked, which is what made a wrongly-ticked row impossible to clear.
+   *
+   * Resolves with the array that was stored.
+   */
+  const writeChecklist = async (
+    sensor: RadarWallFolder,
+    decide: (todayChecks: boolean[] | null) => boolean[]
+  ): Promise<boolean[]> => {
+    const todayDate = localRecordDate();
+
+    const { data: existingRecord, error: fetchError } = await supabase
+      .from('dqp_records')
+      .select('id, checklist')
+      .eq('wall_folder_id', sensor.wallfolder_id)
+      .eq('record_date', todayDate)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Fetch error:', fetchError);
+      throw fetchError;
     }
 
-    if (isCheckboxDisabled(hourIndex)) {
-      toast.error('This time slot has passed and can no longer be checked.');
-      return;
-    }
+    const newChecks = decide(existingRecord ? toChecks(existingRecord.checklist) : null);
 
-    const wallfolderId = liveViewListRef.current[ssrIndex]?.wallfolder_id;
-    if (wallfolderId == null) return;
-
-    // Serialize all toggles for this wallfolder: the next toggle only runs after
-    // the previous one has fully committed. This kills the read-then-insert race
-    // where a quick check-then-uncheck both saw "no record yet" and each inserted
-    // a row, leaving two dqp_records with the same wall_folder_id + record_date.
-    const previous = toggleLocks.current.get(wallfolderId) ?? Promise.resolve();
-    const current = previous.then(async () => {
-    // Recompute from the freshest state so rapid toggles don't stack on stale checks.
-    const sensor = liveViewListRef.current[ssrIndex];
-    if (!sensor) return;
-    const checks = sensor.hourlychecks || Array(24).fill(false);
-    const newChecks = [...checks];
-    const actualIndex = shifts[selectedShift].indices[hourIndex];
-    newChecks[actualIndex] = !newChecks[actualIndex];
-
-    // Update UI optimistically
-    setLiveViewList((prev) =>
-      prev.map((s, sIdx) =>
-        sIdx === ssrIndex ? { ...s, hourlychecks: newChecks, created_time: new Date().toISOString() } : s
-      )
-    );
-
-    // Get current date in UTC+7
-    const now = new Date();
-    const utc7Date = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-    const todayDate = utc7Date.toISOString().split('T')[0];
-
-    try {
-      console.log('Toggling check for:', {
-        radar_number: sensor.radar_number,
-        wallfolder_id: sensor.wallfolder_id,
-        record_date: todayDate,
-        userID
-      });
-
-      // Check if record exists for today
-      const { data: existingRecord, error: fetchError } = await supabase
+    if (existingRecord) {
+      const { error: updateError } = await supabase
         .from('dqp_records')
-        .select('id, record_date, wall_folder_id, created_time, created_by, notes, action, checklist')
-        .eq('wall_folder_id', sensor.wallfolder_id)
-        .eq('record_date', todayDate)
-        .maybeSingle();
+        .update({
+          checklist: newChecks,
+          created_time: new Date().toISOString(),
+          created_by: userID
+        })
+        .eq('id', existingRecord.id);
 
-      if (fetchError) {
-        console.error('Fetch error:', fetchError);
-        throw fetchError;
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw updateError;
       }
+      return newChecks;
+    }
 
-      console.log('Existing record:', existingRecord);
+    // First write of this site's day. The working notes carry forward from the
+    // previous record; the ticks never do.
+    const { data: latestRecord, error: latestError } = await supabase
+      .from('dqp_records')
+      .select('id, notes, action')
+      .eq('wall_folder_id', sensor.wallfolder_id)
+      .order('record_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      if (existingRecord) {
-        // Update existing record
-        console.log('Updating existing record:', existingRecord.id);
-        const { error: updateError } = await supabase
+    if (latestError) {
+      console.error('Latest record fetch error:', latestError);
+    }
+
+    const { data: insertedData, error: insertError } = await supabase
+      .from('dqp_records')
+      .insert({
+        radar_id: sensor.id,
+        wall_folder_id: sensor.wallfolder_id,
+        record_date: todayDate,
+        checklist: newChecks,
+        created_time: new Date().toISOString(),
+        created_by: userID,
+        notes: latestRecord?.notes || null,
+        action: latestRecord?.action || null
+      })
+      .select();
+
+    if (insertError) {
+      // Another client (e.g. a second tab) created today's record between our
+      // existence check and this insert. The unique (wall_folder_id, record_date)
+      // constraint caught the duplicate — fall back to updating the existing row
+      // instead of erroring out and reverting the user's tick.
+      if (insertError.code === '23505') {
+        console.warn('Duplicate blocked by unique constraint; updating existing row instead');
+        const { error: conflictUpdateError } = await supabase
           .from('dqp_records')
           .update({
             checklist: newChecks,
             created_time: new Date().toISOString(),
             created_by: userID
           })
-          .eq('id', existingRecord.id);
-
-        if (updateError) {
-          console.error('Update error:', updateError);
-          throw updateError;
-        }
-        console.log('Update successful');
-      } else {
-        // Get the most recent record to copy other values
-        console.log('No existing record, fetching latest for defaults');
-        const { data: latestRecord, error: latestError } = await supabase
-          .from('dqp_records')
-          .select('id, notes, action')
           .eq('wall_folder_id', sensor.wallfolder_id)
-          .order('record_date', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .eq('record_date', todayDate);
 
-        if (latestError) {
-          console.error('Latest record fetch error:', latestError);
+        if (conflictUpdateError) {
+          console.error('Conflict update error:', conflictUpdateError);
+          throw conflictUpdateError;
         }
+        // The row already existed, so its dqp_values were already seeded — don't
+        // re-copy them (that would create duplicate dqp_values).
+        return newChecks;
+      }
+      console.error('Insert error:', insertError);
+      throw insertError;
+    }
 
-        console.log('Latest record:', latestRecord);
+    // Copy dqp_values from previous record if it exists
+    if (latestRecord?.id && insertedData && insertedData.length > 0) {
+      const newRecordId = insertedData[0].id;
 
-        // If no previous record exists or error, use defaults
-        const notesValue = latestRecord?.notes || null;
-        const actionValue = latestRecord?.action || null;
+      const { data: previousValues, error: valuesError } = await supabase
+        .from('dqp_values')
+        .select('*')
+        .eq('dqp_record_id', latestRecord.id);
 
-        const insertData = {
-          radar_id: sensor.id,
-          wall_folder_id: sensor.wallfolder_id,
-          record_date: todayDate,
-          checklist: newChecks,
-          created_time: new Date().toISOString(),
-          created_by: userID,
-          notes: notesValue,
-          action: actionValue
-        };
+      if (valuesError) {
+        console.error('Error fetching previous dqp_values:', valuesError);
+      } else if (previousValues && previousValues.length > 0) {
+        // Prepare new values with updated dqp_record_id
+        const newValues = previousValues.map(({ id, created_at, ...value }) => ({
+          ...value,
+          dqp_record_id: newRecordId
+        }));
 
-        console.log('Inserting new record:', insertData);
+        const { error: insertValuesError } = await supabase
+          .from('dqp_values')
+          .insert(newValues);
 
-        // Insert new record with today's date
-        const { data: insertedData, error: insertError } = await supabase
-          .from('dqp_records')
-          .insert(insertData)
-          .select();
-
-        if (insertError) {
-          // Another client (e.g. a second tab) created today's record between our
-          // existence check and this insert. The unique (wall_folder_id, record_date)
-          // constraint caught the duplicate — fall back to updating the existing row
-          // instead of erroring out and reverting the user's tick.
-          if (insertError.code === '23505') {
-            console.warn('Duplicate blocked by unique constraint; updating existing row instead');
-            const { error: conflictUpdateError } = await supabase
-              .from('dqp_records')
-              .update({
-                checklist: newChecks,
-                created_time: new Date().toISOString(),
-                created_by: userID
-              })
-              .eq('wall_folder_id', sensor.wallfolder_id)
-              .eq('record_date', todayDate);
-
-            if (conflictUpdateError) {
-              console.error('Conflict update error:', conflictUpdateError);
-              throw conflictUpdateError;
-            }
-            // The row already existed, so its dqp_values were already seeded — don't
-            // re-copy them (that would create duplicate dqp_values).
-            return;
-          }
-          console.error('Insert error:', insertError);
-          throw insertError;
-        }
-        console.log('Insert successful:', insertedData);
-
-        // Copy dqp_values from previous record if it exists
-        if (latestRecord?.id && insertedData && insertedData.length > 0) {
-          const newRecordId = insertedData[0].id;
-          console.log('Copying dqp_values from record:', latestRecord.id, 'to new record:', newRecordId);
-
-          // Fetch dqp_values from the previous record
-          const { data: previousValues, error: valuesError } = await supabase
-            .from('dqp_values')
-            .select('*')
-            .eq('dqp_record_id', latestRecord.id);
-
-          if (valuesError) {
-            console.error('Error fetching previous dqp_values:', valuesError);
-          } else if (previousValues && previousValues.length > 0) {
-            // Prepare new values with updated dqp_record_id
-            const newValues = previousValues.map(({ id, created_at, ...value }) => ({
-              ...value,
-              dqp_record_id: newRecordId
-            }));
-
-            console.log('Inserting copied dqp_values:', newValues);
-
-            // Insert copied values
-            const { error: insertValuesError } = await supabase
-              .from('dqp_values')
-              .insert(newValues);
-
-            if (insertValuesError) {
-              console.error('Error inserting dqp_values:', insertValuesError);
-            } else {
-              console.log('Successfully copied dqp_values');
-            }
-          } else {
-            console.log('No previous dqp_values to copy');
-          }
+        if (insertValuesError) {
+          console.error('Error inserting dqp_values:', insertValuesError);
         }
       }
+    }
+
+    return newChecks;
+  };
+
+  /**
+   * Serialize checklist writes per wallfolder: the next write only runs after the
+   * previous one has fully committed. This kills the read-then-insert race where
+   * a quick check-then-uncheck both saw "no record yet" and each inserted a row,
+   * leaving two dqp_records with the same wall_folder_id + record_date.
+   */
+  const queueChecklistWrite = (
+    sensor: RadarWallFolder,
+    decide: (todayChecks: boolean[] | null) => boolean[]
+  ): Promise<boolean[]> => {
+    const previous = toggleLocks.current.get(sensor.wallfolder_id) ?? Promise.resolve();
+    const current = previous.then(() => writeChecklist(sensor, decide));
+    // Swallow errors on the stored lock so one failure doesn't break the chain.
+    toggleLocks.current.set(sensor.wallfolder_id, current.catch(() => {}));
+    return current;
+  };
+
+  const toggleHourlyCheck = async (ssrIndex: number, hourIndex: number) => {
+    if (!userID) {
+      console.error('User ID not available:', userID);
+      toast.error('User ID not available. Please refresh the page.');
+      return;
+    }
+
+    const sensor = liveViewListRef.current[ssrIndex];
+    if (!sensor || sensor.wallfolder_id == null) return;
+
+    if (isCheckboxDisabled(hourIndex)) {
+      toast.error('This time slot has passed and can no longer be checked.');
+      return;
+    }
+
+    const actualIndex = shifts[selectedShift].indices[hourIndex];
+    const previousChecks = toChecks(sensor.hourlychecks);
+    // What the click asks for, read off the box the user actually saw.
+    const desired = !previousChecks[actualIndex];
+
+    // Update UI optimistically
+    setLiveViewList((prev) =>
+      prev.map((s, sIdx) => {
+        if (sIdx !== ssrIndex) return s;
+        const optimistic = toChecks(s.hourlychecks);
+        optimistic[actualIndex] = desired;
+        return { ...s, hourlychecks: optimistic, created_time: new Date().toISOString() };
+      })
+    );
+
+    try {
+      const stored = await queueChecklistWrite(sensor, (todayChecks) =>
+        nextChecks(todayChecks, actualIndex, desired)
+      );
+
+      // Settle on what was actually stored. If the row on screen was showing an
+      // older day, its other ticks vanish here rather than being written forward.
+      setLiveViewList((prev) =>
+        prev.map((s, sIdx) => (sIdx === ssrIndex ? { ...s, hourlychecks: stored } : s))
+      );
     } catch (error) {
       console.error('Error updating checklist:', error);
       // Revert UI on error
       setLiveViewList((prev) =>
         prev.map((s, sIdx) =>
-          sIdx === ssrIndex ? { ...s, hourlychecks: checks } : s
+          sIdx === ssrIndex ? { ...s, hourlychecks: previousChecks } : s
         )
       );
       toast.error(`Failed to update checklist: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-    });
-    // Swallow errors on the stored lock so one failure doesn't break the chain.
-    toggleLocks.current.set(wallfolderId, current.catch(() => {}));
   };
 
-  const handleResetChecklist = () => {
-    setLiveViewList((prev) =>
-      prev.map((sensor) => ({
-        ...sensor,
-        hourlychecks: Array(24).fill(false),
-      }))
-    );
+  /**
+   * Replace each row's checklist with the one stored against today's date.
+   *
+   * `latest_radar_wall_folders` carries the newest dqp_record for a wallfolder
+   * whatever its date, so a sensor that went unchecked yesterday arrives holding
+   * yesterday's ticks — which then read as today's work, and inflate the
+   * completion figures below. A day with no record yet shows blank.
+   */
+  const withTodaysChecklists = async (rows: RadarWallFolder[]): Promise<RadarWallFolder[]> => {
+    const wallfolderIds = rows
+      .map((r) => r.wallfolder_id)
+      .filter((id): id is number => id != null);
+    if (wallfolderIds.length === 0) return rows;
+
+    const { data, error } = await supabase
+      .from('dqp_records')
+      .select('wall_folder_id, checklist')
+      .in('wall_folder_id', wallfolderIds)
+      .eq('record_date', localRecordDate());
+
+    if (error) {
+      // Keep the view's value rather than blanking the whole board on a
+      // transient read failure.
+      console.error("Error fetching today's checklists:", error);
+      return rows;
+    }
+
+    const todaysChecklists = new Map((data || []).map((r) => [r.wall_folder_id, r.checklist]));
+
+    return rows.map((r) => ({
+      ...r,
+      hourlychecks: toChecks(todaysChecklists.get(r.wallfolder_id))
+    }));
+  };
+
+  /**
+   * Attach each row's risk line, worded the way its SITE words it.
+   *
+   * The view's `risk` column is the highest TARP level across the sensor's
+   * active deformation records — true for Telfer, but Leonora only quotes a
+   * level at TARP 3 and 4, and Hidden Valley quotes none at all. The wording
+   * needs the deformation TYPE behind the level, which the view does not carry,
+   * so the records are read here and resolved by config/riskDisplay.ts. One
+   * query for the whole board.
+   */
+  const withRiskPresentation = async (rows: RadarWallFolder[]): Promise<RadarWallFolder[]> => {
+    const wallfolderIds = rows
+      .map((r) => r.wallfolder_id)
+      .filter((id): id is number => id != null);
+    if (wallfolderIds.length === 0) return rows;
+
+    const { data, error } = await supabase
+      .from('def_records')
+      .select('wallfolder_id, def_type, tarp_level, created_at, location')
+      .in('wallfolder_id', wallfolderIds)
+      .eq('isactive', 'Yes');
+
+    if (error) {
+      // The board is still usable without it — each row falls back to whatever
+      // its site can say from the view alone.
+      console.error('Error fetching active deformations:', error);
+      return rows.map((r) => ({ ...r, riskInfo: pendingPresentation(r) }));
+    }
+
+    const byFolder = new Map<number, RiskRecordLike[]>();
+    (data || []).forEach((rec: RiskRecordLike & { wallfolder_id: number }) => {
+      const list = byFolder.get(rec.wallfolder_id);
+      if (list) list.push(rec);
+      else byFolder.set(rec.wallfolder_id, [rec]);
+    });
+
+    return rows.map((r) => ({
+      ...r,
+      riskInfo: resolveRiskPresentation(byFolder.get(r.wallfolder_id) ?? [], r)
+    }));
   };
 
   const fetchLiveView = useCallback(async () => {
@@ -342,7 +419,9 @@ function RadarMonitoring() {
       if (error) throw error;
 
 
-      setLiveViewList((data as RadarWallFolder[]) || []);
+      setLiveViewList(
+        await withRiskPresentation(await withTodaysChecklists((data as RadarWallFolder[]) || []))
+      );
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -350,6 +429,82 @@ function RadarMonitoring() {
     }
     ;
   }, [selectedStation]);
+
+  /**
+   * Clear today's checklist for these sensors — in the database, not just on
+   * screen.
+   *
+   * Reset used to clear state alone, so the ticks came straight back on the next
+   * refetch (a shift change, a closed sensor detail, a reload). With the hour
+   * gate refusing clicks on slots that have passed, a row holding ticks nobody
+   * meant to make had no way out at all. Clearing has to reach dqp_records.
+   */
+  const clearChecklists = async (sensors: RadarWallFolder[]) => {
+    if (!userID) {
+      console.error('User ID not available:', userID);
+      toast.error('User ID not available. Please refresh the page.');
+      return;
+    }
+    if (sensors.length === 0) return;
+
+    const clearing = new Set(sensors.map((s) => s.wallfolder_id));
+    setLiveViewList((prev) =>
+      prev.map((s) => (clearing.has(s.wallfolder_id) ? { ...s, hourlychecks: blankChecks() } : s))
+    );
+
+    const results = await Promise.allSettled(
+      sensors.map((sensor) => queueChecklistWrite(sensor, () => blankChecks()))
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.error('Checklist clear failures:', failed.map((f) => (f as PromiseRejectedResult).reason));
+      toast.error(`Failed to clear ${failed.length} of ${sensors.length} sensors.`);
+    } else {
+      toast.success(
+        sensors.length === 1
+          ? `Cleared today's checklist for ${sensors[0].radar_number}.`
+          : `Cleared today's checklist for ${sensors.length} sensors.`
+      );
+    }
+
+    // Re-read rather than trust the optimistic state — a partial failure leaves
+    // the board honest about what actually got cleared.
+    fetchLiveView();
+  };
+
+  /** Clear one row. The narrow case: a single radar carrying ticks it shouldn't. */
+  const handleClearSensorChecklist = (ssrIndex: number) => {
+    const sensor = liveViewListRef.current[ssrIndex];
+    if (!sensor || sensor.wallfolder_id == null) return;
+
+    if (!window.confirm(
+      `Clear today's checklist for ${sensor.radar_number} (${sensor.site_name})?`
+    )) return;
+
+    clearChecklists([sensor]);
+  };
+
+  /**
+   * Clear every row on the station.
+   *
+   * The confirm names the sites because this reaches sensors the operator may
+   * not have come here for: a station mixes Telfer with Hidden Valley, and an
+   * hour cleared here cannot be re-ticked once the gate has closed on it.
+   */
+  const handleResetChecklist = () => {
+    const sensors = liveViewListRef.current.filter((s) => s.wallfolder_id != null);
+    if (sensors.length === 0) return;
+
+    const sites = Array.from(new Set(sensors.map((s) => s.site_name))).join(', ');
+    if (!window.confirm(
+      `Clear today's checklist for all ${sensors.length} sensors on station ${selectedStation} (${sites})?\n\n` +
+      `Checks already recorded today will be lost, and hours that have passed cannot be re-ticked. ` +
+      `To clear a single radar instead, use the reset icon on its row.`
+    )) return;
+
+    clearChecklists(sensors);
+  };
 
   useEffect(() => {
     fetchLiveView()
@@ -483,7 +638,11 @@ function RadarMonitoring() {
     return acc + shiftChecks.filter(c => !c).length;
   }, 0);
 
-  const attentionRequired = liveViewList.filter(s => s.status !== 'Live' || s.quality === 'Critical' || s.risk === 'TARP 4').length;
+  // Red band rather than 'TARP 4': Hidden Valley's most severe row is a "Red
+  // Notification" and would otherwise never count as needing attention.
+  const attentionRequired = liveViewList.filter(
+    s => s.status !== 'Live' || s.quality === 'Critical' || (s.riskInfo?.colour ?? '') === 'red' || s.risk === 'TARP 4'
+  ).length;
   const completionRate = liveViewList.length > 0 ? Math.round((completedChecks / (liveViewList.length * 12)) * 100) : 0;
 
   const reportInfo = {
@@ -627,10 +786,23 @@ function RadarMonitoring() {
                 const shiftChecks = currentShift.indices.map(idx => allChecks[idx]);
 
                 return (
-                  <tr key={sensor.radar_number} className="border-t border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-hover)]/50 transition-colors">
-                    <td className="px-3 py-3 text-[var(--dtg-text-primary)] cursor-pointer sticky left-0 bg-[var(--dtg-bg-card)] z-10 border-r border-[var(--dtg-border-medium)]"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
-                      <span className="font-mono">{sensor.radar_number}</span>
+                  <tr key={sensor.radar_number} className="group border-t border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-hover)]/50 transition-colors">
+                    <td className="px-3 py-3 text-[var(--dtg-text-primary)] sticky left-0 bg-[var(--dtg-bg-card)] z-10 border-r border-[var(--dtg-border-medium)]">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
+                          {sensor.radar_number}
+                        </span>
+                        <button
+                          type="button"
+                          title={`Clear today's checklist for ${sensor.radar_number}`}
+                          aria-label={`Clear today's checklist for ${sensor.radar_number}`}
+                          onClick={(e) => { e.stopPropagation(); handleClearSensorChecklist(sensorIdx); }}
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
                       onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
@@ -641,8 +813,8 @@ function RadarMonitoring() {
                     <td className="px-3 py-3 text-center cursor-pointer"
                       onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
                     >
-                      <span className={`px-2 py-1 rounded text-xs border ${getRiskColor(sensor.risk)}`}>
-                        {sensor.risk}
+                      <span className={`px-2 py-1 rounded text-xs border ${getBandColor(sensor.riskInfo?.colour)}`}>
+                        {sensor.riskInfo?.label ?? sensor.risk}
                       </span>
                     </td>
 

@@ -4,6 +4,7 @@ import { ImWarning } from "react-icons/im";
 import { PiPresentationChartBold } from "react-icons/pi";
 import { supabase } from "@/lib/supabaseClient";
 import { pivotParameterTree } from "@/utils/buildRadarRecord";
+import { resolveRiskPresentation } from "@/config/riskDisplay";
 
 function countLevel2StatusesFromParamTree(paramTree) {
   const counts = { Acceptable: 0, "Sub-Optimal": 0, Critical: 0 };
@@ -121,29 +122,27 @@ const ConnectionBars = ({ connection }) => {
 
 
 // RiskRating scale
-const riskColor = (val) => {
-  switch ((val || "").toLowerCase()) {
-    case "tarp 1":
+//
+// Keyed on the BAND colour, not the TARP level: the wall is client-facing, and a
+// site whose TARP chart carries no numbers reads "Red Notification" here (see
+// config/riskDisplay.ts). The band is the fact both wordings share.
+const riskColor = (colour) => {
+  switch (colour) {
+    case "green":
       return COLORS.green;
-    case "tarp 2":
+    case "yellow":
       return COLORS.yellow;
-    case "tarp 3":
+    case "orange":
       return COLORS.orange;
-    case "tarp 4":
+    case "red":
       return COLORS.red;
     default:
       return COLORS.grey;
   }
 };
 
-const riskGlow = (val) => {
-  switch ((val || "").toLowerCase()) {
-    case "tarp 4":
-      return `drop-shadow(0 0 6px ${COLORS.red})`;
-    default:
-      return "none";
-  }
-};
+const riskGlow = (colour) =>
+  colour === "red" ? `drop-shadow(0 0 6px ${COLORS.red})` : "none";
 
 //comments color
 const commentColor = (val) => {
@@ -206,13 +205,13 @@ const getRadarImage = (radarName) => {
         "/PS2000.png";
 };
 
-const getOverallNotes = (status, quality, risk) => {
+const getOverallNotes = (status, quality, riskColour) => {
   const normalisedStatus = status?.toLowerCase();
   const normalisedQuality = quality?.toLowerCase();
-  const normalisedRisk = risk?.toLowerCase();
 
   if (normalisedStatus === 'archive' || normalisedStatus === 'lost connection') return 'Lost Connection';
-  if (normalisedStatus === 'link down' || normalisedRisk === 'tarp 4') return 'Critical';
+  // Red band rather than 'TARP 4' — the same severity at a site that quotes no level.
+  if (normalisedStatus === 'link down' || riskColour === 'red') return 'Critical';
   if (normalisedQuality !== 'optimal') return `Data Quality ${normalisedQuality}`;
   return 'N/A'
 }
@@ -229,6 +228,7 @@ const RadarCard = ({
   Overall,
   Notes,
   RiskRating,
+  RiskColour,
   Alarms,
   onExplore
 }) => {
@@ -285,7 +285,7 @@ const RadarCard = ({
   // Colors
   const overallCol = overallstatusColor(Overall);
   const alarmCol = alarmstatusColor(Alarms);
-  const riskCol = riskColor(RiskRating);
+  const riskCol = riskColor(RiskColour);
   const { prefix, model } = splitRadarName(name);
 
   return (
@@ -355,7 +355,7 @@ const RadarCard = ({
               <div style={{ display: "flex", flex: 1, flexDirection: "column", alignItems: "center", border: `2px solid ${isOff ? COLORS.grey : riskCol}`, borderRadius: "10px", padding: "10px 0" }}>
                 <ImWarning color={isOff ? COLORS.grey : riskCol}
                   size="3em"
-                  style={{ filter: riskGlow(RiskRating) }}
+                  style={{ filter: riskGlow(RiskColour) }}
                 />
                 <p style={{ marginTop: 5, marginBottom: 0, fontSize: "10px", color: "var(--dtg-text-muted)" }}>{RiskRating}</p>
               </div>
@@ -453,6 +453,21 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
 
         // Manual fetch for wall folders since view relationship is missing
         const wallIds = [...new Set(latestWall.map((r) => r.wallfolder_id).filter(Boolean))];
+
+        // Active deformations, so each radar's risk can be worded the way its
+        // own site words it. The view's `risk` is the highest TARP level, which
+        // is only the truth for sites that quote TARP numbers.
+        const { data: activeDefs, error: errorDefs } = await supabase
+          .from("def_records")
+          .select("wallfolder_id, def_type, tarp_level, created_at, location")
+          .in("wallfolder_id", wallIds)
+          .eq("isactive", "Yes");
+
+        if (errorDefs) throw errorDefs;
+        const defsByFolder = (activeDefs || []).reduce((acc, rec) => {
+          (acc[rec.wallfolder_id] ||= []).push(rec);
+          return acc;
+        }, {});
         const { data: wallFolders, error: errorWF } = await supabase
           .from("radar_wall_folders")
           .select("id, name")
@@ -518,6 +533,8 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
           };
 
 
+          const risk = resolveRiskPresentation(defsByFolder[a.wallfolder_id] || [], a);
+
           return {
             radar: a.radar_number,
             Site: a.site_name,
@@ -525,15 +542,16 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
             brand: a.brand,
             BrandColor: a.brand.color,
             AssessmentDate: a.created_time,
-            RiskRating: a.risk,
-            TARP: a.risk,
+            RiskRating: risk.label,
+            RiskColour: risk.colour,
+            TARP: risk.label,
             ALARMS: a.alarm_triggered,
             Connection: a.connection,
             Quality: a.quality,
             Status: a.status || "N/A",
             WallFolder: a.wallfolder_id || "N/A",
             WallName: wallMap[a.wallfolder_id]?.name || "N/A",
-            Notes: getOverallNotes(a.status, a.quality, a.risk),
+            Notes: getOverallNotes(a.status, a.quality, risk.colour),
             Action: a.action,
             Connection: mappedConnection(a.status),
             // nested
@@ -620,6 +638,7 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
           Notes={rec.Notes}
           Alarms={rec.ALARMS}
           RiskRating={rec.RiskRating}
+          RiskColour={rec.RiskColour}
           onExplore={() => handleExplore(rec.radar)}
         />
       ))}

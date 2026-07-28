@@ -7,6 +7,7 @@ import { FaFolder, FaSyncAlt, FaRegBell } from "react-icons/fa";
 import { ImExit } from "react-icons/im";
 import { IoMdMenu } from "react-icons/io";
 import GaugeLive from "@/components/Radars/Live/gaugelive";
+import { defTypeColour, labelColour, recordColour, tarpPriority, COLOUR_RANK } from "@/config/riskDisplay";
 
 function splitRadarName(radar) {
   if (!radar) return { prefix: "", model: "" };
@@ -204,29 +205,32 @@ const IssueCard = ({ issue }) => {
 };
 
 const DefCard = ({ def }) => {
-  const statusColors = {
-    "TARP 1": "#47D45A",
-    "TARP 2": "#e7be09ff",   // yellow
-    "TARP 3": "#c2550dff",  // orange
-    "TARP 4": "#FF0000",       // red
+  // Dot and card take the band colour of the deformation TYPE, so a record whose
+  // site assigns no TARP level is still coloured for what it is. The TARP level
+  // itself is still printed where the record carries one.
+  const BAND_DOT = {
+    green: "#47D45A",
+    yellow: "#e7be09ff",
+    orange: "#c2550dff",
+    red: "#FF0000",
+    grey: "#888",
+  };
+  const BAND_CARD = {
+    green: "rgba(71,212,90,0.2)",
+    yellow: "rgba(255,192,0,0.2)",
+    orange: "rgba(233,113,50,0.2)",
+    red: "rgba(192,0,0,0.2)",
+    grey: "rgba(136,136,136,0.2)",
   };
 
-  const cardColors = (val = "") => {
-    const lower = val.toLowerCase();
-    if (lower.includes("regressive")) return "rgba(71,212,90,0.2)";
-    if (lower.includes("linear long-term")) return "rgba(255,192,0,0.2)";
-    if (lower.includes("linear")) return "rgba(233,113,50,0.2)";
-    if (lower.includes("progressive")) return "rgba(192,0,0,0.2)";
-    if (lower.includes("rapid movement")) return "rgba(192,0,0,0.2)";
-    if (lower.includes("detachment")) return "rgba(192,0,0,0.2)";
-    if (lower.includes("failure")) return "rgba(192,0,0,0.2)";
-    return "rgba(71,212,90,0.2)";
-  };
+  // The type first; the level only where the type cannot answer. The empty-list
+  // placeholder carries "No Significant" and resolves green through the label.
+  const band = defTypeColour(def.def_type) ?? labelColour(def.tarp_level || def.def_type);
 
   return (
     <div
       style={{
-        backgroundColor: cardColors(def.def_type),
+        backgroundColor: BAND_CARD[band],
         borderRadius: "10px",
         padding: "10px",
         marginBottom: "10px",
@@ -239,11 +243,11 @@ const DefCard = ({ def }) => {
             width: 10,
             height: 10,
             borderRadius: "50%",
-            backgroundColor: statusColors[def.tarp_level] || "#888",
+            backgroundColor: BAND_DOT[band],
           }}
         />
         <strong style={{ fontSize: "14px", }}>
-          {def.tarp_level}
+          {def.tarp_level || def.def_type || ""}
         </strong>
       </div>
       <p style={{ margin: "5px 0", fontSize: "12px" }}>{def.mappedDefDetail} observed over {def.location}</p>
@@ -407,11 +411,14 @@ function RadarDetail({ radar, onBack }) {
   };
 
 
+  // Worst first — by band colour, then by TARP level. Sorting on the level alone
+  // sank every record a site assigns no level to (a rock fall, a Leonora blast)
+  // below the harmless ones.
   const sortByTarp = (list) => {
     return [...list].sort((a, b) => {
-      const numA = parseInt(a.tarp_level?.replace("TARP", "").trim() || "-1", 10);
-      const numB = parseInt(b.tarp_level?.replace("TARP", "").trim() || "-1", 10);
-      return numB - numA; // descending
+      const byBand = COLOUR_RANK[recordColour(b)] - COLOUR_RANK[recordColour(a)];
+      if (byBand !== 0) return byBand;
+      return tarpPriority(b.tarp_level) - tarpPriority(a.tarp_level);
     });
   };
 
@@ -468,7 +475,10 @@ function RadarDetail({ radar, onBack }) {
       return {
         sorted: [{
           id: "fallback",
-          tarp_level: "TARP 1",
+          // No level: a site that quotes no TARP numbers must not be told
+          // "TARP 1" as the wording for having nothing active.
+          tarp_level: "",
+          def_type: "No Significant",
           mappedDefDetail: "No significant deformation trend",
           location: "the scan area",
         },],
@@ -915,29 +925,20 @@ function RadarDetail({ radar, onBack }) {
     );
   };
 
-  // RiskRating scale
-  const riskColor = (val) => {
-    switch ((val || "").toLowerCase()) {
-      case "regressive":
-      case "no significant":
-        return COLORS.green;
-      case "linear long-term":
-        return COLORS.yellow;
-      case "linear":
-        return COLORS.orange;
-      case "progressive":
-        return COLORS.red;
-      case "rapid movement":
-        return COLORS.purple;
-      case "failure pattern":
-      case "material detachment":
-        return COLORS.red;
-      default:
-        return COLORS.grey;
+  // RiskRating scale — keyed on the band colour resolved in RadarGallery, which
+  // follows the deformation type at every site (config/riskDisplay.ts). Reading
+  // the label instead never matched once the label became a TARP level.
+  const riskColor = (colour) => {
+    switch (colour) {
+      case "green": return COLORS.green;
+      case "yellow": return COLORS.yellow;
+      case "orange": return COLORS.orange;
+      case "red": return COLORS.red;
+      default: return COLORS.grey;
     }
   };
 
-  const riskCol = riskColor(radar.RiskRating);
+  const riskCol = riskColor(radar.RiskColour ?? labelColour(radar.RiskRating));
 
   //DQP Menu
   const DQPMenuItems = [

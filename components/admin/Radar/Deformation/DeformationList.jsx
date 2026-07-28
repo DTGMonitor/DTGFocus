@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { getCardColors, getRiskBorderColor, getStatusDotColors } from "@/config/statusConfig";
+import { getBandCardColor, getBandBorderColor, getBandDotColor } from "@/config/statusConfig";
+import { recordColour } from "@/config/riskDisplay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -132,7 +133,10 @@ const DeformationList = ({
                         const showActions = variant === 'full' || variant === 'individual';
                         // Cards that own a timeline toggle track the open state by id.
                         const isTimelineOpen = showToggle && timelineRecord?.id === item.id;
-                        const cardColor = isTimelineOpen ? getRiskBorderColor(item.tarp_level) : getCardColors(item.def_type);
+                        // One band colour per record, from its deformation type — a
+                        // record whose site assigns no TARP level still has one.
+                        const band = recordColour(item);
+                        const cardColor = isTimelineOpen ? getBandBorderColor(band) : getBandCardColor(band);
                         return (
                             <div
                                 key={`${item.id}-${variant}`}
@@ -141,8 +145,11 @@ const DeformationList = ({
                                 <div className="flex justify-between items-center">
                                     <div className="flex flex-col gap-1">
                                         <div className="flex gap-3 items-center text-sm">
-                                            <span className={`w-4 h-4 rounded-xl ${getStatusDotColors(item.tarp_level)}`}></span>
-                                            <p><strong>{item.tarp_level}</strong> | {item.def_type} - {item.location}</p>
+                                            <span className={`w-4 h-4 rounded-xl ${getBandDotColor(band)}`}></span>
+                                            {/* The TARP level stays the record's own — shown where
+                                                its site assigns one, dropped where it does not,
+                                                rather than printing an empty "| ". */}
+                                            <p>{item.tarp_level ? <><strong>{item.tarp_level}</strong> | </> : null}{item.def_type} - {item.location}</p>
                                             {isTimelineCard && (
                                                 <span className="rounded-full bg-[var(--dtg-border-medium)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--dtg-text-secondary)]">
                                                     Timeline

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { getStatusColor, getRiskColor, getOverallColor } from "@/config/statusConfig";
+import { getStatusColor, getRiskColor, getOverallColor, getBandColor } from "@/config/statusConfig";
+import { resolveRiskPresentation, pendingPresentation } from "@/config/riskDisplay";
 import { Button } from "@/components/ui/button";
 import {
     X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert,
@@ -22,21 +23,6 @@ import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
-
-// Helper to compare TARP levels
-const getRiskPriority = (tarpString) => {
-    if (!tarpString) return 0;
-
-    const cleanTarp = tarpString.toUpperCase();
-
-    // Check specific strings
-    if (cleanTarp === 'TARP 4') return 4;
-    if (cleanTarp === 'TARP 3') return 3;
-    if (cleanTarp === 'TARP 2') return 2;
-    if (cleanTarp === 'TARP 1') return 1;
-
-    return 0; // "Normal" or no active TARP
-};
 
 const openOutlookDraft = (
     subject,
@@ -133,7 +119,10 @@ const SensorDetail = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [targetStatus, setTargetStatus] = useState('');
     const [localStatus, setLocalStatus] = useState(sensor.status);
-    const [localRisk, setLocalRisk] = useState(sensor.risk);
+    // The risk line, worded and coloured the way this sensor's SITE words it —
+    // see config/riskDisplay.ts. Held as the resolved presentation, not a bare
+    // string, because the label alone no longer implies its colour.
+    const [riskInfo, setRiskInfo] = useState(() => pendingPresentation(sensor));
     const [localQuality, setLocalQuality] = useState(sensor.quality);
     const [localScore, setLocalScore] = useState(sensor.normalised_score);
     const [loading, setLoading] = useState(false);
@@ -169,7 +158,7 @@ const SensorDetail = ({
             setActiveTab('deformation');
 
             setLocalStatus(sensor.status);
-            setLocalRisk(sensor.risk);
+            setRiskInfo(pendingPresentation(sensor));
             setLocalQuality(sensor.quality);
             setLocalScore(sensor.normalised_score);
             return;
@@ -183,7 +172,7 @@ const SensorDetail = ({
         }
 
         setLocalStatus(sensor.status);
-        setLocalRisk(sensor.risk);
+        setRiskInfo(pendingPresentation(sensor));
         setLocalQuality(sensor.quality);
         setLocalScore(sensor.normalised_score);
     }, [sensor.status, sensor.risk, sensor.quality, sensor.normalised_score, sensor.id]);
@@ -215,30 +204,14 @@ const SensorDetail = ({
             if (error) throw error;
             setDeformationList(data || []);
 
-            // [NEW] Calculate Highest Risk from Active Records
-            if (data && data.length > 0) {
-                let maxPriority = 0;
-                let maxRiskLabel = 'TARP 1'; // Default if data exists but isn't TARP 1-4
-
-                data.forEach(record => {
-                    const priority = getRiskPriority(record.tarp_level);
-                    if (priority > maxPriority) {
-                        maxPriority = priority;
-                        maxRiskLabel = record.tarp_level; // e.g., "TARP 3"
-                    }
-                });
-
-                // Only set if we found a valid TARP level, otherwise keep it safe
-                setLocalRisk(maxPriority > 0 ? maxRiskLabel : 'TARP 1');
-            } else {
-                // No active records = Normal/Safe state
-                setLocalRisk('TARP 1');
-            }
+            // Roll the active records up into this site's risk wording.
+            setRiskInfo(resolveRiskPresentation(data || [], sensor));
 
         } catch (error) {
             console.error('error fetching deformation list', error);
         }
-    }, [sensor.wallfolder_id]);
+        // site_name decides the risk wording, so a re-resolve must follow it too.
+    }, [sensor.wallfolder_id, sensor.site_name]);
 
     // Add this state to hold the parameter definitions
     const [parameterMap, setParameterMap] = useState({});
@@ -1366,7 +1339,7 @@ const SensorDetail = ({
         })
     }, [deformationList, searchDeformation]);
 
-    const overallColConfig = getOverallColor(localStatus, localQuality, localRisk);
+    const overallColConfig = getOverallColor(localStatus, localQuality, riskInfo.label, riskInfo.colour);
 
     // --- Email ---
     const siteName = `"${sensor.site_name} [All]"` || "Unknown Site";
@@ -1713,7 +1686,16 @@ const SensorDetail = ({
                                 <TriangleAlert className="w-4 h-4" />
                                 <span>Risk</span>
                             </div>
-                            <p className={`text-${getRiskColor(localRisk)} text-sm py-1.5`}>{localRisk}</p>
+                            <div className="py-1.5 flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-sm border ${getBandColor(riskInfo.colour)}`}>
+                                    {riskInfo.label}
+                                </span>
+                                {/* The record's own TARP level, where its site assigns one and the
+                                    label above is not already quoting it. */}
+                                {riskInfo.tarpLevel && riskInfo.tarpLevel !== riskInfo.label ? (
+                                    <span className="text-xs text-[var(--dtg-gray-500)]">{riskInfo.tarpLevel}</span>
+                                ) : null}
+                            </div>
                         </div>
                     </div>
                 </div>

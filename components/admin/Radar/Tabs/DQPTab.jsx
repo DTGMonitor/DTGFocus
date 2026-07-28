@@ -38,14 +38,22 @@ export default function DQPTab({
   onFeedbackSubmit,
   onFeedbackCancel,
   dqpModalDefaultSubject,
+  sensor,
 }) {
+  const exportSubtitle = [sensor?.radar_number, sensor?.site_name].filter(Boolean).join(' — ');
+
   return (
     <div className="flex flex-col w-full gap-2 p-4 text-[var(--dtg-text-primary)]">
       <h2 className="text-xl font-medium border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
         Data Quality
       </h2>
 
-      <QualityTable data={dqpList} onUpdate={onUpdate} />
+      <QualityTable
+        data={dqpList}
+        onUpdate={onUpdate}
+        exportTitle="Data Quality"
+        exportSubtitle={exportSubtitle}
+      />
 
       <ActionRequiredModal
         isOpen={isDQPModalOpen}

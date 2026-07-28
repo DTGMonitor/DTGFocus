@@ -5,18 +5,20 @@ import { getRiskColorSolid } from "@/config/statusConfig";
 import { PARAMETER_CONFIG } from "@/config/parameterConfig";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
-import { ExternalLink, X, Loader } from 'lucide-react';
+import { ExternalLink, X, Loader, ImageDown } from 'lucide-react';
+import { exportDqpTableImage } from "./dqpImageExport";
+import toast from 'react-hot-toast';
 
 const isRowInvalid = (item) => {
     // If it's NOT Alarms (ID 6) and value is N/A, mark it red
     return item.parameter?.parent_id !== 6 && item.value === 'N/A';
 };
 
-export const QualityTable = ({ data, onUpdate }) => {
-    if (!data || data.length === 0) return null;
+export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exportSubtitle = '' }) => {
     const [previewItem, setPreviewItem] = useState(null);
     const [previewUrl, setPreviewUrl] = useState('');
     const [loadingPreview, setLoadingPreview] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const handleViewImage = async (item) => {
         if (!item.image?.image_url) return;
@@ -82,8 +84,43 @@ export const QualityTable = ({ data, onUpdate }) => {
             });
     }, [data]);
 
+    // Hooks first — this early return used to sit above them, which made the
+    // hook order depend on `data`.
+    if (!data || data.length === 0) return null;
+
+    // The exported PNG is a light-themed rebuild of `processedGroups`, not a
+    // snapshot of this table — see dqpImageExport.js for why.
+    const handleExportImage = async () => {
+        setIsExporting(true);
+        try {
+            await exportDqpTableImage({
+                groups: processedGroups,
+                title: exportTitle,
+                subtitle: exportSubtitle,
+                parameterConfig: PARAMETER_CONFIG,
+            });
+            toast.success('Image downloaded');
+        } catch (error) {
+            console.error('Error exporting data quality image:', error);
+            toast.error(error?.message || 'Could not export the image.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <>
+            <div className="flex justify-end mb-2">
+                <button
+                    onClick={handleExportImage}
+                    disabled={isExporting}
+                    title="Download this table as a single light-themed PNG"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border border-[var(--dtg-border-medium)] text-[var(--dtg-text-secondary)] hover:text-[var(--dtg-text-primary)] hover:bg-[var(--dtg-bg-card)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isExporting ? <Loader size={14} className="animate-spin" /> : <ImageDown size={14} />}
+                    {isExporting ? 'Preparing…' : 'Export Image'}
+                </button>
+            </div>
             <div className="overflow-x-auto border border-[var(--dtg-border-medium)] rounded-lg">
             <table className="w-full border-collapse">
                 <thead className="bg-[var(--dtg-bg-card)]">

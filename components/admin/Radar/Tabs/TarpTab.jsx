@@ -7,7 +7,9 @@ import TarpChart from '@/components/admin/Radar/Tarp/TarpChart';
 import { useTarpDocument } from '@/components/admin/Radar/Tarp/useTarpDocument';
 import { downloadTarpXlsx } from '@/utils/tarpXlsx';
 import { TYPE_MATRIX } from '@/config/formConfig';
-import { RESPONSE_METHOD_LABEL } from '@/config/tarpDocument';
+import { RESPONSE_METHOD_LABEL, buildPolicyFromDocument } from '@/config/tarpDocument';
+import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from '@/config/tarpPolicy';
+import { composeDeformationSubject } from '@/config/emailSubject';
 import toast from 'react-hot-toast';
 import {
   Copy, Download, FileText, History, Plus, Save, Trash2, Pencil, Undo2,
@@ -45,6 +47,13 @@ const RESPONSE_OPTIONS = [
   ...Object.entries(RESPONSE_METHOD_LABEL).map(([value, label]) => ({ value, label })),
 ];
 
+const SUBJECT_TOKEN_HINT = 'Tokens: {level} {colour} {Colour} {band}';
+
+const ALARM_PREFIX_OPTIONS = [
+  { value: 'regions', label: 'Yes — prefix with the alarm colours, e.g. "Red and Orange Alarms - "' },
+  { value: 'none', label: 'No — the trigger wording already names the alarm' },
+];
+
 const TRIGGER_FIELDS = [
   { key: 'triggerLabel', label: 'Trigger', type: 'text', required: true },
   { key: 'bandLabel', label: 'TARP Band Label', type: 'text' },
@@ -69,6 +78,21 @@ const TRIGGER_FIELDS = [
     type: 'select',
     options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }],
   },
+  {
+    key: 'subjectLabel',
+    label: `Email subject wording, no alarm — blank follows the site rule. ${SUBJECT_TOKEN_HINT}`,
+    type: 'text',
+  },
+  {
+    key: 'subjectLabelAlarm',
+    label: 'Email subject wording, with an alarm — blank follows the site rule',
+    type: 'text',
+  },
+  {
+    key: 'severityBracket',
+    label: 'Override the [CRITICAL] / [MODERATE RISK] bracket — blank derives it from the TARP level',
+    type: 'text',
+  },
 ];
 
 const SITE_RULE_FIELDS = [
@@ -90,6 +114,23 @@ const SITE_RULE_FIELDS = [
     key: 'deescalation_notice',
     label: 'De-escalation notice shown to the engineer',
     type: 'textarea',
+  },
+  {
+    key: 'subject_label_template',
+    label: `How an email subject announces a trigger, no alarm. ${SUBJECT_TOKEN_HINT}`,
+    type: 'text',
+  },
+  {
+    key: 'subject_label_template_alarm',
+    label: 'How an email subject announces a trigger WITH an alarm — blank uses the same wording',
+    type: 'text',
+  },
+  {
+    key: 'alarm_prefix_style',
+    label: 'Also list the alarm colours at the front of the subject?',
+    type: 'select',
+    options: ALARM_PREFIX_OPTIONS,
+    required: true,
   },
 ];
 
@@ -133,6 +174,9 @@ const toTriggerValues = (trigger) => ({
   defType: trigger.defType || '',
   tarpLevel: trigger.tarpLevel ?? '',
   requiresAlarm: trigger.requiresAlarm ? 'yes' : 'no',
+  subjectLabel: trigger.subjectLabel || '',
+  subjectLabelAlarm: trigger.subjectLabelAlarm || '',
+  severityBracket: trigger.severityBracket || '',
 });
 
 const fromTriggerValues = (trigger, values) => ({
@@ -156,6 +200,10 @@ const fromTriggerValues = (trigger, values) => ({
     ? null
     : Number(values.tarpLevel),
   requiresAlarm: values.requiresAlarm === 'yes',
+  // Blank means "follow the site rule", not "say nothing".
+  subjectLabel: values.subjectLabel?.trim() || null,
+  subjectLabelAlarm: values.subjectLabelAlarm?.trim() || null,
+  severityBracket: values.severityBracket?.trim() || null,
 });
 
 /** Domain trigger -> the snake_case payload tarp_save_revision expects. */
@@ -174,6 +222,8 @@ const toTriggerPayload = (trigger, index) => ({
   tarp_level: trigger.tarpLevel === null ? '' : String(trigger.tarpLevel),
   requires_alarm: trigger.requiresAlarm,
   severity_bracket: trigger.severityBracket,
+  subject_label: trigger.subjectLabel,
+  subject_label_alarm: trigger.subjectLabelAlarm,
   response_method: trigger.responseMethod,
   response_notice: trigger.responseNotice,
 });
@@ -227,8 +277,14 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
   }, [siteId]);
 
   const isEditing = draft !== null;
-  const triggers = isEditing ? draft.triggers : (doc?.triggers ?? []);
-  const contacts = isEditing ? draft.contacts : (doc?.contacts ?? []);
+  const triggers = useMemo(
+    () => (isEditing ? draft.triggers : (doc?.triggers ?? [])),
+    [isEditing, draft, doc]
+  );
+  const contacts = useMemo(
+    () => (isEditing ? draft.contacts : (doc?.contacts ?? [])),
+    [isEditing, draft, doc]
+  );
 
   // The distribution list is free text on the document (see migration 006), so
   // only escalation contacts are structured rows.
@@ -237,12 +293,46 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
     [contacts]
   );
 
-  const rules = isEditing ? draft.rules : {
+  const rules = useMemo(() => (isEditing ? draft.rules : {
     default_response_method: doc?.defaultResponseMethod ?? 'call',
     deescalation_response_method: doc?.deescalationResponseMethod ?? 'call',
     deescalation_notice: doc?.deescalationNotice ?? '',
     distribution_raw: doc?.distributionRaw ?? '',
-  };
+    subject_label_template: doc?.subjectLabelTemplate ?? DEFAULT_SUBJECT_LABEL_TEMPLATE,
+    subject_label_template_alarm: doc?.subjectLabelTemplateAlarm ?? '',
+    alarm_prefix_style: doc?.alarmPrefixStyle ?? 'regions',
+  }), [isEditing, draft, doc]);
+
+  // What this chart actually sends. Built from the rows on screen — including
+  // unpublished edits — through the same code path the deformation form uses,
+  // so a subject can never be agreed on the chart and differ in the inbox.
+  const subjectPreviews = useMemo(() => {
+    if (!doc) return [];
+
+    const policy = buildPolicyFromDocument({
+      ...doc,
+      triggers,
+      subjectLabelTemplate: rules.subject_label_template || DEFAULT_SUBJECT_LABEL_TEMPLATE,
+      subjectLabelTemplateAlarm: rules.subject_label_template_alarm || null,
+      alarmPrefixStyle: rules.alarm_prefix_style || 'regions',
+    });
+
+    const exampleSensor = `R01 - ${sensor?.site_name || 'Site'}`;
+    const exampleAlarm = [{ type: 'Red', name: 'AR1' }];
+
+    return triggers
+      .filter((t) => t.defType)
+      .map((t) => ({
+        id: t.id,
+        defType: t.defType,
+        withoutAlarm: composeDeformationSubject({
+          type: t.defType, sensor: exampleSensor, policy,
+        }).subject,
+        withAlarm: composeDeformationSubject({
+          type: t.defType, sensor: exampleSensor, alarmRegions: exampleAlarm, policy,
+        }).subject,
+      }));
+  }, [doc, triggers, rules, sensor?.site_name]);
 
   const isDirty = useMemo(() => {
     if (!isEditing || !doc) return false;
@@ -251,7 +341,10 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       || draft.rules.default_response_method !== doc.defaultResponseMethod
       || draft.rules.deescalation_response_method !== doc.deescalationResponseMethod
       || (draft.rules.deescalation_notice || '') !== (doc.deescalationNotice || '')
-      || (draft.rules.distribution_raw || '') !== (doc.distributionRaw || '');
+      || (draft.rules.distribution_raw || '') !== (doc.distributionRaw || '')
+      || (draft.rules.subject_label_template || '') !== (doc.subjectLabelTemplate || '')
+      || (draft.rules.subject_label_template_alarm || '') !== (doc.subjectLabelTemplateAlarm || '')
+      || draft.rules.alarm_prefix_style !== doc.alarmPrefixStyle;
   }, [isEditing, draft, doc]);
 
   const beginEditing = useCallback(() => {
@@ -264,6 +357,9 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         deescalation_response_method: doc.deescalationResponseMethod,
         deescalation_notice: doc.deescalationNotice || '',
         distribution_raw: doc.distributionRaw || '',
+        subject_label_template: doc.subjectLabelTemplate || DEFAULT_SUBJECT_LABEL_TEMPLATE,
+        subject_label_template_alarm: doc.subjectLabelTemplateAlarm || '',
+        alarm_prefix_style: doc.alarmPrefixStyle || 'regions',
       },
     });
   }, [doc]);
@@ -692,6 +788,60 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         editable={isEditing}
         onEdit={setEditTarget}
       />
+
+      {/* The wording a client actually receives is part of what they sign off,
+          so it is printed here rather than left to be discovered in an inbox. */}
+      {subjectPreviews.length > 0 && (
+        <div className="rounded-md border border-[var(--dtg-border-medium)] px-4 py-3">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <h4 className="text-sm font-semibold text-[var(--dtg-text-primary)]">
+                Email subjects this chart produces
+              </h4>
+              <p className="text-xs text-[var(--dtg-text-muted)]">
+                Example sensor, one red alarm region.
+              </p>
+            </div>
+            {isEditing && (
+              <button
+                type="button"
+                onClick={() => setShowRules(true)}
+                className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
+              >
+                <Pencil size={12} />
+                Wording
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="text-left text-[var(--dtg-text-muted)]">
+                  <th className="py-1 pr-3 font-medium">Deformation</th>
+                  <th className="py-1 pr-3 font-medium">No alarm</th>
+                  <th className="py-1 font-medium">With an alarm</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--dtg-border-light)]">
+                {subjectPreviews.map((row) => (
+                  <tr key={row.id} className="align-top">
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-[var(--dtg-text-secondary)]">
+                      {row.defType}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-[var(--dtg-text-primary)]">
+                      {row.withoutAlarm}
+                    </td>
+                    <td className="py-1.5 font-mono text-[var(--dtg-text-primary)]">
+                      {row.withAlarm}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {doc.footerNote && (
         <p className="text-xs font-semibold text-[var(--dtg-text-secondary)]">{doc.footerNote}</p>

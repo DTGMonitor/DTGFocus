@@ -9,6 +9,8 @@ import EditModal from '@/components/admin/Radar/shared/EditModal';
 import PatternRecognitionPopup from '@/components/admin/Radar/PatternRecognition/PatternRecognitionPopup';
 import { resolveDetectedBy, isoToDatetimeLocal, resolveTimelineChain, normalizePrecursorss } from '@/utils/tabHelpers';
 import { TYPE_MATRIX, FIELD_DEFINITIONS, getConfigForType } from '@/config/formConfig';
+import { getTarpPolicyForSensor, resolveTarpLevel } from '@/config/tarpPolicy';
+import { useTarpDocument } from '@/components/admin/Radar/Tarp/useTarpDocument';
 import toast from 'react-hot-toast';
 
 /**
@@ -44,6 +46,14 @@ export default function DeformationTab({
 }) {
   const userID = userSite?.user_id;
   const userName = userSite?.displayname;
+
+  // The site's own TARP document decides which types carry a TARP level. The
+  // edit form re-derives the level when the type changes, and used to take it
+  // straight from TYPE_MATRIX — which would hand a Leonora blast the DTG
+  // default TARP 2 that its document deliberately withholds, and drop the
+  // TARP 2 Telfer's document does assign. Same resolution the add form uses.
+  const { policy: documentPolicy } = useTarpDocument(sensor?.site_id);
+  const tarpPolicy = documentPolicy || getTarpPolicyForSensor(sensor);
 
   // ── Data state ───────────────────────────────────────────────────────────────
   const [deformationList, setDeformationList] = useState([]);
@@ -217,9 +227,16 @@ export default function DeformationTab({
         }
       });
 
+      // An alarm-gated row keeps its trigger only where an alarm accompanied the
+      // record, exactly as it did when it was submitted.
+      const hasAlarm = Array.isArray(editTarget.alarm) && editTarget.alarm.length > 0;
+      const resolvedTarp = resolveTarpLevel(formValues.def_type, { hasAlarm, policy: tarpPolicy });
+
       const payload = {
         def_type: formValues.def_type,
-        tarp_level: config.tarp || editTarget.tarp_level,
+        // '' is a real answer here — the site assigns this type no level — so
+        // only an UNCHANGED type falls back to what the record already carried.
+        tarp_level: formValues.def_type === editTarget.def_type ? editTarget.tarp_level : resolvedTarp,
         location: formValues.location,
         start: formValues.start ? toUTC(formValues.start, timezone) : null,
         notes: formValues.notes,

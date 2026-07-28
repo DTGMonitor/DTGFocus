@@ -205,6 +205,7 @@ export function ComprehensiveRadarTemplate({
       <ExecutiveSummary
         key="kpi"
         risk={data?.risk}
+        riskPresentation={data?.riskPresentation}
         quality={data?.quality}
         uptime={data?.availability?.uptimePercentage}
         alarms={data?.alarms}

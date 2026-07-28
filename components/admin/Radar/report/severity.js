@@ -262,6 +262,26 @@ export function severityColor(label) {
   return { color: SEV.neutral, onColor: '#ffffff' };
 }
 
+/**
+ * TARP band colour ('red' | 'orange' | 'yellow' | 'grey' | 'green') → print colour.
+ *
+ * The band a deformation sits in is resolved from its TYPE (config/riskDisplay.ts)
+ * and is the same fact at every site, whether or not that site quotes a TARP
+ * number for it. Reusing the SEV values keeps a red band, a red alarm and a
+ * TARP 4 badge printing as the same ink.
+ *
+ * @param {string} colour
+ * @returns {{ color: string, onColor: string }} `onColor` is readable text on `color`.
+ */
+export function bandColor(colour) {
+  const c = String(colour ?? '').toLowerCase();
+  if (c === 'red') return { color: SEV.critical, onColor: '#ffffff' };
+  if (c === 'orange') return { color: SEV.subOptimal, onColor: '#1f2937' };
+  if (c === 'yellow') return { color: SEV.acceptable, onColor: '#1f2937' };
+  if (c === 'green') return { color: SEV.optimal, onColor: '#ffffff' };
+  return { color: SEV.neutral, onColor: '#ffffff' };
+}
+
 /** The operational uptime target the reports cite, as a percentage. */
 export const UPTIME_TARGET = 95;
 

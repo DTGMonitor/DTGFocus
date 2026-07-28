@@ -13,6 +13,12 @@
 
 import { TYPE_MATRIX } from './formConfig';
 
+/** Whether the subject keeps the automatic "<colours> Alarms - " prefix. */
+export type AlarmPrefixStyle = 'regions' | 'none';
+
+/** DTG standard wording of the subject token. */
+export const DEFAULT_SUBJECT_LABEL_TEMPLATE = 'TARP Trigger {level}:';
+
 export interface TarpRule {
     /** TARP trigger assigned to this deformation type, e.g. "TARP 4". */
     tarp: string;
@@ -22,6 +28,22 @@ export interface TarpRule {
      * with no TARP trigger in the subject line.
      */
     requiresAlarm?: boolean;
+
+    /**
+     * Wording of the subject token for this row when NO alarm accompanies the
+     * record. Null/undefined inherits the document template. See
+     * `renderSubjectLabel` for the tokens.
+     */
+    subjectLabel?: string | null;
+    /** Same, for the case where an alarm does accompany the record. */
+    subjectLabelAlarm?: string | null;
+
+    /** Band colour of the row, for `{colour}` / `{Colour}`. */
+    colour?: string | null;
+    /** Band label of the row, for `{band}`. */
+    bandLabel?: string | null;
+    /** Overrides the derived [CRITICAL] / [MODERATE RISK] bracket. */
+    severityBracket?: string | null;
 }
 
 export interface TarpPolicy {
@@ -44,6 +66,21 @@ export interface TarpPolicy {
      * Default false -> the email falls back to [NOTIFICATION ONLY].
      */
     keepSeverityWhenSuppressed?: boolean;
+
+    /**
+     * Document-wide wording of the subject token, used by every row that does
+     * not override it. Undefined -> DTG standard, `TARP Trigger {level}:`.
+     */
+    subjectLabelTemplate?: string | null;
+    /** Same, for records that carry an alarm. Undefined -> subjectLabelTemplate. */
+    subjectLabelTemplateAlarm?: string | null;
+    /**
+     * Whether the subject still opens with the automatic "Red and Orange
+     * Alarms - " prefix built from the selected alarm regions. A site whose
+     * token already names the alarm ("Red Alarm:") sets 'none' to avoid saying
+     * it twice.
+     */
+    alarmPrefixStyle?: AlarmPrefixStyle;
 }
 
 /**
@@ -64,6 +101,11 @@ export const DEFAULT_TARP_POLICY: TarpPolicy = {
  *   Progressive / Linear Accelerating -> TARP 4 with or without an alarm
  *   Linear                            -> TARP 3 only if an alarm triggered
  *   Regressive                        -> never
+ *   Blast / Rainfall                  -> never; the site treats them as events
+ *                                        to report, not as TARP triggers, so
+ *                                        quoting TARP 2 would over-state them
+ *                                        (this is the opposite of Telfer, whose
+ *                                        document does trigger on them).
  */
 export const ALARM_GATED_TARP_POLICY: TarpPolicy = {
     key: 'alarm-gated',
@@ -74,8 +116,8 @@ export const ALARM_GATED_TARP_POLICY: TarpPolicy = {
         'Linear Accelerating': { tarp: 'TARP 4' },
         'Linear': { tarp: 'TARP 3', requiresAlarm: true },
         'Regressive': null,
-        'Blast Event': { tarp: 'TARP 2', requiresAlarm: true },
-        'Rainfall Event': { tarp: 'TARP 2', requiresAlarm: true }
+        'Blast Event': null,
+        'Rainfall Event': null
     }
 };
 
@@ -146,3 +188,115 @@ export const resolveSeverityTarpLevel = (
     }
     return rule.tarp;
 };
+
+// ---------------------------------------------------------------------------
+// Subject token
+//
+// Sites do not agree on how a deformation email should announce itself:
+//
+//   Telfer         [CRITICAL] TARP Trigger 4: Progressive Deformation Trend on …
+//   Leonora        same, but the token disappears without a genuine alarm
+//   Hidden Valley  [CRITICAL] Red Alarm: …      /  [NOTIFICATION ONLY] Yellow Notification: …
+//
+// The wording is therefore data on the TARP row, not a literal in the email
+// code. A site's own document is the only place it can be changed, so the
+// subject a client receives and the chart they signed cannot drift apart.
+// ---------------------------------------------------------------------------
+
+const SUBJECT_TOKEN = /\{(level|colour|color|Colour|Color|band)\}/g;
+
+export interface SubjectLabelFacts {
+    level: number | null;
+    colour?: string | null;
+    band?: string | null;
+}
+
+const titleCase = (value: string) =>
+    value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+
+/**
+ * Fills a subject-token template.
+ *
+ * A template that asks for a fact the row does not carry renders as nothing at
+ * all — "TARP Trigger :" on a row with no level, or "Notification:" on a row
+ * with no colour, would be worse than staying silent.
+ */
+export const renderSubjectLabel = (
+    template: string | null | undefined,
+    { level, colour, band }: SubjectLabelFacts
+): string => {
+    if (!template) return '';
+
+    let missing = false;
+    const filled = template.replace(SUBJECT_TOKEN, (_match, token: string) => {
+        switch (token) {
+            case 'level':
+                if (level === null || level === undefined) { missing = true; return ''; }
+                return String(level);
+            case 'colour':
+            case 'color':
+                if (!colour) { missing = true; return ''; }
+                return String(colour).toLowerCase();
+            case 'Colour':
+            case 'Color':
+                if (!colour) { missing = true; return ''; }
+                return titleCase(String(colour));
+            default:
+                if (!band) { missing = true; return ''; }
+                return String(band);
+        }
+    });
+
+    return missing ? '' : filled.replace(/\s+/g, ' ').trim();
+};
+
+const levelOf = (tarp: string): number | null => {
+    const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
+    return match ? Number(match[1]) : null;
+};
+
+/**
+ * The token this record's email should announce itself with — "TARP Trigger 4:",
+ * "Red Alarm:", or "" when the site quotes nothing.
+ *
+ * Resolution order: the trigger row's own wording, then the document template,
+ * then the DTG standard.
+ */
+export const resolveSubjectLabel = (
+    type: string,
+    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+): string => {
+    const rule = getRule(policy, type);
+    if (!rule) return '';
+    // A gated row with no alarm is an observation, not a TARP trigger.
+    if (rule.requiresAlarm && !hasAlarm) return '';
+
+    const documentDefault = policy.subjectLabelTemplate ?? DEFAULT_SUBJECT_LABEL_TEMPLATE;
+    const template = hasAlarm
+        ? rule.subjectLabelAlarm ?? rule.subjectLabel
+            ?? policy.subjectLabelTemplateAlarm ?? documentDefault
+        : rule.subjectLabel ?? documentDefault;
+
+    return renderSubjectLabel(template, {
+        level: levelOf(rule.tarp),
+        colour: rule.colour,
+        band: rule.bandLabel
+    });
+};
+
+/**
+ * Per-row override of the [CRITICAL] / [MODERATE RISK] bracket, or null to let
+ * `getWorkLogDetails` derive it from the TARP level as usual.
+ */
+export const resolveSeverityBracket = (
+    type: string,
+    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+): string | null => {
+    const rule = getRule(policy, type);
+    if (!rule) return null;
+    if (rule.requiresAlarm && !hasAlarm) return null;
+    return rule.severityBracket || null;
+};
+
+export const resolveAlarmPrefixStyle = (policy?: TarpPolicy | null): AlarmPrefixStyle =>
+    policy?.alarmPrefixStyle ?? 'regions';

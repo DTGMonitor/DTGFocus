@@ -8,8 +8,10 @@
  */
 
 import { INK, MUTED, LINE } from '../constants';
-import { severityColor, alarmToneColor, uptimeSeverityLabel, UPTIME_TARGET, SEV } from '../severity';
+import { severityColor, alarmToneColor, bandColor, uptimeSeverityLabel, UPTIME_TARGET, SEV } from '../severity';
 import { folderDisplayLabel, isArchivedFolder } from '@/utils/reportWallFolders';
+import { getStatusDefinition } from '@/config/statusConfig';
+import { presentationFromLabel, riskSentence } from '@/config/riskDisplay';
 
 /** 'YYYY-MM-DD' → 'DD/MM/YYYY', reformatted by parts so no timezone can shift it. */
 const fmtDay = (value) => {
@@ -58,36 +60,50 @@ export function KeyFindings({ findings = [] }) {
  * two sit inches apart on page 1 and a disagreement reads as contradictory
  * findings. So the scales are imported, never restated: data quality takes the
  * classification it already carries (`quality.label`) rather than re-deriving
- * one from the score, and uptime shares uptimeSeverityLabel with the tile.
+ * one from the score, and uptime shares uptimeSeverityLabel with the tile. Risk
+ * takes the resolved presentation the tile is given (`riskPresentation`), so the
+ * two cannot word or colour the same risk differently.
  *
- * @param {{risk: string, quality: object, availability: object, alarms: object, timelines: array}} d
+ * @param {{risk: string, riskPresentation: object, quality: object, availability: object, alarms: object, timelines: array}} d
  * @returns {{text: string, detail?: string, tone?: string, color?: string}[]}
  */
 export function buildKeyFindings(d) {
   const out = [];
   if (!d) return out;
 
-  const riskLabel =
-    d.risk === 'TARP 4' ? 'Critical'
-      : d.risk === 'TARP 3' ? 'Moderate'
-        : d.risk === 'TARP 2' ? 'Intermediate'
-          : 'No significant';
+  // The risk line is worded by the sensor's SITE (TARP level / band colour /
+  // deformation type) and coloured by the deformation type behind it — see
+  // config/riskDisplay.ts. The dot takes that colour explicitly rather than a
+  // severity label, because "Red Notification" and "Regressive" are not labels
+  // severityColor can read.
+  const risk = d.riskPresentation ?? presentationFromLabel(d.risk);
   const areas = (d.timelines ?? [])
     .map((t) => t.trimmed?.[t.trimmed.length - 1]?.location)
     .filter(Boolean);
+  const driverArea = risk.driver?.location;
   out.push({
-    text: `Overall risk is on ${d.risk} – ${riskLabel} condition.`,
-    detail: areas.length ? `Highest risk is at ${areas[0]}.` : undefined,
-    tone: d.risk,
+    text: riskSentence(risk),
+    detail: driverArea
+      ? `Highest risk is at ${driverArea}.`
+      : areas.length ? `Highest risk is at ${areas[0]}.` : undefined,
+    color: bandColor(risk.colour).color,
   });
 
   if (typeof d.quality?.score === 'number') {
     const pct = d.quality.score * 100;
+    const label = d.quality.label ?? null;
+    // The sub-line reuses the DQP report's own overall assessment sentence
+    // (getStatusDefinition().summary) so both documents describe the same
+    // classification identically. A record with no recognised label has no such
+    // sentence, so it falls back to the numeric threshold.
+    const summary = label ? getStatusDefinition(label)?.summary : undefined;
     out.push({
-      text: `Data quality score is ${pct.toFixed(2)}% (${d.quality.label ?? 'Unknown'}).`,
-      detail: pct >= 75 ? 'Exceeding the minimum operational threshold of 75%' : 'Below the minimum operational threshold of 75%',
+      text: `Data quality score is ${pct.toFixed(2)}% (${label ?? 'Unknown'}).`,
+      detail: summary ?? (pct >= 75
+        ? 'Exceeding the minimum operational threshold of 75%'
+        : 'Below the minimum operational threshold of 75%'),
       // The tile colours this from the label, so the dot must too.
-      tone: d.quality.label,
+      tone: label,
     });
   }
 

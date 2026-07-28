@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
-import { getStatusDotColors, getRiskColor } from "@/config/statusConfig";
+import { getBandDotColor, getBandColor } from "@/config/statusConfig";
+import { recordColour } from "@/config/riskDisplay";
 import { fromUTC } from "@/utils/timezoneUtils";
 import { Spinner } from "@/components/Reusable/Spinner";
 
@@ -89,8 +90,10 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
             : "—";
 
           const detectedByName = resolveDetectedBy(record.detected_by, crosscheckers);
-          const tarpDotClass = getStatusDotColors(record.tarp_level);
-          const tarpCardClass = getRiskColor(record.tarp_level);
+          // Band colour from the deformation type; the TARP badge below still
+          // reads the record's own tarp_level and still hides when there is none.
+          const tarpDotClass = getBandDotColor(recordColour(record));
+          const tarpCardClass = getBandColor(recordColour(record));
 
           return (
             <div key={record.id ?? index} className="flex gap-3">
@@ -191,7 +194,7 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
                           className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] px-2 py-0.5 text-xs text-[var(--dtg-text-secondary)]"
                           title={rel.location || undefined}
                         >
-                          <span className={`w-2 h-2 rounded-full ${getStatusDotColors(rel.tarp_level)}`} />
+                          <span className={`w-2 h-2 rounded-full ${getBandDotColor(recordColour(rel))}`} />
                           <span className="font-medium text-[var(--dtg-text-primary)]">
                             {rel.def_type ?? "—"}
                           </span>

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatFromUTC } from "@/utils/timezoneUtils";
+import { labelColour } from '@/config/riskDisplay';
 import Head from 'next/head';
 
 // --- SAFE COLOR PALETTE (HEX ONLY) ---
@@ -101,6 +102,22 @@ const getSafeBadgeStyle = (statusOrRisk) => {
 
     // Default / Info
     return { backgroundColor: C.gray50, color: C.gray700, borderColor: C.gray200 };
+};
+
+/**
+ * Risk badge, coloured by the band rather than by keywords in the label.
+ *
+ * The keyword pass above cannot read "Red Notification" or "Regressive" — the
+ * wordings sites that quote no TARP number use — and would print them grey.
+ */
+const getRiskBadgeStyle = (colour) => {
+    switch (colour) {
+        case 'red': return { backgroundColor: C.redBg, color: C.redText, borderColor: C.redBorder };
+        case 'orange': return { backgroundColor: C.orangeBg, color: C.orangeText, borderColor: C.orangeBorder };
+        case 'yellow': return { backgroundColor: C.yellowBg, color: C.yellowText, borderColor: C.yellowBorder };
+        case 'green': return { backgroundColor: C.greenBg, color: C.greenText, borderColor: C.greenBorder };
+        default: return { backgroundColor: C.gray50, color: C.gray700, borderColor: C.gray200 };
+    }
 };
 
 const GradientTitle = ({ text }) => (
@@ -349,8 +366,8 @@ ${userName}`;
                                         <td style={tableCellStyle}>{sensor.area}</td>
 
                                         <td style={centerCellStyle}>
-                                            <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '12px', border: '1px solid', ...getSafeBadgeStyle(sensor.risk) }}>
-                                                {sensor.risk}
+                                            <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '12px', border: '1px solid', ...getRiskBadgeStyle(sensor.riskInfo?.colour ?? labelColour(sensor.risk)) }}>
+                                                {sensor.riskInfo?.label ?? sensor.risk}
                                             </span>
                                         </td>
                                         <td style={centerCellStyle}>

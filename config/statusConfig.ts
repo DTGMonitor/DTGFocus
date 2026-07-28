@@ -1,3 +1,5 @@
+import type { RiskColour } from './riskDisplay';
+
 // Legend data for status indicators
 export const legendData = {
   overallDqpStatus: [
@@ -99,6 +101,58 @@ export const getCardColors = (val = "") => {
   return "bg-green-500/20";
 };
 
+// ---------------------------------------------------------------------------
+// Band colours
+//
+// The risk shown for a sensor is coloured by the DEFORMATION TYPE (see
+// config/riskDisplay.ts), not by its TARP level: a site that quotes no TARP
+// numbers still has a red trend and a yellow one. These take the band colour
+// that module resolves and return the Tailwind classes for it.
+//
+// Written as switches over literal class strings because Tailwind cannot see
+// interpolated class names and would purge them from the build.
+// ---------------------------------------------------------------------------
+
+export const getBandColor = (colour: RiskColour | null | undefined) => {
+  switch (colour) {
+    case 'red': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'orange': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+    case 'yellow': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    case 'green': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+  }
+};
+
+export const getBandDotColor = (colour: RiskColour | null | undefined) => {
+  switch (colour) {
+    case 'red': return 'bg-red-500';
+    case 'orange': return 'bg-orange-500';
+    case 'yellow': return 'bg-yellow-500';
+    case 'green': return 'bg-green-500';
+    default: return 'bg-gray-500';
+  }
+};
+
+export const getBandCardColor = (colour: RiskColour | null | undefined) => {
+  switch (colour) {
+    case 'red': return 'bg-red-500/20';
+    case 'orange': return 'bg-orange-500/20';
+    case 'yellow': return 'bg-yellow-500/20';
+    case 'green': return 'bg-green-500/20';
+    default: return 'bg-gray-500/20';
+  }
+};
+
+export const getBandBorderColor = (colour: RiskColour | null | undefined) => {
+  switch (colour) {
+    case 'red': return 'border-red-500/30';
+    case 'orange': return 'border-orange-500/30';
+    case 'yellow': return 'border-yellow-500/30';
+    case 'green': return 'border-green-500/30';
+    default: return 'border-gray-500/30';
+  }
+};
+
 export const getStatusColor = (status: string) => {
   switch (status) {
     case 'Live': return 'bg-green-500/20 text-green-400 border-green-500/30';
@@ -179,7 +233,12 @@ export const getSeverityConfig = (severity: string) => {
   }
 };
 
-export const getOverallColor = (status: string, quality: string, risk: string) => {
+/**
+ * @param riskColour  Band colour of the risk (config/riskDisplay.ts). Sites that
+ *   quote no TARP number — Hidden Valley reads "Red Notification" — carry their
+ *   severity here, so the header tints identically at every site.
+ */
+export const getOverallColor = (status: string, quality: string, risk: string, riskColour?: RiskColour | null) => {
   const normalisedStatus = status?.toLowerCase();
   const normalisedQuality = quality?.toLowerCase();
   const normalisedRisk = risk?.toLowerCase();
@@ -191,21 +250,21 @@ export const getOverallColor = (status: string, quality: string, risk: string) =
     }
   }
 
-  if (normalisedQuality === 'critical' || normalisedRisk === 'tarp 4') {
+  if (normalisedQuality === 'critical' || normalisedRisk === 'tarp 4' || riskColour === 'red') {
     return {
       bg: 'red-500',
       bgGradient: 'from-red-500/10 to-red-100/10'
     }
   }
 
-  if (normalisedQuality === 'sub-optimal' || normalisedRisk === 'tarp 3') {
+  if (normalisedQuality === 'sub-optimal' || normalisedRisk === 'tarp 3' || riskColour === 'orange') {
     return {
       bg: 'orange-500',
       bgGradient: 'from-orange-500/10 to-orange-100/10'
     }
   }
 
-  if (normalisedQuality === 'acceptable' || normalisedRisk === 'tarp 2') {
+  if (normalisedQuality === 'acceptable' || normalisedRisk === 'tarp 2' || riskColour === 'yellow') {
     return {
       bg: 'yellow-500',
       bgGradient: 'from-yellow-500/10 to-yellow-100/10'

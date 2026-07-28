@@ -2,7 +2,7 @@ export const PARAMETER_CONFIG = {
     "Data Availability": ["Optimal", "Critical"],
     "SSR Type & Scan Mode": ["Optimal", "Sub-Optimal"],
     "Signal Strength (Amplitude)": ["Optimal", "Critical"],
-    "Scan Area": ["Optimal", "Critical"],
+    "Scan Area": ["Optimal", "Acceptable","Critical"],
     "Vector Loss": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Coherence": ["Optimal", "Acceptable", "Sub-Optimal", "Critical"],
     "Image Alignment": ["Optimal", "Sub-Optimal", "Critical"],

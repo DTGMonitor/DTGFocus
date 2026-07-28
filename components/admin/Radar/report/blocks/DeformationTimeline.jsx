@@ -17,7 +17,8 @@
  */
 
 import { INK, MUTED, LINE, IMAGE_MAX_H } from '../constants';
-import { severityColor, tint } from '../severity';
+import { severityColor, bandColor, tint } from '../severity';
+import { recordColour } from '@/config/riskDisplay';
 import { SectionBar } from '../pageFrame';
 import { AnnotatedImage } from '../AnnotatedImage';
 import { resolveDetectedBy } from '@/utils/tabHelpers';
@@ -94,7 +95,12 @@ const Badge = ({ text, color, bg, border }) => (
  * — historical context the reader should not weigh as live.
  */
 function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers }) {
-  const sev = severityColor(node?.tarp_level);
+  // Coloured by the deformation type, not the TARP level: a record whose site
+  // assigns no level (a rock fall, a Leonora blast) still has a band, and
+  // colouring it by an empty tarp_level printed it as an unreadable neutral.
+  // The TARP badge below is still driven by tarp_level, and still absent when
+  // there is none.
+  const sev = bandColor(recordColour(node ?? {}));
   const dotColor = isCurrent ? sev.color : muted ? LINE : MUTED;
   const subColor = muted ? FAINT : MUTED;
   const details = buildEventDetails(node);

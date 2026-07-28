@@ -154,13 +154,34 @@ const getCleanFindings = (type: string) => {
     }
 }
 
-export const generateEmailSubject = (subject: string, tarp: string, type: any, sensor: string, alarmRegions: any[] = []) => {
+export interface EmailSubjectOptions {
+    /**
+     * The token that names the trigger, resolved from the site's TARP document
+     * — "TARP Trigger 4:", "Red Alarm:", or "" to quote nothing. Omit entirely
+     * (not "") to fall back to the DTG standard wording derived from `tarp`.
+     */
+    triggerLabel?: string | null;
+    /**
+     * 'none' drops the automatic "Red and Orange Alarms - " prefix, for sites
+     * whose own token already names the alarm.
+     */
+    alarmPrefixStyle?: 'regions' | 'none';
+}
+
+export const generateEmailSubject = (
+    subject: string,
+    tarp: string,
+    type: any,
+    sensor: string,
+    alarmRegions: any[] = [],
+    options: EmailSubjectOptions = {}
+) => {
     const cleanType = getCleanFindings(type);
     const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
-    const tarpTrigger = match ? `TARP Trigger ${match[1]}:` : "";
+    const tarpTrigger = options.triggerLabel ?? (match ? `TARP Trigger ${match[1]}:` : "");
 
     let alarmPrefix = "";
-    if (alarmRegions && alarmRegions.length > 0) {
+    if (options.alarmPrefixStyle !== 'none' && alarmRegions && alarmRegions.length > 0) {
         // 1. Get unique types
         const types = Array.from(new Set(alarmRegions.map(r => r.type).filter(Boolean)));
 
@@ -520,8 +541,8 @@ export const getSubjectOptions = (parameter: any) => {
             {
                 value: `${name} Issue`,
                 label: `${name} Issue`,
-                issue: 'The combination of SSR and scan mode does not match with any criteria.',
-                action: 'Please review the current location and consider to relocate the radar.',
+                issue: 'Several parts of the scan area are considered unnecessary and can be trimmed.',
+                action: 'Please review the current scan area and consider trimming the unnecessary area.',
                 notes: ''
             }
         ];

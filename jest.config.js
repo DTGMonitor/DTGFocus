@@ -1,5 +1,12 @@
 const nextJest = require('next/jest');
 
+// Pin the clock the tests run against. Anything that reads local time — the
+// hourly checklist files its rows under the operator's own date — otherwise
+// asserts one thing on a machine in Jakarta and another in a UTC CI runner.
+// Set here, before the workers are forked, because a test file's own
+// `process.env.TZ` assignment comes too late for the environment it runs in.
+process.env.TZ = 'Asia/Jakarta';
+
 const createJestConfig = nextJest({
   // Path to the Next.js app to load next.config.js and .env files
   dir: './',
