@@ -272,6 +272,10 @@ export interface ResponseRequirement {
     deviates: boolean;
     /** Ready-to-display sentence. Empty when there is nothing unusual. */
     notice: string;
+    /** The row this answer came from — the alarm row when an alarm fired. */
+    trigger: TarpTrigger | null;
+    /** True when a fired alarm's row demands more than the deformation row. */
+    alarmOverride: boolean;
 }
 
 const DEVIATION_WORDING: Record<TarpResponseMethod, string> = {
@@ -281,9 +285,42 @@ const DEVIATION_WORDING: Record<TarpResponseMethod, string> = {
     na: 'No notification required for this trigger.'
 };
 
+const NO_ACTION_RE = /^\s*(na|n\/a|none|no action(\s+required)?)\s*\.?\s*$/i;
+const CALL_RE = /\b(call|calls|called|calling|phone|phoned|ring)\b/i;
+const EMAIL_RE = /\b(e-?mail|e-?mails|e-?mailed|e-?mailing)\b/i;
+
+/**
+ * The response a shift cell *states*, or null when the prose names none.
+ *
+ * `response_method` is the structural answer (migration 004) but it was
+ * backfilled by matching the seeded wording, so any row phrased differently —
+ * "Site Geotech to email DTG monitoring engineers" — kept a NULL. NULL nominally
+ * means "follow the document default", and on a call-first site that printed
+ * CALL beside a cell that says email. Reading the cell is strictly better than
+ * asserting the site default over the top of the text the client signed.
+ */
+export const inferResponseMethod = (
+    text: string | null | undefined
+): TarpResponseMethod | null => {
+    const value = String(text ?? '').trim();
+    if (!value) return null;
+    if (NO_ACTION_RE.test(value)) return 'na';
+
+    const call = CALL_RE.test(value);
+    const email = EMAIL_RE.test(value);
+    if (call && email) return 'call_then_email';
+    if (call) return 'call';
+    if (email) return 'email';
+    return null;
+};
+
 /**
  * Resolves what the engineer must actually do for a trigger, and whether that
  * differs from the site's normal practice.
+ *
+ * Order: the row's own column, then what its day-shift cell says, then the
+ * document default. Only the last of those is a guess, and a guess never
+ * counts as a deviation.
  */
 export const resolveResponseRequirement = (
     trigger: TarpTrigger | null,
@@ -292,23 +329,124 @@ export const resolveResponseRequirement = (
     if (!trigger) return null;
 
     const fallback: TarpResponseMethod = doc?.defaultResponseMethod ?? 'call';
-    const method = trigger.responseMethod ?? fallback;
-    const deviates = trigger.responseMethod !== null && trigger.responseMethod !== fallback;
+    const stated = trigger.responseMethod ?? inferResponseMethod(trigger.dayShift);
+    const method = stated ?? fallback;
+    const deviates = stated !== null && stated !== fallback;
 
     return {
         method,
         label: RESPONSE_METHOD_LABEL[method],
         deviates,
-        notice: deviates ? (trigger.responseNotice || DEVIATION_WORDING[method]) : ''
+        notice: deviates ? (trigger.responseNotice || DEVIATION_WORDING[method]) : '',
+        trigger,
+        alarmOverride: false
     };
 };
 
-/** Convenience for callers that only hold a deformation type. */
+// ---------------------------------------------------------------------------
+// Alarm rows
+//
+// A TARP chart states an alarm as a trigger in its own right — "Red Alarm",
+// "Orange Alarm" — with no deformation type against it, because an alarm fires
+// on top of whatever trend is being reported. `findTriggerForType` can never
+// reach those rows, so a record carrying a genuine alarm was answered by the
+// trend row alone: at Leonora that printed EMAIL ONLY over a red alarm the
+// same chart says to phone in.
+// ---------------------------------------------------------------------------
+
+/** How much a response asks of the engineer. Used to pick the stronger of two. */
+const RESPONSE_STRENGTH: Record<TarpResponseMethod, number> = {
+    na: 0,
+    email: 1,
+    call: 2,
+    call_then_email: 3
+};
+
+export interface ResponseContext {
+    /** True when a genuine alarm accompanies the record. */
+    hasAlarm?: boolean;
+    /** Colours of the alarm regions ticked, e.g. ['Red', 'Orange']. */
+    alarmColours?: (string | null | undefined)[];
+}
+
+/** Rows the document gates on an alarm and pins to no deformation type. */
+export const alarmTriggers = (doc: TarpDocument | null): TarpTrigger[] =>
+    (doc?.triggers ?? []).filter(t => t.requiresAlarm && !t.defType);
+
+const normaliseColour = (value: string | null | undefined): string =>
+    String(value ?? '').trim().toLowerCase();
+
+/** Highest TARP level wins; ties keep the order the chart lists them in. */
+const mostSevere = (rows: TarpTrigger[]): TarpTrigger | null =>
+    rows.reduce<TarpTrigger | null>(
+        (best, row) =>
+            best === null || (row.tarpLevel ?? -1) > (best.tarpLevel ?? -1) ? row : best,
+        null
+    );
+
+/**
+ * The alarm row that fired, matched on the colour of the regions ticked.
+ *
+ * With no colour to go on — the engineer has ticked Alarm but not yet chosen a
+ * region — the most severe alarm row stands, because erring towards the row
+ * that asks for a call is the only safe direction to err in. A colour the
+ * document lists no alarm row for yields null: that alarm is not in this
+ * client's TARP, so it cannot override what the trend row says.
+ */
+export const findAlarmTrigger = (
+    doc: TarpDocument | null,
+    alarmColours: (string | null | undefined)[] = []
+): TarpTrigger | null => {
+    const rows = alarmTriggers(doc);
+    if (rows.length === 0) return null;
+
+    const wanted = new Set(alarmColours.map(normaliseColour).filter(Boolean));
+    const colourCoded = rows.filter(row => normaliseColour(row.colour));
+    if (wanted.size === 0 || colourCoded.length === 0) return mostSevere(rows);
+
+    const matched = colourCoded.filter(row => wanted.has(normaliseColour(row.colour)));
+    return matched.length > 0 ? mostSevere(matched) : null;
+};
+
+/**
+ * What the engineer must do for a record of this type, given whether an alarm
+ * came with it.
+ *
+ * Both rows can fire at once — a linear trend that also raised a red alarm is
+ * the linear row AND the red alarm row — so the record owes the more demanding
+ * of the two responses. A site that de-escalated plain linear trends to email
+ * did not thereby de-escalate its alarms.
+ */
 export const responseRequirementForType = (
     doc: TarpDocument | null,
-    defType: string
-): ResponseRequirement | null =>
-    resolveResponseRequirement(findTriggerForType(doc, defType), doc);
+    defType: string,
+    context: ResponseContext = {}
+): ResponseRequirement | null => {
+    const typeRow = findTriggerForType(doc, defType);
+    const typeRequirement = resolveResponseRequirement(typeRow, doc);
+    if (!context.hasAlarm) return typeRequirement;
+
+    const alarmRow = findAlarmTrigger(doc, context.alarmColours);
+    const alarmRequirement = resolveResponseRequirement(alarmRow, doc);
+    if (!alarmRequirement) return typeRequirement;
+    if (!typeRequirement) return alarmRequirement;
+
+    if (RESPONSE_STRENGTH[alarmRequirement.method]
+        <= RESPONSE_STRENGTH[typeRequirement.method]) {
+        return typeRequirement;
+    }
+
+    const alarmLabel = alarmRow?.triggerLabel || 'The alarm';
+    const typeLabel = typeRow?.triggerLabel || defType;
+
+    return {
+        ...alarmRequirement,
+        alarmOverride: true,
+        notice: alarmRequirement.notice
+            || `${DEVIATION_WORDING[alarmRequirement.method]} ${alarmLabel} is a trigger in `
+               + `its own right — the ${typeLabel} row applies only without an alarm.`
+    };
+};
 
 // ---------------------------------------------------------------------------
 // Escalation / de-escalation

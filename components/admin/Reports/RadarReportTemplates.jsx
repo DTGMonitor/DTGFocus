@@ -201,9 +201,18 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
     const appendixItems = useMemo(() => {
         if (!data) return [];
         return data.filter(item =>
-            item.notes && (item.image || item.appendix)
+            item.notes && (item.images?.length || item.appendix)
         ).sort((a, b) => (a.parameter?.id || 0) - (b.parameter?.id || 0));
     }, [data]);
+
+    // A row can carry several figures, so figure numbers run across the whole
+    // appendix: this is the FIRST figure number for each item, by index. Keyed
+    // off `images.length` and not off whether a URL signed, so preview and
+    // export agree even when one image fails to resolve.
+    const figureStarts = useMemo(() => {
+        const counts = appendixItems.map((item) => item.images?.length || 0);
+        return counts.map((_, i) => 1 + counts.slice(0, i).reduce((a, b) => a + b, 0));
+    }, [appendixItems]);
 
     const ITEMS_PER_PAGE = 2;
     const appendixChunks = useMemo(() => {
@@ -498,19 +507,21 @@ export const RadarTemplate = ({ data, sensor, exportMode = false }) => {
                                     </p>
                                 )}
 
-                                {/* Image */}
-                                {item.fullImageUrl && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
-                                        <img 
-                                            src={item.fullImageUrl} 
-                                            alt={`Appendix ${getLetter(globalIndex)}`} 
-                                            style={{ maxWidth: '100%', maxHeight: '450px', objectFit: 'contain', border: `1px solid ${C.gray200}` }} 
+                                {/* Figures — one per attached image, each with its own caption */}
+                                {(item.images ?? []).map((img, imgIndex) => img.url && (
+                                    <div key={img.id ?? imgIndex} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
+                                        <img
+                                            src={img.url}
+                                            alt={`Appendix ${letter} figure ${figureStarts[globalIndex] + imgIndex}`}
+                                            // Two items share a page, so a row with several figures has to
+                                            // give ground or it pushes its neighbour off the bottom.
+                                            style={{ maxWidth: '100%', maxHeight: (item.images.length > 1 ? 450 / Math.min(item.images.length, 2) : 450), objectFit: 'contain', border: `1px solid ${C.gray200}` }}
                                         />
                                         <p style={{ fontStyle: 'italic', fontSize: '14px', color: C.gray600 }}>
-                                            <strong>Figure {globalIndex + 1}. </strong>{item.caption || item.parameter?.name}
+                                            <strong>Figure {figureStarts[globalIndex] + imgIndex}. </strong>{img.caption || item.parameter?.name}
                                         </p>
                                     </div>
-                                )}
+                                ))}
                             </div>
                         );
                     })}

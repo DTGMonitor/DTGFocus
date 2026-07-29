@@ -63,28 +63,36 @@ function blocksAreAdjacent(pages, blocks, keyA, keyB) {
 }
 
 /**
- * Sign each appendix image and inline it as a data URL.
+ * Sign every appendix figure and inline it as a data URL.
  *
  * html2canvas cannot fetch during rasterization, so a remote <img> snapshots
  * blank; and the signed URL expires in an hour, which would break a long-lived
  * preview. Inlining solves both.
  *
+ * An item can carry several figures, so this resolves the whole grid at once —
+ * every image of every item concurrently, not item by item, since a row with
+ * four figures would otherwise serialise four sign+fetch round trips.
+ *
  * Exported because the export path MUST await this before it mounts the template
  * — see `useAppendixImages`.
  */
 export async function resolveAppendixImages(items) {
+  const resolveOne = async (img) => {
+    if (!img?.image_url) return img;
+    try {
+      const { data } = await supabase.storage.from('Radar').createSignedUrl(img.image_url, 3600);
+      if (!data?.signedUrl) return img;
+      return { ...img, imageUrl: await urlToDataUrl(data.signedUrl) };
+    } catch {
+      return img; // A missing figure must not stop the report.
+    }
+  };
+
   return Promise.all(
-    items.map(async (item) => {
-      const path = item.image?.image_url;
-      if (!path) return item;
-      try {
-        const { data } = await supabase.storage.from('Radar').createSignedUrl(path, 3600);
-        if (!data?.signedUrl) return item;
-        return { ...item, imageUrl: await urlToDataUrl(data.signedUrl) };
-      } catch {
-        return item; // A missing figure must not stop the report.
-      }
-    })
+    items.map(async (item) => ({
+      ...item,
+      images: await Promise.all((item.images ?? []).map(resolveOne)),
+    }))
   );
 }
 
@@ -238,6 +246,8 @@ export function ComprehensiveRadarTemplate({
         joinPrev={timelineJoinsImage}
         // The same instant the chains were trimmed against.
         now={data?.timelineNow}
+        // Whether a card's badge quotes a TARP level or names the band.
+        riskMode={data?.riskPresentation?.mode}
       />
     );
 

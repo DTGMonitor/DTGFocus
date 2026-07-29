@@ -29,8 +29,11 @@
 /**
  * Pivot flat dqp_values rows into a nested parameter tree.
  *
- * @param {Array<{value: string, notes: string, appendix: any, image: any,
+ * @param {Array<{value: string, notes: string, appendix: any,
+ *                images?: {id: number, caption: string, image_url: string}[],
  *                parameters: {id: number, name: string, level: number, parent_id: number}}>} rows
+ *   `images` is what attachDqpImages() leaves on the row; absent on an
+ *   unresolved row, which pivots to an empty list rather than throwing.
  * @returns {{ parameters: Record<string, object>, emptyChildren: object[] }}
  */
 export function pivotParameterTree(rows) {
@@ -94,7 +97,7 @@ export function pivotParameterTree(rows) {
         value: r.value || '',
         comments: r.notes || '',
         appendix: r.appendix || null,
-        image: r.image || null,
+        images: Array.isArray(r.images) ? r.images : [],
         level: 2,
         parent_id: p.parent_id,
       });

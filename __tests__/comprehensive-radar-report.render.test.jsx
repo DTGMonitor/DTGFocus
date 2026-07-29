@@ -320,6 +320,51 @@ describe('ComprehensiveRadarTemplate', () => {
       ).toBeGreaterThan(0);
     });
   });
+
+  describe('appendix — a row with several figures', () => {
+    // Pre-resolved, as the export path supplies them: the storage stub above
+    // never returns a signed URL, so resolving in-render would produce no <img>.
+    const twoFigureItem = {
+      letter: 'A',
+      figure: 1,
+      name: 'Alarm Mask',
+      parameterId: 21,
+      notes: 'Continuous triggered false alarms due to vegetation.',
+      appendix: 'Continuous triggered false alarms due to vegetation.',
+      images: [
+        { id: 250, caption: 'Vegetation-affected sectors', image_url: '250.png', imageUrl: 'data:image/png;base64,AAA' },
+        { id: 251, caption: 'Alarm mask recommendations', image_url: '251.png', imageUrl: 'data:image/png;base64,BBB' },
+      ],
+    };
+
+    it('prints every figure the row carries, each with its own caption', async () => {
+      // The regression this guards: only the LAST uploaded image used to reach
+      // the row, so the appendix printed one figure where two were uploaded.
+      renderReport(buildData(), { appendixItems: [twoFigureItem] });
+      expect((await screen.findAllByText('Vegetation-affected sectors')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Alarm mask recommendations').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Figure 1.').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Figure 2.').length).toBeGreaterThan(0);
+    });
+
+    it('shifts every figure when the deformation image claims Figure 1', async () => {
+      // The offset applies to the whole item, not just its first image —
+      // otherwise two figures would both be numbered 2.
+      renderReport(buildData(), {
+        appendixItems: [twoFigureItem],
+        annotation: stubAnnotation({ image: 'data:image/png;base64,AAA' }),
+      });
+      expect((await screen.findAllByText('Figure 2.')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Figure 3.').length).toBeGreaterThan(0);
+    });
+
+    it('falls back to the parameter name for an uncaptioned figure', async () => {
+      renderReport(buildData(), {
+        appendixItems: [{ ...twoFigureItem, images: [{ ...twoFigureItem.images[0], caption: '' }] }],
+      });
+      expect((await screen.findAllByText('Alarm Mask')).length).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe('useImageAnnotation — zone drawing', () => {

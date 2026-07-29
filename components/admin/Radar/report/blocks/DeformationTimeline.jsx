@@ -18,7 +18,7 @@
 
 import { INK, MUTED, LINE, IMAGE_MAX_H } from '../constants';
 import { severityColor, bandColor, tint } from '../severity';
-import { recordColour } from '@/config/riskDisplay';
+import { recordColour, recordBadgeLabel } from '@/config/riskDisplay';
 import { SectionBar } from '../pageFrame';
 import { AnnotatedImage } from '../AnnotatedImage';
 import { resolveDetectedBy } from '@/utils/tabHelpers';
@@ -94,13 +94,14 @@ const Badge = ({ text, color, bg, border }) => (
  * `muted` greys a node that is neither the current state nor from the last 24h
  * — historical context the reader should not weigh as live.
  */
-function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers }) {
+function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, riskMode }) {
   // Coloured by the deformation type, not the TARP level: a record whose site
   // assigns no level (a rock fall, a Leonora blast) still has a band, and
   // colouring it by an empty tarp_level printed it as an unreadable neutral.
-  // The TARP badge below is still driven by tarp_level, and still absent when
-  // there is none.
+  // The badge follows the site — a TARP level, or the band name where the site
+  // quotes no levels — and is absent when there is neither.
   const sev = bandColor(recordColour(node ?? {}));
+  const badge = recordBadgeLabel(node ?? {}, riskMode);
   const dotColor = isCurrent ? sev.color : muted ? LINE : MUTED;
   const subColor = muted ? FAINT : MUTED;
   const details = buildEventDetails(node);
@@ -135,10 +136,11 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers })
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: muted ? MUTED : INK }}>{node?.def_type ?? '—'}</span>
-          {node?.tarp_level ? (
+          {/* The TARP level, or the band name at a site that quotes no levels. */}
+          {badge ? (
             muted
-              ? <Badge text={node.tarp_level} color={MUTED} bg="#fff" border={LINE} />
-              : <Badge text={node.tarp_level} color={sev.onColor} bg={sev.color} />
+              ? <Badge text={badge} color={MUTED} bg="#fff" border={LINE} />
+              : <Badge text={badge} color={sev.onColor} bg={sev.color} />
           ) : null}
           {isRoot ? <Badge text="Root" color={MUTED} bg="#fff" border={LINE} /> : null}
           {isCurrent ? (
@@ -187,7 +189,7 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers })
  * Without the caption two chains are just two runs of cards with a gap between
  * them — indistinguishable from one chain whose spacing happened to widen.
  */
-function TimelineChain({ timeline, index, count, crosscheckers, now }) {
+function TimelineChain({ timeline, index, count, crosscheckers, now, riskMode }) {
   const nodes = timeline?.trimmed ?? [];
   if (nodes.length === 0) return null;
   const current = nodes[nodes.length - 1];
@@ -239,6 +241,7 @@ function TimelineChain({ timeline, index, count, crosscheckers, now }) {
             isLast={last}
             muted={!last && !isRecent(node, now)}
             crosscheckers={crosscheckers}
+            riskMode={riskMode}
           />
         );
       })}
@@ -264,7 +267,7 @@ const fmtDay = (iso) => {
  * current folder's — the current folder is badged Current, a retired one Archived
  * with the day it was decommissioned.
  */
-function FolderTimelineSection({ group, crosscheckers, now, isLastGroup }) {
+function FolderTimelineSection({ group, crosscheckers, now, isLastGroup, riskMode }) {
   const { folder, isArchived, timelines } = group;
   const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at) : null;
 
@@ -312,6 +315,7 @@ function FolderTimelineSection({ group, crosscheckers, now, isLastGroup }) {
           count={timelines.length}
           crosscheckers={crosscheckers}
           now={now}
+          riskMode={riskMode}
         />
       ))}
     </div>
@@ -383,6 +387,9 @@ export function DeformationImage({
  *   (data.timelineNow). Passed in rather than read from the clock here: a
  *   render must be pure, and trimming and muting have to share one clock or a
  *   node can be trimmed in as recent and then printed as stale.
+ * @param {string} riskMode     The site's risk wording (config/riskDisplay.ts),
+ *   which decides whether a card's badge quotes a TARP level or names the band.
+ *   Omitted defaults to the DTG standard, the TARP level.
  */
 export function DeformationTimeline({
   timelines = [],
@@ -391,6 +398,7 @@ export function DeformationTimeline({
   withHeader = false,
   joinPrev = false,
   now = null,
+  riskMode = 'tarp',
 }) {
   const visible = timelines.filter((t) => (t.trimmed?.length ?? 0) > 0);
 
@@ -434,6 +442,7 @@ export function DeformationTimeline({
               crosscheckers={crosscheckers}
               now={now}
               isLastGroup={gi === folderGroups.length - 1}
+              riskMode={riskMode}
             />
           ))
         ) : (
@@ -445,6 +454,7 @@ export function DeformationTimeline({
               count={visible.length}
               crosscheckers={crosscheckers}
               now={now}
+              riskMode={riskMode}
             />
           ))
         )}

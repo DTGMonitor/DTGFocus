@@ -19,6 +19,7 @@ import {
     normalizeTarpDocument,
     buildPolicyFromDocument,
     tarpLevelLabel,
+    inferResponseMethod,
     resolveResponseRequirement,
     responseRequirementForType,
     nominalTarpLevel,
@@ -234,6 +235,174 @@ describe('response method', () => {
     it('returns null when the document has no row for the type', () => {
         expect(responseRequirementForType(doc, 'Regressive')).toBeNull();
         expect(responseRequirementForType(null, 'Linear')).toBeNull();
+    });
+});
+
+describe('response method when an alarm fired', () => {
+    // Leonora: plain linear trends were de-escalated to email in TARP v3, but
+    // the alarm rows were not — a genuine Red or Orange alarm is still a call.
+    const doc = normalizeTarpDocument({
+        ...genesisRow,
+        default_response_method: 'call',
+        triggers: [
+            {
+                id: 1, sort_order: 1, trigger_label: 'Progressive (accelerating) trend',
+                comments: [], def_type: 'Progressive', tarp_level: 4,
+                requires_alarm: false, response_method: 'call'
+            },
+            {
+                id: 2, sort_order: 2, trigger_label: 'Red Alarm', comments: [], colour: 'red',
+                def_type: null, tarp_level: 4, requires_alarm: true, response_method: 'call'
+            },
+            {
+                id: 3, sort_order: 3, trigger_label: 'Linear trend (constant velocity)',
+                comments: [], colour: 'orange', def_type: 'Linear', tarp_level: 3,
+                requires_alarm: true, response_method: 'email',
+                response_notice: 'Email only — do not call.'
+            },
+            {
+                id: 4, sort_order: 4, trigger_label: 'Orange Alarm', comments: [], colour: 'orange',
+                def_type: null, tarp_level: 3, requires_alarm: true, response_method: 'call'
+            }
+        ]
+    });
+
+    it('keeps email only for a linear trend with no alarm', () => {
+        const req = responseRequirementForType(doc, 'Linear', { hasAlarm: false });
+        expect(req.method).toBe('email');
+        expect(req.alarmOverride).toBe(false);
+        expect(req.trigger.triggerLabel).toBe('Linear trend (constant velocity)');
+    });
+
+    it('asks for a call once a genuine alarm accompanies the same trend', () => {
+        const req = responseRequirementForType(doc, 'Linear', {
+            hasAlarm: true, alarmColours: ['Red']
+        });
+        expect(req.method).toBe('call');
+        expect(req.alarmOverride).toBe(true);
+        expect(req.trigger.triggerLabel).toBe('Red Alarm');
+        expect(req.notice).toMatch(/phone call is required/i);
+        expect(req.notice).toMatch(/only without an alarm/i);
+    });
+
+    it('matches the alarm row on the colour of the region ticked', () => {
+        const req = responseRequirementForType(doc, 'Linear', {
+            hasAlarm: true, alarmColours: ['Orange']
+        });
+        expect(req.trigger.triggerLabel).toBe('Orange Alarm');
+        expect(req.method).toBe('call');
+    });
+
+    it('takes the most severe row when several alarms fired', () => {
+        const req = responseRequirementForType(doc, 'Linear', {
+            hasAlarm: true, alarmColours: ['Orange', 'Red']
+        });
+        expect(req.trigger.triggerLabel).toBe('Red Alarm');
+    });
+
+    it('errs towards the most severe row while no region is chosen yet', () => {
+        const req = responseRequirementForType(doc, 'Linear', { hasAlarm: true });
+        expect(req.trigger.triggerLabel).toBe('Red Alarm');
+        expect(req.method).toBe('call');
+    });
+
+    it('leaves the trend row standing for an alarm colour the TARP does not list', () => {
+        const req = responseRequirementForType(doc, 'Linear', {
+            hasAlarm: true, alarmColours: ['Yellow']
+        });
+        expect(req.method).toBe('email');
+        expect(req.alarmOverride).toBe(false);
+    });
+
+    it('never weakens a row that already asks for more than the alarm row', () => {
+        // Progressive is a call with or without an alarm; the alarm row must not
+        // be able to talk it down, only up.
+        const req = responseRequirementForType(doc, 'Progressive', {
+            hasAlarm: true, alarmColours: ['Red']
+        });
+        expect(req.method).toBe('call');
+        expect(req.alarmOverride).toBe(false);
+        expect(req.trigger.triggerLabel).toBe('Progressive (accelerating) trend');
+    });
+
+    it('ignores alarms on a document that lists no alarm row', () => {
+        const noAlarmRows = normalizeTarpDocument({
+            ...genesisRow,
+            default_response_method: 'call',
+            triggers: [{
+                id: 3, sort_order: 3, trigger_label: 'Linear trend', comments: [],
+                def_type: 'Linear', tarp_level: 3, requires_alarm: true,
+                response_method: 'email'
+            }]
+        });
+        const req = responseRequirementForType(noAlarmRows, 'Linear', {
+            hasAlarm: true, alarmColours: ['Red']
+        });
+        expect(req.method).toBe('email');
+        expect(req.alarmOverride).toBe(false);
+    });
+});
+
+describe('response method inferred from the shift cell', () => {
+    // Rows whose response_method never got backfilled because their wording did
+    // not match migration 004's patterns. The chart used to print the document
+    // default — CALL — beside a cell that says email.
+    it('reads the wording the seeded rows actually use', () => {
+        expect(inferResponseMethod('Call Geotech')).toBe('call');
+        expect(inferResponseMethod('Email Geotech')).toBe('email');
+        expect(inferResponseMethod('Site Geotech to email DTG monitoring engineers'))
+            .toBe('email');
+        expect(inferResponseMethod('NA')).toBe('na');
+    });
+
+    it('treats a cell naming both as call-then-email', () => {
+        expect(inferResponseMethod(
+            'Call Supervisor and Mine Manager and email off-site Geotechs'
+        )).toBe('call_then_email');
+    });
+
+    it('names nothing when the cell names no response', () => {
+        expect(inferResponseMethod('')).toBeNull();
+        expect(inferResponseMethod(null)).toBeNull();
+        expect(inferResponseMethod(undefined)).toBeNull();
+        expect(inferResponseMethod('Monitor as per site procedure')).toBeNull();
+    });
+
+    it('does not print CALL beside a cell that says email', () => {
+        // Telfer's blast row: call-first site, no response_method, email prose.
+        const req = resolveResponseRequirement(
+            { responseMethod: null, responseNotice: null, dayShift: 'Email Geotech' },
+            { defaultResponseMethod: 'call' }
+        );
+        expect(req.method).toBe('email');
+        expect(req.label).toBe('Email only');
+        expect(req.deviates).toBe(true);
+        expect(req.notice).toMatch(/do NOT call/i);
+    });
+
+    it('lets the column win over the prose', () => {
+        // Leonora phrases a call row as "Call … and notify … by Email"; the
+        // explicit column is the signed answer and must not be second-guessed.
+        const req = resolveResponseRequirement(
+            {
+                responseMethod: 'call',
+                responseNotice: null,
+                dayShift: 'Call supervisor and notify Leonorageotech by Email.'
+            },
+            { defaultResponseMethod: 'call' }
+        );
+        expect(req.method).toBe('call');
+        expect(req.deviates).toBe(false);
+    });
+
+    it('still falls back to the document default, and never calls that a deviation', () => {
+        const req = resolveResponseRequirement(
+            { responseMethod: null, responseNotice: null, dayShift: null },
+            { defaultResponseMethod: 'call' }
+        );
+        expect(req.method).toBe('call');
+        expect(req.deviates).toBe(false);
+        expect(req.notice).toBe('');
     });
 });
 

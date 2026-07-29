@@ -259,10 +259,10 @@ export function resolveRiskPresentation(
         const driver = worstByColour(active);
         if (!driver) return present(NO_SIGNIFICANT, null, mode);
         const colour = recordColour(driver);
-        // Grey has no notification band on the chart, so the event names itself.
-        const label = colour === 'grey'
-            ? String(driver.def_type || NO_SIGNIFICANT)
-            : `${titleCase(colour)} Notification`;
+        // The band name alone — "Orange", not "Orange Notification". The tile it
+        // sits in is already labelled Risk, and the longer form crowded the
+        // checklist column. Grey has no band on the chart, so the event names itself.
+        const label = colour === 'grey' ? String(driver.def_type || NO_SIGNIFICANT) : titleCase(colour);
         return present(label, driver, mode);
     }
 
@@ -285,6 +285,34 @@ export function resolveRiskPresentation(
     const driver = worstByColour(active);
     return present(NO_RISK_TARP, driver, mode);
 }
+
+/**
+ * The badge an INDIVIDUAL record should carry — on a timeline card, in the
+ * deformation list.
+ *
+ * Records keep their `tarp_level` in the database at every site, including the
+ * ones that quote no TARP numbers: the level is what derives the email's
+ * [CRITICAL] / [MODERATE RISK] bracket, so emptying the column would cost the
+ * severity as well as the wording. It must not be PRINTED at those sites
+ * though — a Hidden Valley card reading "TARP 3" cites a number their chart
+ * does not contain. There the badge names the band instead, exactly as their
+ * TARP rows do.
+ *
+ * Returns '' when there is nothing to badge, and the caller renders no badge.
+ */
+export const recordBadgeLabel = (
+    record: RiskRecordLike,
+    sensorOrMode: RiskSensorLike | RiskDisplayMode | null | undefined
+): string => {
+    const mode: RiskDisplayMode =
+        typeof sensorOrMode === 'string' ? sensorOrMode : getRiskDisplayMode(sensorOrMode);
+
+    if (mode !== 'notification') return record?.tarp_level ? String(record.tarp_level) : '';
+
+    // Grey carries no band on the chart, and the card already names the event.
+    const colour = recordColour(record ?? {});
+    return colour === 'grey' || colour === 'green' ? '' : titleCase(colour);
+};
 
 /**
  * Band colour of an already-resolved risk LABEL.

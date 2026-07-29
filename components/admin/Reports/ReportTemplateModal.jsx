@@ -104,12 +104,20 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     useEffect(() => {
         const processRadarData = async () => {
             if (!radarData) return;
+            // A row carries N figures now, so every one of them gets signed —
+            // and all of them concurrently, or a row with four images would
+            // serialise four round trips before the preview could render.
             const processed = await Promise.all(radarData.map(async (item) => {
-                if (item.image && item.image.image_url) {
-                    const { data } = await supabase.storage.from('Radar').createSignedUrl(item.image.image_url, 3600);
-                    return { ...item, fullImageUrl: data?.signedUrl };
-                }
-                return item;
+                const images = item.images ?? [];
+                if (!images.length) return item;
+                return {
+                    ...item,
+                    images: await Promise.all(images.map(async (img) => {
+                        if (!img.image_url) return img;
+                        const { data } = await supabase.storage.from('Radar').createSignedUrl(img.image_url, 3600);
+                        return { ...img, url: data?.signedUrl };
+                    })),
+                };
             }));
             setProcessedRadarData(processed);
         };
@@ -213,6 +221,23 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         else if (freq === 'monthly') d.setDate(d.getDate() - 30)
         return d.toLocaleDateString('en-CA');
     };
+
+    /**
+     * Is the chosen range backwards?
+     *
+     * `startDate` is only recomputed when FREQUENCY or CATEGORY changes (see
+     * handleInputChange below) and is always measured back from today, never from
+     * the chosen End Date. So picking Weekly and then moving End Date into the past
+     * leaves start after end — which silently empties the InSAR / Water Body query
+     * (`.gte(startDate).lte(endDate)`) and prints a backwards "Period:" line on the
+     * report. Block the preview rather than generate an empty one.
+     *
+     * Lexical compare on 'YYYY-MM-DD' is chronological, the same comparison
+     * windowForFrequency uses for its report-day check.
+     */
+    const invalidDateRange = Boolean(
+        formData.startDate && formData.endDate && formData.startDate > formData.endDate
+    );
 
     // Update your handleInputChange to use it
     const handleInputChange = (field, value) => {
@@ -400,7 +425,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             }
 
             // Calculate Radar Pages dynamically
-            const appendixCount = isRadarTemplate ? processedRadarData.filter(item => item.notes && (item.image || item.appendix)).length : 0;
+            const appendixCount = isRadarTemplate ? processedRadarData.filter(item => item.notes && (item.images?.length || item.appendix)).length : 0;
             const itemsPerPage = 2;
             const appendixPages = Math.ceil(appendixCount / itemsPerPage);
             const radarTotalPages = 2 + (appendixPages > 0 ? appendixPages : 0); // Page 1 + Page 2 + Appendix Pages
@@ -543,6 +568,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         const isManual = !sensor;
         const conditionalMessage = !isManual ? !formData.frequency || !formData.startDate || !formData.endDate : !formData.frequency || !formData.startDate || !formData.endDate || !formData?.clientID;
         if (conditionalMessage) return setMessage('Please select the required fields');
+        if (invalidDateRange) return setMessage('Start Date must be on or before End Date.');
 
         setLoading(true);
         setMessage('');
@@ -742,11 +768,14 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className="w-full px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg" /></div>
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className="w-full px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg" /></div>
+                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
+                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
                             </div>
+                            {/* Says WHY the button is dead — a disabled control with no
+                                reason reads as a broken one. */}
+                            {invalidDateRange && <p className="text-sm text-red-600">Start Date must be on or before End Date.</p>}
                             {message && <div className={`p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'}`}>{message}</div>}
-                            <div className="flex gap-3 pt-4"><button onClick={onClose} className="flex-1 px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] rounded-lg">Cancel</button><button onClick={handleGenerateReport} disabled={loading || !formData.startDate} className="flex-1 px-4 py-2 bg-[var(--dtg-primary-teal-dark)] text-white rounded-lg">{loading ? 'Loading...' : 'Preview Report'}</button> </div>
+                            <div className="flex gap-3 pt-4"><button onClick={onClose} className="flex-1 px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] rounded-lg">Cancel</button><button onClick={handleGenerateReport} disabled={loading || !formData.startDate || invalidDateRange} className="flex-1 px-4 py-2 bg-[var(--dtg-primary-teal-dark)] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">{loading ? 'Loading...' : 'Preview Report'}</button> </div>
                         </div>
                     </div>
                 )}

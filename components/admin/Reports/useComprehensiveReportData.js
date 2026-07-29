@@ -23,6 +23,7 @@ import { fromUTC } from '@/utils/timezoneUtils';
 import { aggregateAlarmCauses, countValidTotal, deriveAlarmTone } from '@/utils/reportAlarms';
 import { shouldIncludeChain, folderChangedInWindow } from '@/utils/reportWallFolders';
 import { buildRadarRecord } from '@/utils/buildRadarRecord';
+import { DQP_IMAGE_COLUMNS, attachDqpImages } from '@/utils/dqpImages';
 import { normalizeTarpDocument } from '@/config/tarpDocument';
 import { resolveRiskPresentation, tarpPriority } from '@/config/riskDisplay';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
@@ -44,6 +45,26 @@ const CROSSCHECKER_NAMES = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso'
 
 /** TARP label → priority. Re-exported from riskDisplay, which owns the scale. */
 export const getRiskPriority = tarpPriority;
+
+/**
+ * The records the risk tile is entitled to read: the CURRENT wall folder's.
+ *
+ * The report's record set deliberately spans every folder this radar has ever
+ * had, so the timeline does not lose records logged under a now-archived folder.
+ * Risk, though, is a statement about the sensor right now — and rolling it up
+ * from every folder meant a record still flagged active in an archived one could
+ * out-rank everything live. That is how the report came to print "TARP 3" for a
+ * radar whose live folder held nothing but a levelless Linear, while the
+ * checklist board and sensor detail — which read the current folder alone —
+ * correctly read "Linear".
+ *
+ * No current folder (a sensor row without one) falls back to the full set rather
+ * than reporting no risk at all.
+ */
+export function recordsForRisk(records, currentFolderId) {
+  if (currentFolderId == null) return records ?? [];
+  return (records ?? []).filter((r) => r?.wallfolder_id === currentFolderId);
+}
 
 /**
  * The sensor's rolled-up risk, worded the way its SITE words it.
@@ -183,10 +204,13 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         sensor.dqp_record_id
           ? supabase
               .from('dqp_values')
-              .select('value, notes, appendix, caption, parameter_id, image:client_images(image_url), parameters!inner(id, name, level, parent_id)')
+              // A row's figures live in image_ids[] / image_captions[], which
+              // PostgREST cannot embed the way the old single FK allowed — so
+              // attachDqpImages resolves them all in one follow-up query.
+              .select(`value, notes, appendix, parameter_id, ${DQP_IMAGE_COLUMNS}, parameters!inner(id, name, level, parent_id)`)
               .eq('dqp_record_id', sensor.dqp_record_id)
               .in('parameters.level', [0, 1, 2])
-              .then((r) => { if (r.error) throw r.error; return r.data; })
+              .then((r) => { if (r.error) throw r.error; return attachDqpImages(supabase, r.data); })
               .catch(warn('data quality values'))
           : Promise.resolve(null),
 
@@ -344,8 +368,16 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
       // Downtime spans every folder of the radar (hardware availability), so the
       // same outage logged under the old and the new folder during a changeover is
       // unioned rather than double-counted — hence mergeOverlaps.
+      //
+      // Deliberately NOT passing `isOff`. That flag belongs to the LIVE gauge,
+      // which answers "is this radar up right now?" — zeroing every ring is the
+      // right answer there. A report answers "how much of the WINDOW was it up?",
+      // and a status change to Lost Connection / Link Down always leaves an open
+      // (`to == null`) downtime_records row (see SensorDetail's handleSubmit), which
+      // computeAvailability already charges from its `from` up to the window end.
+      // Passing isOff on top of that reported 0% uptime for a whole week because
+      // the radar happened to be down at the moment the report was generated.
       const availability = computeAvailability(downtimeRes ?? [], windowStart, windowEnd, {
-        isOff: String(sensor.status ?? '').toLowerCase().includes('lost'),
         mergeOverlaps: true,
       });
 
@@ -396,7 +428,7 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         currentFolderId,
       };
 
-      const riskPresentation = deriveRisk(defRecords, sensor);
+      const riskPresentation = deriveRisk(recordsForRisk(defRecords, currentFolderId), sensor);
 
       // Procedural (TARP) updates dated within the report window.
       const tarpDoc = normalizeTarpDocument(tarpRes);

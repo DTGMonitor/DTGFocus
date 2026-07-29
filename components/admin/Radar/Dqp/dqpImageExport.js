@@ -156,9 +156,13 @@ function tableHtml(groups, parameterConfig) {
           `${swatch(state, statusStyle(s).solid)}</td>`;
       });
 
-      const attachment = item.image?.image_url
+      // The badge counts the figures rather than just flagging their presence —
+      // a row with three attachments must not read the same as a row with one.
+      const imageCount = item.images?.length ?? 0;
+      const attachment = imageCount
         ? `<span style="display:inline-block;margin-left:6px;padding:1px 5px;border-radius:3px;background:#e0f2fe;` +
-          `color:#0369a1;font-size:10px;font-weight:600;line-height:1.4">IMG</span>`
+          `color:#0369a1;font-size:10px;font-weight:600;line-height:1.4">` +
+          `${imageCount > 1 ? `${imageCount} IMG` : 'IMG'}</span>`
         : '';
 
       html +=

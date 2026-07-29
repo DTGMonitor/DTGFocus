@@ -4,6 +4,7 @@ import { ImWarning } from "react-icons/im";
 import { PiPresentationChartBold } from "react-icons/pi";
 import { supabase } from "@/lib/supabaseClient";
 import { pivotParameterTree } from "@/utils/buildRadarRecord";
+import { DQP_IMAGE_COLUMNS, attachDqpImages } from "@/utils/dqpImages";
 import { resolveRiskPresentation } from "@/config/riskDisplay";
 
 function countLevel2StatusesFromParamTree(paramTree) {
@@ -487,7 +488,7 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
     value,
     notes,
     appendix,
-    image:client_images(image_url),
+    ${DQP_IMAGE_COLUMNS},
     parameters!inner(id, name, level, parent_id)
   `)
           .in("dqp_record_id", assessmentIds)
@@ -495,9 +496,13 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
 
         if (error2) throw error2;
 
+        // Figures are ids in an array column, so they need a second lookup to
+        // become storage paths — see utils/dqpImages.js.
+        const valuesWithImages = await attachDqpImages(supabase, allValues);
+
         // group rows by dqp_record_id
         const grouped = {};
-        (allValues || []).forEach((row) => {
+        (valuesWithImages || []).forEach((row) => {
           const aid = row.dqp_record_id;
           grouped[aid] = grouped[aid] || [];
           grouped[aid].push(row);

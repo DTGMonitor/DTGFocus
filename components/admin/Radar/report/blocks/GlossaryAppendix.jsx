@@ -41,8 +41,22 @@ export function Glossary({ radarNumber }) {
   );
 }
 
-/** One appendix entry — heading, prose, figure. One block, one paginated unit. */
+/**
+ * One appendix entry — heading, prose, and every figure the DQP row carries.
+ *
+ * Figure numbers continue across the appendix rather than restarting per item,
+ * so an item's images are numbered from `item.figure` (see buildAppendixItems).
+ * All of an item's figures share one block: they belong to a single finding and
+ * splitting them across pages would strand a caption from its evidence. The
+ * per-image `IMAGE_MAX_H` cap is what keeps that block placeable — a row with
+ * many large figures is the one case the paginator can overflow, which is why
+ * the cap tightens as the count grows.
+ */
 export function AppendixItem({ item, onImageLoad, withHeader = false }) {
+  const images = item.images ?? [];
+  // Two figures fit a page at full height; beyond that each has to give ground.
+  const maxH = images.length > 1 ? Math.floor(IMAGE_MAX_H / Math.min(images.length, 3)) : IMAGE_MAX_H;
+
   return (
     <div>
       {withHeader ? <SectionBar title="Appendix" /> : null}
@@ -67,27 +81,32 @@ export function AppendixItem({ item, onImageLoad, withHeader = false }) {
           </p>
         ) : null}
 
-        {item.imageUrl ? (
-          <div style={{ textAlign: 'center' }}>
-            <img
-              src={item.imageUrl}
-              alt={`Appendix ${item.letter}`}
-              onLoad={onImageLoad}
-              crossOrigin="anonymous"
-              style={{
-                maxWidth: '100%',
-                maxHeight: IMAGE_MAX_H,
-                objectFit: 'contain',
-                border: `1px solid ${LINE}`,
-                display: 'inline-block',
-              }}
-            />
-            <div style={{ fontSize: 8, fontStyle: 'italic', color: MUTED, marginTop: 3, textAlign: 'left' }}>
-              <strong>Figure {item.figure}. </strong>
-              {item.caption || item.name}
+        {images.map((img, i) =>
+          img.imageUrl ? (
+            <div
+              key={img.id ?? i}
+              style={{ textAlign: 'center', marginTop: i === 0 ? 0 : 6 }}
+            >
+              <img
+                src={img.imageUrl}
+                alt={`Appendix ${item.letter} figure ${item.figure + i}`}
+                onLoad={onImageLoad}
+                crossOrigin="anonymous"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: maxH,
+                  objectFit: 'contain',
+                  border: `1px solid ${LINE}`,
+                  display: 'inline-block',
+                }}
+              />
+              <div style={{ fontSize: 8, fontStyle: 'italic', color: MUTED, marginTop: 3, textAlign: 'left' }}>
+                <strong>Figure {item.figure + i}. </strong>
+                {img.caption || item.name}
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null
+        )}
       </div>
     </div>
   );

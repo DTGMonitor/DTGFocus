@@ -20,9 +20,20 @@ import DowntimeTab from "./Tabs/DowntimeTab";
 import TarpTab from "./Tabs/TarpTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
+import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
+
+/**
+ * Detaching every figure from a DQP row.
+ *
+ * Both arrays must be cleared together — the dqp_values_image_arrays_aligned
+ * CHECK rejects a write that empties one and leaves the other. The legacy
+ * single-image columns are cleared alongside so a client still on the old read
+ * path does not resurrect a figure the analyst just removed.
+ */
+const CLEARED_DQP_IMAGES = { image: null, caption: null, image_ids: [], image_captions: [] };
 
 const openOutlookDraft = (
     subject,
@@ -235,6 +246,9 @@ const SensorDetail = ({
         if (!sensor?.dqp_record_id) return;
 
         // We don't need the complex join anymore, just the local parameter_id
+        // Figures live in image_ids[] / image_captions[]. PostgREST cannot embed
+        // a join through an array, so attachDqpImages resolves the ids to storage
+        // paths in one follow-up query — see utils/dqpImages.js.
         const { data, error } = await supabase
             .from('dqp_values')
             .select(`
@@ -242,9 +256,8 @@ const SensorDetail = ({
             value_numeric,
             notes,
             parameter_id,
-            image:client_images(image_url),
             appendix,
-            caption
+            ${DQP_IMAGE_COLUMNS}
         `)
             .eq('dqp_record_id', sensor.dqp_record_id)
             .order('parameter_id', { ascending: true });
@@ -253,7 +266,8 @@ const SensorDetail = ({
         if (error) {
             console.error('error fetching dqp', error);
         } else {
-            const mergedData = data.map(item => {
+            const withImages = await attachDqpImages(supabase, data);
+            const mergedData = withImages.map(item => {
                 const paramDef = parameterMap[item.parameter_id];
                 return {
                     ...item,
@@ -573,7 +587,18 @@ const SensorDetail = ({
                         const restorePromises = recordToRestoreFrom.snapshot.map(item =>
                             supabase
                                 .from('dqp_values')
-                                .update({ value: item.value, notes: item.notes, image: item.image, appendix: item.appendix, caption: item.caption })
+                                // The snapshot is a `select('*')` of the row, so it
+                                // already carries both figure arrays — restore them
+                                // together or the CHECK constraint rejects the write.
+                                .update({
+                                    value: item.value,
+                                    notes: item.notes,
+                                    appendix: item.appendix,
+                                    image: item.image ?? null,
+                                    caption: item.caption ?? null,
+                                    image_ids: item.image_ids ?? [],
+                                    image_captions: item.image_captions ?? [],
+                                })
                                 .eq('id', item.id)
                         );
                         await Promise.all(restorePromises);
@@ -1061,7 +1086,7 @@ const SensorDetail = ({
                     [field]: newValue,
                     // Only update numeric if it was passed (i.e. we are updating status, not notes)
                     ...(newNumericValue !== null && { value_numeric: newNumericValue }),
-                    ...(field === 'value' && { notes: null, image: null, appendix: null, caption: null })
+                    ...(field === 'value' && { notes: null, appendix: null, ...CLEARED_DQP_IMAGES, images: [] })
                 }
                 : row
         );
@@ -1069,7 +1094,7 @@ const SensorDetail = ({
 
         try {
             // 2. Send to Supabase
-            const additionalPayload = field === 'value' ? { notes: null, image: null, appendix: null, caption: null } : {};
+            const additionalPayload = field === 'value' ? { notes: null, appendix: null, ...CLEARED_DQP_IMAGES } : {};
             await updateSupabaseDqp(item, field, newValue, additionalPayload);
 
             // [NEW] Work Log for Direct Updates
@@ -1181,13 +1206,21 @@ const SensorDetail = ({
                 if (insertError) throw insertError;
             }
 
-            // --- NEW: Handle File Uploads ---
-            let uploadedImageId = null;
+            // --- Handle File Uploads ---
+            // Every uploaded file is kept. This loop used to assign a single
+            // `uploadedImageId`, so a multi-file upload stored a client_images
+            // row per file but pointed dqp_values at only the last one — the
+            // rest stayed in Storage with nothing referencing them.
+            const uploadedImages = [];
             if (formData.files && formData.files.length > 0) {
                 const clientId = sensor.site_id || userSite?.site?.id;
                 const bucket = 'Radar';
 
-                for (const file of formData.files) {
+                for (const entry of formData.files) {
+                    // The modal now hands over { file, caption }; tolerate a bare
+                    // File so any other caller keeps working.
+                    const file = entry?.file ?? entry;
+                    const caption = entry?.caption ?? '';
                     const fileName = `${clientId}/${new Date().toISOString().split('T')[0]}_${file.name}`;
 
                     const { error: uploadError } = await supabase.storage
@@ -1219,7 +1252,7 @@ const SensorDetail = ({
                         .single();
 
                     if (!dbError && imgData) {
-                        uploadedImageId = imgData.id;
+                        uploadedImages.push({ id: imgData.id, caption });
                     }
                 }
             }
@@ -1227,14 +1260,15 @@ const SensorDetail = ({
             // 3. FINAL STEP: Update the DQP table with Status AND Score
             // We reuse the same supabase helper to ensure consistency
             const additionalPayload = { notes: formData.notes };
-            if (uploadedImageId) {
-                additionalPayload.image = uploadedImageId;
+            // Uploading REPLACES the row's figures rather than appending, matching
+            // how notes and appendix are replaced: the modal files one action plan
+            // per status change, and figures carried over from a previous incident
+            // would be captioned against notes that no longer describe them.
+            if (uploadedImages.length) {
+                Object.assign(additionalPayload, buildDqpImagePayload(uploadedImages));
             }
             if (formData.appendix) {
                 additionalPayload.appendix = formData.appendix;
-            }
-            if (formData.caption) {
-                additionalPayload.caption = formData.caption;
             }
 
             await updateSupabaseDqp(item, 'value', targetStatus, additionalPayload);
@@ -1686,15 +1720,14 @@ const SensorDetail = ({
                                 <TriangleAlert className="w-4 h-4" />
                                 <span>Risk</span>
                             </div>
-                            <div className="py-1.5 flex items-center gap-2">
+                            {/* The label only. The driving record's TARP level belongs on the
+                                record, in the deformation list — printing it here put "TARP 3"
+                                beside a risk line whose whole point is that its site does not
+                                quote TARP numbers. */}
+                            <div className="py-1.5">
                                 <span className={`px-2 py-0.5 rounded text-sm border ${getBandColor(riskInfo.colour)}`}>
                                     {riskInfo.label}
                                 </span>
-                                {/* The record's own TARP level, where its site assigns one and the
-                                    label above is not already quoting it. */}
-                                {riskInfo.tarpLevel && riskInfo.tarpLevel !== riskInfo.label ? (
-                                    <span className="text-xs text-[var(--dtg-gray-500)]">{riskInfo.tarpLevel}</span>
-                                ) : null}
                             </div>
                         </div>
                     </div>

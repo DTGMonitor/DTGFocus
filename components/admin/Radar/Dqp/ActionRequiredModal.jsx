@@ -37,7 +37,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
     // Cleanup previews on unmount
     useEffect(() => {
         return () => {
-            filesRef.current.forEach(file => URL.revokeObjectURL(file.preview));
+            filesRef.current.forEach(entry => URL.revokeObjectURL(entry.preview));
         };
     }, []);
 
@@ -96,11 +96,19 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
         });
     };
 
+    /**
+     * Each entry is `{ file, preview, caption }` rather than a File decorated in
+     * place: every image now carries its own figure caption into the report, and
+     * a controlled <input> cannot be backed by a mutated File object without the
+     * keystroke and the re-render disagreeing.
+     */
     const addFiles = (newFiles) => {
-        const filesWithPreview = newFiles.map(file => Object.assign(file, {
-            preview: URL.createObjectURL(file)
+        const entries = newFiles.map(file => ({
+            file,
+            preview: URL.createObjectURL(file),
+            caption: '',
         }));
-        setFiles(prev => [...prev, ...filesWithPreview]);
+        setFiles(prev => [...prev, ...entries]);
     };
 
     const removeFile = (index) => {
@@ -110,6 +118,10 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
             URL.revokeObjectURL(removed.preview);
             return newFiles;
         });
+    };
+
+    const setCaption = (index, caption) => {
+        setFiles(prev => prev.map((entry, i) => (i === index ? { ...entry, caption } : entry)));
     };
 
     const handleSubmit = () => {
@@ -290,37 +302,42 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
 
                                     {files.length > 0 && (
                                         <div className="space-y-2">
-                                            {files.map((file, index) => (
-                                                <div key={index} className="flex items-center justify-between p-2 bg-[var(--dtg-bg-secondary)] rounded border border-[var(--dtg-border-medium)]">
-                                                    <div className="flex items-center gap-3 overflow-hidden">
-                                                        <div className="w-10 h-10 rounded overflow-hidden bg-gray-800 flex-shrink-0 border border-[var(--dtg-border-medium)]">
-                                                            <img
-                                                                src={file.preview}
-                                                                alt={file.name}
-                                                                className="w-full h-full object-cover"
-                                                            />
+                                            {files.map((entry, index) => (
+                                                <div key={index} className="p-2 bg-[var(--dtg-bg-secondary)] rounded border border-[var(--dtg-border-medium)] space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <div className="w-10 h-10 rounded overflow-hidden bg-gray-800 flex-shrink-0 border border-[var(--dtg-border-medium)]">
+                                                                <img
+                                                                    src={entry.preview}
+                                                                    alt={entry.file.name}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            </div>
+                                                            <div className="flex flex-col min-w-0">
+                                                                <span className="text-sm truncate text-[var(--dtg-text-primary)]">{entry.file.name}</span>
+                                                                <span className="text-xs text-[var(--dtg-gray-500)]">
+                                                                    Figure {index + 1} • {(entry.file.size / 1024).toFixed(0)} KB
+                                                                </span>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex flex-col min-w-0">
-                                                            <span className="text-sm truncate text-[var(--dtg-text-primary)]">{file.name}</span>
-                                                            <span className="text-xs text-[var(--dtg-gray-500)]">({(file.size / 1024).toFixed(0)} KB)</span>
-                                                        </div>
+                                                        <button
+                                                            onClick={() => removeFile(index)}
+                                                            className="text-[var(--dtg-gray-400)] hover:text-red-500 transition-colors"
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
                                                     </div>
-                                                    <button
-                                                        onClick={() => removeFile(index)}
-                                                        className="text-[var(--dtg-gray-400)] hover:text-red-500 transition-colors"
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
+                                                    {/* One caption per figure — blank falls back to the parameter name. */}
+                                                    <Input
+                                                        placeholder={`Caption for figure ${index + 1}`}
+                                                        value={entry.caption}
+                                                        onChange={(e) => setCaption(index, e.target.value)}
+                                                    />
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                 </div>
-                                <Input
-                                    placeholder="Input the image caption"
-                                    value={formData.caption}
-                                    onChange={(e) => setFormData({ ...formData, caption: e.target.value })}
-                                />
                             </div>
                         }
                     </div>

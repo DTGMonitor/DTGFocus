@@ -702,9 +702,17 @@ const AddDeformationForm = ({
     // document wins; sites not yet migrated fall back to the hard-coded map.
     const tarpPolicy = documentPolicy || getTarpPolicyForSensor(sensor);
 
-    // Non-null only when this site's TARP asks for something other than its own
-    // default steady-state response for this trigger.
-    const responseRequirement = responseRequirementForType(tarpDocument, formData.Type);
+    // What this site's TARP asks the engineer to do for this record. An alarm is
+    // a trigger in its own right, so the alarm row is weighed against the trend
+    // row — without that, Leonora's email-only linear row printed EMAIL ONLY
+    // over a red alarm the same chart says to phone in.
+    const responseRequirement = responseRequirementForType(tarpDocument, formData.Type, {
+        // The Alarm tick is the engineer's statement that one fired; the regions
+        // may not be chosen yet, and erring towards the alarm row errs towards
+        // a phone call.
+        hasAlarm: withAlarm || selectedRegions.length > 0,
+        alarmColours: selectedRegions.map((r: any) => r.type),
+    });
 
     // Is this record standing a TARP level DOWN? The prior state is the record
     // being updated plus any precursors the engineer ticked.
@@ -786,16 +794,27 @@ const AddDeformationForm = ({
                 )}
 
                 {/* The site's TARP may require something other than the usual phone
-                    call for this trigger. Surface it before the engineer acts. */}
-                {responseRequirement?.deviates && transition.direction !== 'deescalation' && (
+                    call for this trigger, or an alarm may have overridden what the
+                    trend row alone would ask for. Surface it before the engineer acts. */}
+                {(responseRequirement?.deviates || responseRequirement?.alarmOverride)
+                    && transition.direction !== 'deescalation' && (
                     <div
                         role="alert"
-                        className="flex items-start gap-3 rounded-md border-2 border-amber-400/70 bg-amber-400/15 px-4 py-3"
+                        className={`flex items-start gap-3 rounded-md border-2 px-4 py-3 ${responseRequirement.deviates
+                            ? 'border-amber-400/70 bg-amber-400/15'
+                            : 'border-sky-400/60 bg-sky-400/10'
+                            }`}
                     >
-                        <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-300" />
+                        <AlertTriangle
+                            size={18}
+                            className={`mt-0.5 shrink-0 ${responseRequirement.deviates ? 'text-amber-300' : 'text-sky-300'}`}
+                        />
                         <div>
-                            <p className="text-sm font-bold text-amber-200 uppercase tracking-wide">
-                                {responseRequirement.label} — site TARP deviates from the default
+                            <p className={`text-sm font-bold uppercase tracking-wide ${responseRequirement.deviates ? 'text-amber-200' : 'text-sky-200'}`}>
+                                {responseRequirement.label}
+                                {responseRequirement.alarmOverride
+                                    ? ' — the alarm sets the response'
+                                    : ' — site TARP deviates from the default'}
                             </p>
                             <p className="mt-0.5 text-sm text-[var(--dtg-text-secondary)]">
                                 {responseRequirement.notice}
@@ -803,7 +822,7 @@ const AddDeformationForm = ({
                             {tarpDocument && (
                                 <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">
                                     Per {tarpDocument.heading || sensor.site_name} TARP v{tarpDocument.version}
-                                    {' · '}{formData.Type}
+                                    {' · '}{responseRequirement.trigger?.triggerLabel || formData.Type}
                                 </p>
                             )}
                         </div>

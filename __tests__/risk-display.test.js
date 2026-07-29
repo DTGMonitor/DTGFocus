@@ -14,10 +14,16 @@
  * TYPE, so the same trend is the same colour at every site.
  */
 
+// The hook module pulls in supabaseClient at import time; stub it so importing
+// the pure helper does not spin up a real client.
+jest.mock('@/lib/supabaseClient', () => ({ supabase: {} }));
+
+import { recordsForRisk, deriveRisk } from '@/components/admin/Reports/useComprehensiveReportData';
 import {
     resolveRiskPresentation,
     presentationFromLabel,
     pendingPresentation,
+    recordBadgeLabel,
     getRiskDisplayMode,
     defTypeColour,
     recordColour,
@@ -151,12 +157,12 @@ describe('Leonora — a TARP level only when one must be responded to', () => {
 
 describe('Hidden Valley — names the band, never the level', () => {
     it.each([
-        ['Progressive', 'Red Notification'],
-        ['Linear Accelerating', 'Red Notification'],
-        ['Linear', 'Orange Notification'],
-        ['Regressive', 'Yellow Notification'],
-        ['Blast Event', 'Yellow Notification'],
-        ['Rainfall Event', 'Yellow Notification'],
+        ['Progressive', 'Red'],
+        ['Linear Accelerating', 'Red'],
+        ['Linear', 'Orange'],
+        ['Regressive', 'Yellow'],
+        ['Blast Event', 'Yellow'],
+        ['Rainfall Event', 'Yellow'],
     ])('%s reads "%s"', (type, label) => {
         expect(resolveRiskPresentation([rec(type, 'TARP 3')], hiddenValley).label).toBe(label);
     });
@@ -175,6 +181,30 @@ describe('Hidden Valley — names the band, never the level', () => {
 
     it('falls back to no significant with nothing active', () => {
         expect(resolveRiskPresentation([], hiddenValley).label).toBe(NO_SIGNIFICANT);
+    });
+});
+
+describe('the badge on an individual record', () => {
+    it('quotes the TARP level at a site that words risk that way', () => {
+        expect(recordBadgeLabel(rec('Linear', 'TARP 3'), telfer)).toBe('TARP 3');
+        expect(recordBadgeLabel(rec('Linear', 'TARP 3'), leonora)).toBe('TARP 3');
+        // Leonora's risk LINE says "Regressive", but a record that carries a
+        // level still shows it — the level is theirs, it is just not the headline.
+        expect(recordBadgeLabel(rec('Progressive', 'TARP 4'), leonora)).toBe('TARP 4');
+    });
+
+    it('names the band at Hidden Valley, which quotes no levels anywhere', () => {
+        // The level is still stored — it derives the email's severity bracket —
+        // but printing it cites a number their chart does not contain.
+        expect(recordBadgeLabel(rec('Linear', 'TARP 3'), hiddenValley)).toBe('Orange');
+        expect(recordBadgeLabel(rec('Progressive', 'TARP 4'), hiddenValley)).toBe('Red');
+        expect(recordBadgeLabel(rec('Blast Event', 'TARP 2'), hiddenValley)).toBe('Yellow');
+    });
+
+    it('badges nothing when there is nothing to say', () => {
+        expect(recordBadgeLabel(rec('Rock Fall', ''), telfer)).toBe('');
+        expect(recordBadgeLabel(rec('Rock Fall', ''), hiddenValley)).toBe('');
+        expect(recordBadgeLabel(rec('Blast Event', ''), leonora)).toBe('');
     });
 });
 
@@ -205,15 +235,18 @@ describe('presentations built from a bare label', () => {
     });
 
     it('reads a band name and a deformation type', () => {
-        expect(labelColour('Red Notification')).toBe('red');
-        expect(labelColour('Yellow Notification')).toBe('yellow');
+        expect(labelColour('Red')).toBe('red');
+        expect(labelColour('Yellow')).toBe('yellow');
+        // The longer wording this replaced is still readable, for rows stored
+        // or exported before the change.
+        expect(labelColour('Orange Notification')).toBe('orange');
         expect(labelColour('Regressive')).toBe('yellow');
         expect(labelColour(NO_SIGNIFICANT)).toBe('green');
     });
 
     it('carries the level for the badge only when there is one', () => {
         expect(presentationFromLabel('TARP 3').tarpLevel).toBe('TARP 3');
-        expect(presentationFromLabel('Red Notification').tarpLevel).toBe('');
+        expect(presentationFromLabel('Red').tarpLevel).toBe('');
     });
 });
 
@@ -233,7 +266,7 @@ describe('the Key Findings sentence', () => {
         expect(riskSentence(resolveRiskPresentation([rec('Progressive', 'TARP 4')], telfer)))
             .toBe('Overall risk is on TARP 4 – Critical condition.');
         expect(riskSentence(resolveRiskPresentation([rec('Progressive', 'TARP 4')], hiddenValley)))
-            .toBe('Overall risk is on Red Notification – Critical condition.');
+            .toBe('Overall risk is on Red – Critical condition.');
         expect(riskSentence(resolveRiskPresentation([rec('Regressive', '')], leonora)))
             .toBe('Overall risk is on Regressive – Intermediate Risk condition.');
         expect(riskSentence(resolveRiskPresentation([], leonora)))
@@ -248,6 +281,24 @@ describe('tarpPriority', () => {
         expect(tarpPriority('')).toBe(0);
         expect(tarpPriority(null)).toBe(0);
         expect(tarpPriority('Red Notification')).toBe(0);
+    });
+});
+
+describe('the report reads the same records the screens do', () => {
+    const inFolder = (folder, def_type, tarp_level = '') => ({ ...rec(def_type, tarp_level), wallfolder_id: folder });
+
+    it('ignores records held by a folder the radar has moved off', () => {
+        // The bug: an archived folder still holding an active TARP 3 out-ranked
+        // the live folder, so the report and the board disagreed.
+        const records = [inFolder(9, 'Linear', 'TARP 3'), inFolder(1, 'Linear', '')];
+        expect(deriveRisk(recordsForRisk(records, 1), leonora).label).toBe('Linear');
+        expect(deriveRisk(records, leonora).label).toBe('TARP 3');
+    });
+
+    it('reads everything when the sensor carries no current folder', () => {
+        const records = [inFolder(9, 'Progressive', 'TARP 4')];
+        expect(recordsForRisk(records, null)).toHaveLength(1);
+        expect(recordsForRisk(null, 1)).toEqual([]);
     });
 });
 

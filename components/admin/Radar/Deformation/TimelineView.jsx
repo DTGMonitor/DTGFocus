@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { getBandDotColor, getBandColor } from "@/config/statusConfig";
-import { recordColour } from "@/config/riskDisplay";
+import { recordColour, recordBadgeLabel } from "@/config/riskDisplay";
 import { fromUTC } from "@/utils/timezoneUtils";
 import { Spinner } from "@/components/Reusable/Spinner";
 
@@ -29,8 +29,10 @@ const resolveDetectedBy = (uuid, crosscheckers = []) => {
  *   error         – string | null
  *   timezone      – string (IANA timezone, e.g. "Australia/Perth")
  *   crosscheckers – UserProfile[] used to resolve detected_by UUID → full_name
+ *   riskMode      – the site's risk wording (config/riskDisplay.ts): decides
+ *                   whether a card's badge quotes a TARP level or names the band
  */
-const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = [] }) => {
+const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = [], riskMode = 'tarp' }) => {
   // Loading state
   if (isLoading) {
     return (
@@ -90,10 +92,12 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
             : "—";
 
           const detectedByName = resolveDetectedBy(record.detected_by, crosscheckers);
-          // Band colour from the deformation type; the TARP badge below still
-          // reads the record's own tarp_level and still hides when there is none.
+          // Band colour from the deformation type; the badge follows the site —
+          // a TARP level, or the band name where the site quotes no levels —
+          // and hides when there is neither.
           const tarpDotClass = getBandDotColor(recordColour(record));
           const tarpCardClass = getBandColor(recordColour(record));
+          const badge = recordBadgeLabel(record, riskMode);
 
           return (
             <div key={record.id ?? index} className="flex gap-3">
@@ -133,8 +137,8 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
                     {record.def_type ?? "—"}
                   </span>
 
-                  {/* tarp_level coloured badge */}
-                  {record.tarp_level && (
+                  {/* Severity badge — TARP level, or band name */}
+                  {badge && (
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border ${
                         isCurrent
@@ -143,7 +147,7 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
                       }`}
                     >
                       <span className={`w-2 h-2 rounded-full ${tarpDotClass}`} />
-                      {record.tarp_level}
+                      {badge}
                     </span>
                   )}
 

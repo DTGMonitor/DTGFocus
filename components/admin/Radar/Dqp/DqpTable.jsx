@@ -3,7 +3,6 @@ import { useMemo, Fragment, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getRiskColorSolid } from "@/config/statusConfig";
 import { PARAMETER_CONFIG } from "@/config/parameterConfig";
-import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { ExternalLink, X, Loader, ImageDown } from 'lucide-react';
 import { exportDqpTableImage } from "./dqpImageExport";
@@ -16,21 +15,27 @@ const isRowInvalid = (item) => {
 
 export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exportSubtitle = '' }) => {
     const [previewItem, setPreviewItem] = useState(null);
-    const [previewUrl, setPreviewUrl] = useState('');
+    const [previewImages, setPreviewImages] = useState([]);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
 
+    // A row carries N figures, each with its own caption. They are signed as a
+    // batch so the preview opens in one round trip rather than one per figure.
     const handleViewImage = async (item) => {
-        if (!item.image?.image_url) return;
+        const images = item.images ?? [];
+        if (!images.length) return;
         setPreviewItem(item);
+        setPreviewImages([]);
         setLoadingPreview(true);
         try {
-            const { data, error } = await supabase.storage
-                .from('Radar')
-                .createSignedUrl(item.image.image_url, 3600);
-
-            if (error) throw error;
-            setPreviewUrl(data.signedUrl);
+            const signed = await Promise.all(images.map(async (img) => {
+                const { data, error } = await supabase.storage
+                    .from('Radar')
+                    .createSignedUrl(img.image_url, 3600);
+                if (error) throw error;
+                return { ...img, url: data.signedUrl };
+            }));
+            setPreviewImages(signed);
         } catch (error) {
             console.error('Error loading image:', error);
             setPreviewItem(null); // close modal on error
@@ -226,13 +231,19 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                                                 >
                                                     {item.notes}
                                                 </label>
-                                                {item.image?.image_url && (
+                                                {item.images?.length > 0 && (
                                                     <button
                                                         onClick={() => handleViewImage(item)}
-                                                        className="text-blue-400 hover:text-blue-300 transition-colors"
-                                                        title="View Image"
+                                                        className="flex items-center gap-0.5 text-blue-400 hover:text-blue-300 transition-colors"
+                                                        title={item.images.length === 1 ? 'View image' : `View ${item.images.length} images`}
                                                     >
                                                         <ExternalLink size={14} />
+                                                        {/* The count is the whole point of the change — without it a row
+                                                            with three figures is indistinguishable from one with a single
+                                                            figure, which is how the missing uploads went unnoticed. */}
+                                                        {item.images.length > 1 && (
+                                                            <span className="text-[10px] font-semibold leading-none">{item.images.length}</span>
+                                                        )}
                                                     </button>
                                                 )}
                                             </div>
@@ -257,6 +268,11 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                         <div className="px-5 py-3 border-b border-[var(--dtg-border-medium)] flex justify-between items-center flex-shrink-0">
                             <h3 className="m-0 text-[var(--dtg-text-primary)] text-base">
                                 Image Preview
+                                {previewImages.length > 1 && (
+                                    <span className="ml-2 text-sm text-[var(--dtg-text-secondary)]">
+                                        ({previewImages.length} figures)
+                                    </span>
+                                )}
                             </h3>
                             <button
                                 onClick={() => setPreviewItem(null)}
@@ -271,19 +287,26 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                                     <Loader className="animate-spin mr-2" /> Loading Image...
                                 </div>
                             ) : (
-                                <img
-                                    src={previewUrl}
-                                    alt="DQP Appendix"
-                                    className="w-full h-auto max-h-[65vh] object-contain rounded"
-                                />
+                                // Stacked and scrollable rather than a carousel: the captions
+                                // only make sense read against each other, and the report
+                                // prints them in this same order.
+                                <div className="space-y-6">
+                                    {previewImages.map((img, i) => (
+                                        <div key={img.id ?? i}>
+                                            <img
+                                                src={img.url}
+                                                alt={`DQP appendix figure ${i + 1}`}
+                                                className="w-full h-auto max-h-[65vh] object-contain rounded"
+                                            />
+                                            <p className="text-center text-sm text-[var(--dtg-text-secondary)] mt-3 italic">
+                                                <strong>Figure {i + 1}. </strong>
+                                                {img.caption || previewItem.parameter?.name}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
-                            
-                            {previewItem.caption && (
-                                
-                                <p className="text-center text-sm text-[var(--dtg-text-secondary)] mt-4 italic">
-                                    <strong>Figure 1. </strong>{previewItem.caption}
-                                </p>
-                            )}
+
                             {previewItem.appendix && (
                                  <p className="text-justify text-sm text-[var(--dtg-text-secondary)] mt-2">{previewItem.appendix}</p>
                             )}

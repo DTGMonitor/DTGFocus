@@ -221,22 +221,26 @@ export function toGaugeShape(availability) {
 const REPORT_DAY_BOUNDARY = '05:00:00';
 
 /**
- * The report window for a frequency. The START is anchored to REPORT_DAY_BOUNDARY
- * (05:00) in the site's IANA `timeZone`, spanning back 1 / 7 / 30 days from the
- * report day. `reportDay` is the report's calendar day as 'YYYY-MM-DD' (the form's
- * End Date); `now` is the moment the report is generated (injected for testing).
+ * The report window for a frequency: always EXACTLY 1 / 7 / 30 × 24 hours long,
+ * measured back from the window END. `reportDay` is the report's calendar day as
+ * 'YYYY-MM-DD' (the form's End Date); `now` is the moment the report is generated
+ * (injected for testing).
  *
- * The END depends on `now`, NOT on the 05:00 schedule — the schedule time is a
- * delivery concern that can change and must not drive the maths:
+ * The END, and therefore the START:
  *   - report day is TODAY or in the future → the period is still open, so the
- *     window ends at `now`. An in-progress / still-open (`to == null`) downtime is
- *     therefore counted up to the present, and never beyond it (no future
- *     over-counting).
- *   - report day is in the PAST → a closed period; the window ends at its fixed
- *     05:00 boundary so historical reports stay stable.
+ *     window ends at `now` and starts at the same wall-clock time N days earlier.
+ *     A daily report generated 2026-07-29 14:30 covers 2026-07-28 14:30 → now:
+ *     the latest 24 h. Weekly covers the latest 168 h. An in-progress / still-open
+ *     (`to == null`) downtime is counted up to the present and never beyond it.
+ *   - report day is in the PAST → a closed period; the window ends at that day's
+ *     fixed 05:00 site-local boundary (REPORT_DAY_BOUNDARY) and starts 05:00 N days
+ *     earlier, so historical reports stay stable and reproducible.
  *
- * So `daily` for 2026-07-27, generated that afternoon, covers 05:00 2026-07-26 →
- * now (site local) — it includes both yesterday and today's ongoing downtime.
+ * The span used to be anchored to the START instead (05:00 on reportDay − N days)
+ * while the END tracked `now`, which stretched an open period past its nominal
+ * length — a daily report pulled at 14:30 covered 33 h and divided its downtime by
+ * 33, not 24. The 05:00 boundary now only fixes CLOSED periods; for the open one
+ * the anchor is `now`, which is what "latest 24 h / 7 days" means.
  *
  * Boundaries go through toUTC()/fromUTC(), so the window is identical whether this
  * runs on a UTC server or a browser in any timezone.
@@ -247,13 +251,15 @@ export function windowForFrequency(frequency, reportDay, timeZone = 'UTC', now =
 
   const scheduledEndIso = reportDay ? toUTC(`${reportDay}T${REPORT_DAY_BOUNDARY}`, timeZone) : null;
   const scheduledEnd = scheduledEndIso ? new Date(scheduledEndIso).getTime() : nowMs;
-  const windowStart = new Date(scheduledEnd - days * 24 * MS_PER_HOUR);
 
   // "Is this report day still open?" — compare the report day to today's date in
   // the site timezone. Lexical compare on 'YYYY-MM-DD' is chronological.
   const today = (fromUTC(new Date(nowMs).toISOString(), timeZone) || '').slice(0, 10);
   const isOpenPeriod = !reportDay || reportDay >= today;
-  const windowEnd = new Date(isOpenPeriod ? nowMs : scheduledEnd);
 
-  return { windowStart, windowEnd };
+  const endMs = isOpenPeriod ? nowMs : scheduledEnd;
+  return {
+    windowStart: new Date(endMs - days * 24 * MS_PER_HOUR),
+    windowEnd: new Date(endMs),
+  };
 }

@@ -9,8 +9,24 @@
  * Pure: no React, no Supabase.
  */
 
+import { normaliseDqpImages } from './dqpImages';
+
 /** Parameter id 26 is excluded from the printed table (inherited from RadarTemplate). */
 const EXCLUDED_PARAMETER_IDS = new Set([26]);
+
+/**
+ * A row's figures, whether the caller already resolved them or not.
+ *
+ * `attachDqpImages()` puts a resolved `images` array on the row; a hand-built
+ * test row or a legacy single-image row has only `image`/`caption`. Falling back
+ * to `normaliseDqpImages` keeps this module usable on an unresolved row —
+ * without storage paths, but with the right count and captions, which is what
+ * the figure numbering below depends on.
+ */
+function rowImages(r) {
+  if (Array.isArray(r?.images)) return r.images;
+  return normaliseDqpImages(r).map((p) => ({ ...p, image_url: null }));
+}
 
 const isNonOptimal = (value) =>
   value !== 'Optimal' && value !== 'N/A' && value !== null && value !== undefined && String(value).trim() !== '';
@@ -59,8 +75,7 @@ export function buildDqpGroups(rows) {
       value: r.value,
       notes: r.notes,
       appendix: r.appendix,
-      caption: r.caption,
-      image: r.image,
+      images: rowImages(r),
     });
   }
 
@@ -104,25 +119,45 @@ export function listNonOptimalParams(rows) {
 }
 
 /**
- * Appendix items: rows with notes AND (an image or appendix text), sorted by
- * parameter id, lettered A, B, C… (Requirement 9.3/9.4).
+ * Appendix items: rows with notes AND (at least one image or appendix text),
+ * sorted by parameter id, lettered A, B, C… (Requirement 9.3/9.4).
+ *
+ * A row can carry several figures, so figure numbers run across the whole
+ * appendix rather than per item: item A with two images takes Figures 1 and 2,
+ * and item B starts at 3. `item.figure` is the item's FIRST figure number — the
+ * renderer numbers each image `item.figure + index`. Keeping it a single number
+ * is what lets the template shift the whole appendix by `figureOffset` when the
+ * deformation image claims Figure 1.
+ *
+ * An item that is appendix prose only consumes no figure numbers.
  */
 export function buildAppendixItems(rows) {
   const list = Array.isArray(rows) ? rows : [];
+  let figure = 1;
   return list
-    .filter((r) => r?.notes && (r.image || r.appendix))
-    .sort((a, b) => (a.parameters?.id ?? 0) - (b.parameters?.id ?? 0))
-    .map((r, i) => ({
-      letter: String.fromCharCode(65 + i),
-      figure: i + 1,
-      name: r.parameters?.name ?? '',
-      parameterId: r.parameters?.id ?? null,
-      notes: r.notes,
-      appendix: r.appendix,
-      caption: r.caption,
-      image: r.image,
-      imageUrl: null, // filled in by the caller once signed + converted to a data URL
-    }));
+    .map((r) => ({ row: r, images: rowImages(r) }))
+    .filter(({ row, images }) => row?.notes && (images.length || row.appendix))
+    .sort((a, b) => (a.row.parameters?.id ?? 0) - (b.row.parameters?.id ?? 0))
+    .map(({ row, images }, i) => {
+      const first = figure;
+      figure += images.length;
+      return {
+        letter: String.fromCharCode(65 + i),
+        figure: first,
+        name: row.parameters?.name ?? '',
+        parameterId: row.parameters?.id ?? null,
+        notes: row.notes,
+        appendix: row.appendix,
+        // `imageUrl` on each entry is filled in by the caller once the storage
+        // path is signed and inlined as a data URL.
+        images: images.map((img) => ({
+          id: img.id,
+          caption: img.caption ?? '',
+          image_url: img.image_url ?? null,
+          imageUrl: null,
+        })),
+      };
+    });
 }
 
 /** The overall (level 0) status, or null. Callers must tolerate null. */

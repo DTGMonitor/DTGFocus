@@ -84,7 +84,23 @@
       "Bash(git diff *)",
       "Bash(node -e \"console.log\\('machine tz offset \\(min\\):', new Date\\(\\).getTimezoneOffset\\(\\)\\); process.env.TZ='America/New_York'; console.log\\('after override:', new Date\\('2026-07-28T15:00:00Z'\\).getHours\\(\\)\\);\")",
       "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\)\")",
-      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/dd5c3e46-38b3-41e7-bd11-f697523ef711/scratchpad/preview.js\")"
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/dd5c3e46-38b3-41e7-bd11-f697523ef711/scratchpad/preview.js\")",
+      "Bash(python -)",
+      "Bash(echo \"tsc exit: $?\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/1e3eda2a-93d1-45d4-8398-43cb5a578258/scratchpad/check-tarp.mjs\")",
+      "Bash(node -e \"console.log\\(require.resolve\\('@supabase/supabase-js'\\)\\)\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/1e3eda2a-93d1-45d4-8398-43cb5a578258/scratchpad/check-records.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/1e3eda2a-93d1-45d4-8398-43cb5a578258/scratchpad/check-wf.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/1e3eda2a-93d1-45d4-8398-43cb5a578258/scratchpad/check-doccols.mjs\")",
+      "Bash(node \"C:/Users/LINTAN~1/AppData/Local/Temp/claude/e--Lintang-dtg-focus-vercel/1e3eda2a-93d1-45d4-8398-43cb5a578258/scratchpad/check-response.mjs\")",
+      "PowerShell(npx jest --silent 2>&1)",
+      "PowerShell(npx jest __tests__/dqp-images.test.js 2>&1)",
+      "PowerShell(npx jest __tests__/comprehensive-radar-report.render.test.jsx --silent -t \"appendix\" 2>&1)",
+      "PowerShell(npx eslint utils/dqpImages.js utils/reportDqp.js utils/buildRadarRecord.js components/admin/Radar/SensorDetail.jsx components/admin/Radar/Dqp/DqpTable.jsx components/admin/Radar/Dqp/ActionRequiredModal.jsx components/admin/Radar/Dqp/dqpImageExport.js components/admin/Radar/report/blocks/GlossaryAppendix.jsx components/admin/Reports/ComprehensiveRadarTemplate.jsx components/admin/Reports/RadarReportTemplates.jsx components/admin/Reports/ReportTemplateModal.jsx components/admin/Reports/useComprehensiveReportData.js components/Radars/Live/RadarGallery.jsx __tests__/dqp-images.test.js 2>&1)",
+      "PowerShell(npx eslint utils/dqpImages.js utils/reportDqp.js utils/buildRadarRecord.js components/admin/Radar/SensorDetail.jsx components/admin/Radar/Dqp/DqpTable.jsx components/admin/Radar/Dqp/ActionRequiredModal.jsx components/admin/Radar/Dqp/dqpImageExport.js components/admin/Radar/report/blocks/GlossaryAppendix.jsx components/admin/Reports/ComprehensiveRadarTemplate.jsx components/admin/Reports/RadarReportTemplates.jsx components/admin/Reports/ReportTemplateModal.jsx components/admin/Reports/useComprehensiveReportData.js components/Radars/Live/RadarGallery.jsx __tests__/dqp-images.test.js --quiet 2>&1)",
+      "PowerShell(git stash push -- components/admin/Radar/Dqp/ActionRequiredModal.jsx)",
+      "PowerShell(npx eslint components/admin/Radar/Dqp/ActionRequiredModal.jsx --quiet 2>&1)",
+      "PowerShell(git stash pop)"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

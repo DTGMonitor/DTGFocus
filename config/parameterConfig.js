@@ -11,12 +11,19 @@ export const PARAMETER_CONFIG = {
     "Sky and Short Range Masks": ["Optimal", "Sub-Optimal", "Critical"],
     "Enhanced Deformation Mask": ["Optimal", "Acceptable", "Sub-Optimal", "Critical"],
     "Alarm Settings and Notifications": ["Optimal", "Sub-Optimal", "Critical"],
-    "Global and Alarm Masks": ["Optimal", "Acceptable", "Sub-Optimal", "Critical"],
+    "Manual/Alarm Masks": ["Optimal", "Acceptable", "Sub-Optimal", "Critical"],
     "Atmospheric Correction Source": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Dynamic Stable Reference Areas": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Stable Reference Area Spread": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Atmospheric Refractivity": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Atmospheric Correction Graph": ["Optimal", "Acceptable", "Sub-Optimal"],
     "Geo-Positioning": ["Optimal", "Acceptable", "Sub-Optimal"],
-    "3D-DTM": ["Optimal", "Acceptable", "Sub-Optimal"],
+    "3D-DTM": ["Optimal", "Acceptable", "Sub-Optimal","Critical"],
+    //MSR
+    "MSR System Status": ["Optimal", "Sub-Optimal", "Critical"],
+    "Confidence and Coverage": ["Optimal", "Acceptable", "Critical"],
+    "Data Flags": ["Optimal", "Sub-Optimal", "Critical"],
+    "CCTV Availability": ["Optimal", "Sub-Optimal"],
+    "Masks": ["Optimal", "Critical"],
+    "MSR Atmospheric Correction": ["Optimal", "Acceptable", "Critical"]
 };

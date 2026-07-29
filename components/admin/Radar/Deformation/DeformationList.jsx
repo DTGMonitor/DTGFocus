@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getBandCardColor, getBandBorderColor, getBandDotColor } from "@/config/statusConfig";
-import { recordColour } from "@/config/riskDisplay";
+import { recordColour, recordBadgeLabel, getRiskDisplayMode } from "@/config/riskDisplay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,6 +40,9 @@ const DeformationList = ({
     onRainfallSaved,
 }) => {
     const [viewMode, setViewMode] = useState('list');
+    // How this sensor's site states a record's severity — a TARP level, or the
+    // band name at a site whose chart carries no TARP numbers.
+    const riskMode = getRiskDisplayMode(sensor);
     const userID = userSite?.user_id;
     const userName = userSite?.displayname;
     const getDisplayName = (userid) =>
@@ -136,6 +139,7 @@ const DeformationList = ({
                         // One band colour per record, from its deformation type — a
                         // record whose site assigns no TARP level still has one.
                         const band = recordColour(item);
+                        const badge = recordBadgeLabel(item, riskMode);
                         const cardColor = isTimelineOpen ? getBandBorderColor(band) : getBandCardColor(band);
                         return (
                             <div
@@ -146,10 +150,11 @@ const DeformationList = ({
                                     <div className="flex flex-col gap-1">
                                         <div className="flex gap-3 items-center text-sm">
                                             <span className={`w-4 h-4 rounded-xl ${getBandDotColor(band)}`}></span>
-                                            {/* The TARP level stays the record's own — shown where
-                                                its site assigns one, dropped where it does not,
+                                            {/* The record's severity as its SITE states it: a TARP
+                                                level, or the band name where the site quotes no
+                                                levels. Dropped entirely when there is neither,
                                                 rather than printing an empty "| ". */}
-                                            <p>{item.tarp_level ? <><strong>{item.tarp_level}</strong> | </> : null}{item.def_type} - {item.location}</p>
+                                            <p>{badge ? <><strong>{badge}</strong> | </> : null}{item.def_type} - {item.location}</p>
                                             {isTimelineCard && (
                                                 <span className="rounded-full bg-[var(--dtg-border-medium)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--dtg-text-secondary)]">
                                                     Timeline
@@ -238,6 +243,7 @@ const DeformationList = ({
                                         error={timelineError}
                                         timezone={timezone}
                                         crosscheckers={crosscheckers}
+                                        riskMode={riskMode}
                                     />
                                 )}
                             </div>

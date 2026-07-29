@@ -474,13 +474,14 @@ describe('computeAvailability', () => {
       expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(24, 6);
     });
 
-    it('starts at 05:00 site-local on the prior day and includes that day', () => {
+    it('a CLOSED report day runs 05:00 → 05:00 site-local and includes the prior day', () => {
       // 05:00 Jakarta (UTC+7, no DST) on 2026-07-27 == 22:00Z on 2026-07-26, so the
-      // window start (a day earlier) is 22:00Z on 2026-07-25. now is in the past
-      // relative to reportDay → the window ends at the fixed 05:00 boundary.
-      const past = new Date('2026-07-27T00:00:00Z');
-      const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-27', 'Asia/Jakarta', past);
+      // window start (a day earlier) is 22:00Z on 2026-07-25. `now` is the next day
+      // → reportDay is history → the window ends at the fixed 05:00 boundary.
+      const after = new Date('2026-07-28T08:00:00Z');
+      const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-27', 'Asia/Jakarta', after);
       expect(windowStart.toISOString()).toBe('2026-07-25T22:00:00.000Z');
+      expect(windowEnd.toISOString()).toBe('2026-07-26T22:00:00.000Z');
 
       // The reported record (2026-07-26 02:04Z → 16:04Z, Maintenance) must land in
       // the 2026-07-27 daily report — the original bug was that it did not.
@@ -490,19 +491,37 @@ describe('computeAvailability', () => {
       expect(a.mechanical.Maintenance.hours).toBeCloseTo(14, 1);
     });
 
-    it('ends at now (not the 05:00 schedule) while the report day is current, counting still-open downtime', () => {
+    it('an OPEN report day ends at now and starts exactly N*24h earlier', () => {
       // Report day is TODAY; now is 15:00 Jakarta (08:00Z) on 2026-07-27.
       const now = new Date('2026-07-27T08:00:00Z');
       const { windowStart, windowEnd } = windowForFrequency('daily', '2026-07-27', 'Asia/Jakarta', now);
-      // End tracks `now`, NOT the 05:00 boundary (which was 2026-07-26T22:00Z).
+      // End tracks `now`, NOT the 05:00 boundary (which was 2026-07-26T22:00Z)...
       expect(windowEnd.toISOString()).toBe('2026-07-27T08:00:00.000Z');
-      expect(windowStart.toISOString()).toBe('2026-07-25T22:00:00.000Z');
+      // ...and the start is the SAME hour:minute one day back — the latest 24h,
+      // not 05:00 yesterday (which would have made this a 34h "daily" window.)
+      expect(windowStart.toISOString()).toBe('2026-07-26T08:00:00.000Z');
+      expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(24, 6);
 
       // A still-open incident (to == null) that started at 06:00Z today is counted
       // from its start up to `now` — 2h — and never beyond it.
       const open = { from: '2026-07-27 06:00:00+00', to: null, reason: 'Relocation' };
       const a = computeAvailability([open], windowStart, windowEnd);
       expect(a.mechanical.Relocation.hours).toBeCloseTo(2, 2);
+      // 2h of a 24h window — the denominator is the window, so 8.33% down / 91.67% up.
+      expect(a.uptimePercentage).toBeCloseTo((22 / 24) * 100, 6);
+    });
+
+    it.each([
+      ['daily', 24],
+      ['weekly', 24 * 7],
+      ['monthly', 24 * 30],
+    ])('%s spans exactly %i hours for an open (current) report day', (freq, hours) => {
+      // The reported bug: an open period was anchored at its START, so the window
+      // stretched from 05:00 to `now` and a "daily" report covered 33h.
+      const now = new Date('2026-07-29T06:30:00Z'); // 14:30 Perth
+      const { windowStart, windowEnd } = windowForFrequency(freq, '2026-07-29', TZ, now);
+      expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(hours, 6);
+      expect(windowEnd.toISOString()).toBe('2026-07-29T06:30:00.000Z');
     });
 
     it('does NOT extend a past report day to now (historical reports stay bounded)', () => {
