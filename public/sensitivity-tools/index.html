@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SensiMap — Radar Line-of-Sight Sensitivity Tool</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="logo">◈</span>
+    <div>
+      <div class="title">SensiMap</div>
+      <div class="subtitle">Slope Monitoring Radar — Line-of-Sight Sensitivity &amp; Planning Tool</div>
+    </div>
+  </div>
+  <div class="topActions">
+    <span id="modeBadge" class="badge">no data</span>
+    <button id="btnHelp" class="ghost" title="Quick help">?</button>
+  </div>
+</header>
+
+<div id="app">
+
+  <!-- ══════════════════════════ SIDEBAR ══════════════════════════ -->
+  <aside id="sidebar">
+
+    <!-- ── 1. DATA ── -->
+    <details open>
+      <summary><span class="num">1</span> Terrain Data</summary>
+      <div class="body">
+        <div id="dropZone">
+          <div class="dzIcon">⬆</div>
+          <div class="dzText"><b>Drop DTM / DXF here</b><br><span class="dim">.dtm · .dxf · .str · .xyz · .csv · .txt · .asc</span></div>
+          <input type="file" id="fileInput" multiple accept=".dtm,.dxf,.str,.xyz,.csv,.txt,.asc,.grd,.pts,.dat">
+        </div>
+        <div class="row">
+          <button id="btnBrowse" class="primary wide">Browse files…</button>
+        </div>
+        <div class="row">
+          <button id="btnDemo" class="wide">Load demo open pit</button>
+        </div>
+        <div id="fileList" class="fileList"></div>
+
+        <!-- ASCII column mapping -->
+        <div id="asciiPanel" class="subpanel hidden">
+          <div class="subhead">ASCII column mapping</div>
+          <div class="grid2">
+            <label>Delimiter
+              <select id="selDelim">
+                <option value="auto">Auto detect</option>
+                <option value=",">Comma</option>
+                <option value=" ">Whitespace</option>
+                <option value="\t">Tab</option>
+                <option value=";">Semicolon</option>
+              </select>
+            </label>
+            <label>Skip rows <input type="number" id="inpSkip" value="0" min="0" step="1"></label>
+            <label>X column <select id="selX"></select></label>
+            <label>Y column <select id="selY"></select></label>
+            <label>Z column <select id="selZ"></select></label>
+            <label class="chk"><input type="checkbox" id="chkSwapXY"> Swap X / Y</label>
+          </div>
+          <div class="previewWrap"><table id="previewTable"></table></div>
+          <button id="btnApplyAscii" class="primary wide">Apply mapping</button>
+        </div>
+
+        <!-- Gridding -->
+        <div class="subpanel">
+          <div class="subhead">Model gridding</div>
+          <div class="grid2">
+            <label>Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
+            <label>Target cells<input type="number" id="inpTarget" value="320" min="40" max="1400" step="10"></label>
+            <label>Search radius<select id="selSearch">
+                <option value="1">1 cell</option>
+                <option value="2" selected>2 cells</option>
+                <option value="3">3 cells</option>
+                <option value="5">5 cells</option>
+              </select></label>
+            <label>Interp<select id="selInterp">
+                <option value="idw">IDW (power 2)</option>
+                <option value="nearest">Nearest</option>
+                <option value="mean">Mean</option>
+              </select></label>
+            <label class="chk"><input type="checkbox" id="chkFill" checked> Fill small holes</label>
+            <label>Fill passes<input type="number" id="inpFillIter" value="2" min="0" max="20" step="1"></label>
+            <label class="chk"><input type="checkbox" id="chkSmooth"> Smooth normals</label>
+            <label>Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
+          </div>
+          <button id="btnBuild" class="primary wide">Build / rebuild model</button>
+          <div id="gridInfo" class="info"></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── 2. RADAR ── -->
+    <details open>
+      <summary><span class="num">2</span> Radar Positions</summary>
+      <div class="body">
+        <table id="radarTable" class="dataTable">
+          <thead><tr><th></th><th>Name</th><th>X</th><th>Y</th><th>Z</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="row">
+          <button id="btnAddRadar">+ Add</button>
+          <button id="btnDupRadar">Duplicate</button>
+          <button id="btnDelRadar" class="danger">Delete</button>
+        </div>
+
+        <div class="subpanel">
+          <div class="subhead">Selected sensor</div>
+          <div class="grid2">
+            <label>Name<input type="text" id="rName" value="Radar 1"></label>
+            <label>Colour<input type="color" id="rColor" value="#ffd400"></label>
+            <label>Easting X<input type="number" id="rX" step="0.1"></label>
+            <label>Northing Y<input type="number" id="rY" step="0.1"></label>
+            <label>Level Z<input type="number" id="rZ" step="0.1"></label>
+            <label>Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
+          <div class="row">
+            <button id="btnPickRadar" class="wide">⊕ Pick position on model</button>
+          </div>
+          <div class="subhead">Scan geometry</div>
+          <div class="grid2">
+            <label>Boresight az °<input type="number" id="rAz" value="0" step="1"></label>
+            <label title="Total azimuth aperture — the full sector width, centred on the boresight, as quoted on radar datasheets.">Az aperture °<input type="number" id="rApAz" value="180" min="2" max="360" step="1"></label>
+            <label title="Total elevation aperture — the full sector height, centred on the horizontal, as quoted on radar datasheets.">El aperture °<input type="number" id="rApEl" value="90" min="2" max="180" step="1"></label>
+            <label>Range min<input type="number" id="rRmin" value="30" min="0" step="10"></label>
+            <label>Range max<input type="number" id="rRmax" value="4000" min="10" step="50"></label>
+            <label class="chk"><input type="checkbox" id="chkAutoAim" checked> Auto-aim at model</label>
+          </div>
+        </div>
+        <div class="subpanel">
+          <div class="subhead">Multi-sensor combination</div>
+          <select id="selCombine" class="wide">
+            <option value="selected">Show selected sensor only</option>
+            <option value="max">Best of all sensors (max)</option>
+            <option value="mean">Average of all sensors</option>
+            <option value="which">Which sensor is best</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── 3. SENSITIVITY ── -->
+    <details open>
+      <summary><span class="num">3</span> Sensitivity Model</summary>
+      <div class="body">
+        <div class="subhead">Assumed movement vector</div>
+        <div class="modeList">
+          <label class="mode"><input type="radio" name="smode" value="steepest" checked>
+            <span class="sw" style="background:#ff5252"></span>
+            <b>Steepest</b><i>down the steepest direction of the slope</i></label>
+          <label class="mode"><input type="radio" name="smode" value="horizontal">
+            <span class="sw" style="background:#4caf50"></span>
+            <b>Horizontal</b><i>along the horizontal plane (dip direction)</i></label>
+          <label class="mode"><input type="radio" name="smode" value="vertical">
+            <span class="sw" style="background:#2196f3"></span>
+            <b>Vertical</b><i>vertically downwards</i></label>
+          <label class="mode"><input type="radio" name="smode" value="custom">
+            <span class="sw" style="background:#e040fb"></span>
+            <b>Custom vector</b><i>user defined failure mechanism</i></label>
+        </div>
+        <div class="grid2" id="customVec">
+          <label>Trend az °<input type="number" id="inpCustAz" value="180" step="1"></label>
+          <label>Plunge °<input type="number" id="inpCustPl" value="45" step="1"></label>
+        </div>
+
+        <div class="subpanel">
+          <div class="subhead">Line of sight</div>
+          <label class="chk"><input type="checkbox" id="chkOcclusion" checked> Terrain occlusion (shadow) test</label>
+          <div class="grid2">
+            <label>Accuracy<select id="selOccAcc">
+                <option value="2">Coarse (fast)</option>
+                <option value="1" selected>Normal</option>
+                <option value="0.5">Fine (slow)</option>
+              </select></label>
+            <label>Tolerance m<input type="number" id="inpOccTol" value="0.5" step="0.1" min="0"></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="chkGrazing"> Reject grazing incidence &gt;<input type="number" id="inpGraz" value="85" min="10" max="90" step="1" class="inline"> °</label>
+        </div>
+
+        <div class="subpanel">
+          <div class="subhead">Alarm calibration</div>
+          <div class="grid2">
+            <label>Threshold<input type="number" id="inpThresh" value="0.5" min="0" max="1" step="0.05"></label>
+            <label>Displ. factor<input type="number" id="inpTrue" value="10" min="0" step="1" title="True slope displacement (mm) used to show the radar-measured LOS component"></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="chkMaskBelow"> Grey-out cells below threshold</label>
+        </div>
+
+        <button id="btnCompute" class="primary wide big">⟳ Compute sensitivity map</button>
+        <div id="progWrap" class="progWrap hidden"><div id="progBar"></div><span id="progText"></span></div>
+      </div>
+    </details>
+
+    <!-- ── 4. AOI ── -->
+    <details>
+      <summary><span class="num">4</span> Selection Mask / AOI</summary>
+      <div class="body">
+        <label class="chk"><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
+        <div class="grid2">
+          <label>X min<input type="number" id="aoiXmin" step="1"></label>
+          <label>X max<input type="number" id="aoiXmax" step="1"></label>
+          <label>Y min<input type="number" id="aoiYmin" step="1"></label>
+          <label>Y max<input type="number" id="aoiYmax" step="1"></label>
+          <label>Z min<input type="number" id="aoiZmin" step="1"></label>
+          <label>Z max<input type="number" id="aoiZmax" step="1"></label>
+          <label>Slope min °<input type="number" id="aoiSlopeMin" value="0" min="0" max="90"></label>
+          <label>Slope max °<input type="number" id="aoiSlopeMax" value="90" min="0" max="90"></label>
+        </div>
+        <div class="row">
+          <button id="btnAoiFull">Full extent</button>
+          <button id="btnAoiPick">⊕ Pick 2 corners</button>
+        </div>
+        <p class="hint">The mask keeps the GBD-style analysis focused on the slope that matters — cells outside are excluded from statistics and planning scores.</p>
+      </div>
+    </details>
+
+    <!-- ── 5. DISPLAY ── -->
+    <details open>
+      <summary><span class="num">5</span> Layer &amp; Colour Scale</summary>
+      <div class="body">
+        <label>Displayed layer
+          <select id="selLayer" class="wide">
+            <option value="sens">Sensitivity (cos θ)</option>
+            <option value="amp">Amplitude proxy (incidence)</option>
+            <option value="vis">Visibility (LOS shadow)</option>
+            <option value="range">Range to sensor</option>
+            <option value="slope">Slope angle</option>
+            <option value="aspect">Aspect / dip direction</option>
+            <option value="elev">Elevation</option>
+            <option value="which">Best sensor index</option>
+            <option value="mmres">Measurable displacement</option>
+          </select>
+        </label>
+
+        <div class="subpanel">
+          <div class="subhead">Colour scale <span id="cmName" class="dim"></span></div>
+          <select id="selPreset" class="wide"></select>
+          <div id="stopsEditor" class="stops"></div>
+          <div class="row">
+            <button id="btnAddStop">+ Stop</button>
+            <button id="btnEvenStops">Distribute</button>
+            <button id="btnRevStops">Reverse</button>
+          </div>
+          <div class="grid2">
+            <label>Scale min<input type="number" id="inpVmin" value="0" step="0.05"></label>
+            <label>Scale max<input type="number" id="inpVmax" value="1" step="0.05"></label>
+            <label>Bands (0=cont.)<input type="number" id="inpBands" value="0" min="0" max="32" step="1"></label>
+            <label>Gamma<input type="number" id="inpGamma" value="1" min="0.2" max="4" step="0.1"></label>
+            <label>No-data<input type="color" id="colNoData" value="#3a4048"></label>
+            <label>Shadowed<input type="color" id="colOccluded" value="#5b5f66"></label>
+            <label>Out of scan<input type="color" id="colOutside" value="#2b3038"></label>
+            <label>Below thr.<input type="color" id="colBelow" value="#6e7681"></label>
+          </div>
+          <div class="row">
+            <button id="btnAutoRange">Auto range</button>
+            <button id="btnCmSave">Export scale</button>
+            <button id="btnCmLoad">Import scale</button>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <div class="subhead">3D view</div>
+          <div class="grid2">
+            <label>Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
+            <label>Z exagg.<input type="range" id="inpZScale" min="0.5" max="4" step="0.1" value="1"></label>
+            <label>Sun az °<input type="range" id="inpSunAz" min="0" max="360" step="5" value="315"></label>
+            <label>Sun el °<input type="range" id="inpSunEl" min="5" max="90" step="5" value="45"></label>
+            <label>Shading<input type="range" id="inpShade" min="0" max="1" step="0.05" value="0.55"></label>
+            <label>Projection<select id="selProjection">
+                <option value="persp">Perspective</option>
+                <option value="ortho">Orthographic</option>
+              </select></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="chkWire"> Wireframe</label>
+          <label class="chk"><input type="checkbox" id="chkBox" checked> Bounding box &amp; axes</label>
+          <label class="chk"><input type="checkbox" id="chkFan" checked> Scan footprint / LOS rays</label>
+          <label class="chk"><input type="checkbox" id="chkVec" checked> Movement vectors at cursor</label>
+          <div class="row">
+            <button id="btnViewIso">Iso</button>
+            <button id="btnViewTop">Plan</button>
+            <button id="btnViewLOS">Radar eye</button>
+            <button id="btnResetView">Fit</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── 6. STATS ── -->
+    <details open>
+      <summary><span class="num">6</span> Statistics, Planning &amp; Export</summary>
+      <div class="body">
+        <div id="statsBox" class="info"></div>
+        <canvas id="histCanvas" height="110"></canvas>
+        <div class="subhead">Position ranking <span class="dim">(IBIS-style planning)</span></div>
+        <div class="previewWrap"><table id="rankTable" class="dataTable"></table></div>
+        <div class="row">
+          <button id="btnExportPNG">PNG view</button>
+          <button id="btnExportCSV">CSV</button>
+          <button id="btnExportASC">ASCII grid</button>
+        </div>
+        <div class="row">
+          <button id="btnSaveProj">Save project</button>
+          <button id="btnLoadProj">Load project</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="foot">SensiMap · offline single-folder tool · v1.0</div>
+  </aside>
+
+  <!-- ══════════════════════════ VIEWPORT ══════════════════════════ -->
+  <main id="main">
+    <div id="viewport">
+      <canvas id="glcanvas"></canvas>
+
+      <div id="hudTL" class="hud">
+        <div id="hudTitle" class="hudTitle">—</div>
+        <div id="hudSub" class="hudSub"></div>
+      </div>
+
+      <div id="hudReadout" class="hud readout hidden"></div>
+
+      <div id="legend">
+        <div id="legendTitle">Sensitivity</div>
+        <canvas id="cbCanvas" width="76" height="300"></canvas>
+      </div>
+
+      <div id="viewHint" class="hud hint2">
+        drag = orbit · right/middle drag = pan · wheel = zoom · click = probe
+      </div>
+
+      <div id="pickBanner" class="pickBanner hidden"></div>
+    </div>
+    <div id="statusbar">
+      <span id="statusText">Ready — load a DTM/DXF or the demo pit.</span>
+      <span id="statusRight"></span>
+    </div>
+  </main>
+</div>
+
+<!-- Help modal -->
+<div id="helpModal" class="modal hidden">
+  <div class="modalBox">
+    <h2>SensiMap quick guide</h2>
+    <ol>
+      <li><b>Load terrain</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
+      <li><b>Place the sensor</b> — type coordinates or use <b>Pick position on model</b>. Antenna height is added to the terrain level when snapping.</li>
+      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical, or a custom trend &amp; plunge for a known failure mechanism.</li>
+      <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar.</li>
+      <li><b>Plan</b> — add several sensor positions and read the ranking table to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
+    </ol>
+    <p class="hint">Remember: the sensitivity map is a starting point — it does not know the real failure mechanism.</p>
+    <button id="btnHelpClose" class="primary">Close</button>
+  </div>
+</div>
+
+<input type="file" id="hiddenProj" accept=".json" class="offscreen">
+
+<script src="js/colormap.js"></script>
+<script src="js/parsers.js"></script>
+<script src="js/grid.js"></script>
+<script src="js/sensitivity.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

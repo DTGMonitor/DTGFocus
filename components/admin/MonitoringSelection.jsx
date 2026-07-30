@@ -40,6 +40,17 @@ const MonitoringSelection = () => {
       bgColor: "rgba(8,79,106,1)",
       gradColor: "linear-gradient(90deg, #004562 0%, #00678F 50%, #007BAB 100%)",
     },
+    {
+      id: 3,
+      key: "SENSITIVITY",
+      title: "SENSITIVITY TOOLS",
+      url: `/images/home/Sensitivity.svg`,
+      Description:
+        "Radar line-of-sight sensitivity maps and slope monitoring position planning",
+      Path: `/admin/SensitivityTools`,
+      bgColor: "rgba(74,32,122,1)",
+      gradColor: "linear-gradient(90deg, #3A1E63 0%, #6D3FB5 50%, #8B5CF6 100%)",
+    },
   ];
 
   // ---- HELPERS ----
@@ -116,12 +127,12 @@ const MonitoringSelection = () => {
         setCompany("");
       }
 
-      // Only SURFACE is reachable — the underground app is not ported yet, so
-      // its card falls through to the "No access" panel. Per-site gating can be
-      // layered on later the same way site_dashboards works for the surface
-      // dashboard picker.
+      // SURFACE and SENSITIVITY are reachable — the underground app is not ported
+      // yet, so its card falls through to the "No access" panel. Per-site gating
+      // can be layered on later the same way site_dashboards works for the
+      // surface dashboard picker.
       setItems(
-        allDomains.map((d) => ({ ...d, hasData: d.key === "SURFACE" }))
+        allDomains.map((d) => ({ ...d, hasData: d.Path !== null }))
       );
       setLoading(false);
     };

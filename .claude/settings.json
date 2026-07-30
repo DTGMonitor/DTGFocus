@@ -106,7 +106,19 @@
       "Bash(sed -i \"s/, todayDate\\)/, recordDate\\)/g; s/'record_date', todayDate/'record_date', recordDate/g; s/record_date: todayDate,/record_date: recordDate,/\" components/admin/Radar/RadarMonitoring.tsx)",
       "Bash(git --no-pager diff --stat)",
       "Bash(git --no-pager diff components/admin/Radar/RadarMonitoring.tsx)",
-      "Bash(node --experimental-vm-modules -e ' *)"
+      "Bash(node --experimental-vm-modules -e ' *)",
+      "Bash(cd \"e:/Lintang\" && echo \"=== underground ===\" && ls -la underground | head -30 && echo \"=== pattern-recognition ===\" && ls -la pattern-recognition | head -30)",
+      "Bash(node tests/test_core.js)",
+      "Bash(grep -rn \"http://\\\\|https://\\\\|fetch\\(\\\\|window.open\\\\|window.top\\\\|window.parent\\\\|localStorage\" index.html js/)",
+      "Bash(mkdir -p public/sensitivity-tools)",
+      "Bash(cp -r Sensitivity_tools/index.html Sensitivity_tools/css Sensitivity_tools/js public/sensitivity-tools/)",
+      "Bash(npm run *)",
+      "Bash(node verify-aperture.js)",
+      "Bash(sed -i 's/Sensitivity\\\\./Sens./g' verify-aperture.js)",
+      "Bash(node verify-aperture2.js)",
+      "Bash(node verify-elev.js)",
+      "Bash(git config *)",
+      "Bash(git rev-list *)"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

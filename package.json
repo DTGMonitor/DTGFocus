@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "jest"
+    "test": "jest",
+    "sync:sensitivity": "node scripts/sync-sensitivity-tools.mjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
