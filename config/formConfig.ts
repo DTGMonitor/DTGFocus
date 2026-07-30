@@ -443,6 +443,39 @@ Kind regards,
         `.trim();
 };
 
+/**
+ * The Scheduled Offline notification.
+ *
+ * A notification only — nothing is recorded against the sensors, because the
+ * outage is planned from the DTG side and has not happened yet. The window is
+ * quoted as a plain "HH:mm-HH:mm (site local time)" range: the client reads it
+ * against their own clock, and a full timestamp on a window that may be moved
+ * reads as a commitment it is not.
+ *
+ * @param sensorLabel  How the selection is named, WITHOUT the site suffix —
+ *   "All Radars", or the radar numbers when only some are going offline.
+ */
+export const generateEmailBodyScheduledOffline = (
+    sensorLabel: string,
+    from: string,
+    to: string,
+    reason: string,
+    userFullName: string,
+    crossChecker: string
+) => {
+    return `
+SENSOR: ${sensorLabel}
+TIME: ${from}-${to} (site local time)
+
+REASON: ${reason}
+
+DTG engineers will advise when the system is back online.
+
+Kind regards,
+${userFullName} ${crossChecker}
+    `.trim();
+};
+
 export const CAUSE_OPTIONS = {
     False: [
         "Machinery Activity", "Rapid Atmospheric Changes", "Rainfall Event",

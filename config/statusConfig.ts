@@ -159,6 +159,8 @@ export const getStatusColor = (status: string) => {
     case 'Intermittent': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'Link Down': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'Lost Connection': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    // Planned, not a fault — tinted like the other notification-only states.
+    case 'Scheduled Offline': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
   }
 };

@@ -24,6 +24,9 @@ import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/util
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
+import SiteWideStatusModal from "@/components/admin/Radar/SiteWideStatusModal";
+import { isSiteWideStatus } from "@/utils/siteWideStatus";
+import { openOutlookDraft } from "@/utils/openOutlookDraft";
 
 /**
  * Detaching every figure from a DQP row.
@@ -34,28 +37,6 @@ import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal"
  * path does not resurrect a figure the analyst just removed.
  */
 const CLEARED_DQP_IMAGES = { image: null, caption: null, image_ids: [], image_captions: [] };
-
-const openOutlookDraft = (
-    subject,
-    body,
-    toGroup,
-    ccGroup
-) => {
-    const safeSubject = encodeURIComponent(subject);
-    const safeBody = encodeURIComponent(body);
-
-    const safeTo = encodeURIComponent(toGroup);
-    const safeCc = encodeURIComponent(ccGroup);
-
-    // Construct Link
-    let mailtoLink = `mailto:${safeTo}?subject=${safeSubject}&body=${safeBody}`;
-
-    if (safeCc) {
-        mailtoLink += `&cc=${safeCc}`;
-    }
-
-    window.location.href = mailtoLink;
-};
 
 const validateCompleteness = (dataList) => {
     // 1. Define the ID for Alarms (from your CSV, Alarms is ID 6)
@@ -128,6 +109,10 @@ const SensorDetail = ({
 
     // --- Downtime States ---
     const [isModalOpen, setIsModalOpen] = useState(false);
+    // Lost Connection / Scheduled Offline take the multi-sensor route instead —
+    // see SiteWideStatusModal. Kept as its own flag so the single-sensor modal
+    // above is untouched by it.
+    const [siteWideStatus, setSiteWideStatus] = useState(null);
     const [targetStatus, setTargetStatus] = useState('');
     const [localStatus, setLocalStatus] = useState(sensor.status);
     // The risk line, worded and coloured the way this sensor's SITE words it —
@@ -460,6 +445,15 @@ const SensorDetail = ({
     const handleStatusChange = async (e) => {
         const newStatus = e.target.value;
         const currentStatus = sensor.status;
+
+        // A dropped link and DTG-side maintenance hit every sensor on the site at
+        // once, so both are raised against a selection rather than this one wall
+        // folder. The site-wide modal owns its own form and submission.
+        if (isSiteWideStatus(newStatus)) {
+            setSiteWideStatus(newStatus);
+            return;
+        }
+
         setTargetStatus(newStatus);
 
         // Default: Assume new entry
@@ -789,6 +783,30 @@ const SensorDetail = ({
         } finally {
             setLoading(false);
         }
+    };
+
+    /**
+     * The site-wide modal has already written its downtime records. All that is
+     * left here is the header: flip it optimistically, but only if the sensor on
+     * screen was one of the ones ticked — the analyst may well have unticked it.
+     *
+     * Not called for Scheduled Offline, which writes nothing.
+     */
+    const handleSiteWideSubmitted = async (status, submittedIds = []) => {
+        const includesThisSensor = submittedIds.some(
+            (id) => String(id) === String(sensor.wallfolder_id)
+        );
+
+        if (includesThisSensor) {
+            lastEditTimeRef.current = Date.now();
+            setLocalStatus(status);
+            setLocalQuality('Critical');
+            setLocalScore(0);
+            await fetchDataQuality();
+        }
+
+        if (onUpdateComplete) onUpdateComplete();
+        if (onRefresh) await onRefresh();
     };
 
     const checkAndFetchFeedbackItems = async (item, newValue) => {
@@ -1569,6 +1587,9 @@ const SensorDetail = ({
                                 <option value="Live" className="text-[var(--dtg-text-primary)]">Live</option>
                                 <option value="Link Down" className="text-[var(--dtg-text-primary)]">Link Down</option>
                                 <option value="Lost Connection" className="text-[var(--dtg-text-primary)]">Lost Connection</option>
+                                {/* Notification only — never becomes the sensor's status, so it
+                                    is listed but the select never settles on it. */}
+                                <option value="Scheduled Offline" className="text-[var(--dtg-text-primary)]">Scheduled Offline</option>
                             </select>
 
                             {/* --- The Modal --- */}
@@ -1842,6 +1863,20 @@ const SensorDetail = ({
                 targetStatus={rainfallPendingUpdate?.newValue}
                 alarmRegions={sharedRegions}
                 defaultSubject="Service Impacted"
+            />
+
+            {/* Lost Connection / Scheduled Offline — raised against every sensor on
+                the site the analyst ticks. */}
+            <SiteWideStatusModal
+                isOpen={Boolean(siteWideStatus)}
+                status={siteWideStatus}
+                sensor={sensor}
+                timezone={timezone}
+                crosscheckers={crosscheckers}
+                userID={userID}
+                userName={userName}
+                onClose={() => setSiteWideStatus(null)}
+                onSubmitted={handleSiteWideSubmitted}
             />
         </div >
     )
