@@ -282,6 +282,30 @@ export function bandColor(colour) {
   return { color: SEV.neutral, onColor: '#ffffff' };
 }
 
+/**
+ * `alarm_improvement.improvement_status` → print colour.
+ *
+ * severityColor() cannot read these: "Modified" and "Not Implemented" match none
+ * of its keywords and would both fall through to neutral grey, printing a
+ * declined recommendation and an applied one as the same ink.
+ *
+ * The live summary pages colour this scale green / amber / red
+ * (statusColorMap — #22C55E, #FACC15, #EF4444). Those are screen tones; the
+ * report reuses its own SEV values so an applied recommendation prints as the
+ * same green as an Optimal parameter, which is the whole point of a shared
+ * palette. Same three-step meaning, print-safe ink.
+ *
+ * @param {string} status
+ * @returns {{ color: string, onColor: string }} `onColor` is readable text on `color`.
+ */
+export function improvementStatusColor(status) {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (s === 'modified') return { color: SEV.optimal, onColor: '#ffffff' };
+  if (s === 'awaiting feedback') return { color: SEV.acceptable, onColor: '#1f2937' };
+  if (s === 'not implemented') return { color: SEV.critical, onColor: '#ffffff' };
+  return { color: SEV.neutral, onColor: '#ffffff' };
+}
+
 /** The operational uptime target the reports cite, as a percentage. */
 export const UPTIME_TARGET = 95;
 

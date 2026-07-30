@@ -100,7 +100,13 @@
       "PowerShell(npx eslint utils/dqpImages.js utils/reportDqp.js utils/buildRadarRecord.js components/admin/Radar/SensorDetail.jsx components/admin/Radar/Dqp/DqpTable.jsx components/admin/Radar/Dqp/ActionRequiredModal.jsx components/admin/Radar/Dqp/dqpImageExport.js components/admin/Radar/report/blocks/GlossaryAppendix.jsx components/admin/Reports/ComprehensiveRadarTemplate.jsx components/admin/Reports/RadarReportTemplates.jsx components/admin/Reports/ReportTemplateModal.jsx components/admin/Reports/useComprehensiveReportData.js components/Radars/Live/RadarGallery.jsx __tests__/dqp-images.test.js --quiet 2>&1)",
       "PowerShell(git stash push -- components/admin/Radar/Dqp/ActionRequiredModal.jsx)",
       "PowerShell(npx eslint components/admin/Radar/Dqp/ActionRequiredModal.jsx --quiet 2>&1)",
-      "PowerShell(git stash pop)"
+      "PowerShell(git stash pop)",
+      "Bash(grep -n -A 25 \"Existing Table: \\\\`latest_radar_wall_folders\\\\`\" .kiro/specs/scalable-report-scheduler/design.md)",
+      "Bash(sed -i \"197d\" components/admin/Radar/RadarMonitoring.tsx)",
+      "Bash(sed -i \"s/, todayDate\\)/, recordDate\\)/g; s/'record_date', todayDate/'record_date', recordDate/g; s/record_date: todayDate,/record_date: recordDate,/\" components/admin/Radar/RadarMonitoring.tsx)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff components/admin/Radar/RadarMonitoring.tsx)",
+      "Bash(node --experimental-vm-modules -e ' *)"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

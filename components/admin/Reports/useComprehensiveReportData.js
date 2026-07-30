@@ -21,6 +21,7 @@ import { trimChain, isTrimmedHeadTrueRoot } from '@/utils/reportTimeline';
 import { computeAvailability, windowForFrequency } from '@/utils/reportAvailability';
 import { fromUTC } from '@/utils/timezoneUtils';
 import { aggregateAlarmCauses, countValidTotal, deriveAlarmTone } from '@/utils/reportAlarms';
+import { selectImprovementsInWindow, summarizeImprovements } from '@/utils/reportAlarmImprovements';
 import { shouldIncludeChain, folderChangedInWindow } from '@/utils/reportWallFolders';
 import { buildRadarRecord } from '@/utils/buildRadarRecord';
 import { DQP_IMAGE_COLUMNS, attachDqpImages } from '@/utils/dqpImages';
@@ -296,6 +297,37 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
 
       if (cancelled) return;
 
+      // ── Alarm improvements: recommendations raised or resolved this period ──
+      // Scoped through the same region list as the alarms above (alarm_improvement
+      // reaches a wall folder only via alarm_record → alarm_region), so a report
+      // spanning several folders picks up every one of them.
+      //
+      // The server-side pair is a lossless prefilter for the window test in
+      // selectImprovementsInWindow, not the test itself:
+      //   - submitted after the window end  → cannot qualify either way, since a
+      //     resolution never precedes its own submission;
+      //   - resolved before the window start → its submission is older still, so
+      //     nothing about it happened this period. `site_action.is.null` keeps
+      //     the still-open rows, exactly as the downtime query keeps `to` null.
+      const improvementRows = regionIds.length
+        ? await supabase
+            .from('alarm_improvement')
+            .select(
+              'id, recommendation_submission, improvement_status, site_action, site_engineer, type, issue, action, alarm_mask, ' +
+              // `cause` rides along so the table can name what the alarm was
+              // attributed to — the same field the cause pie aggregates, so a
+              // recommendation and the slice it belongs to agree by construction.
+              'alarm_records!inner(id, alarm_region, location, cause)'
+            )
+            .in('alarm_records.alarm_region', regionIds)
+            .lte('recommendation_submission', windowEnd.toISOString())
+            .or(`site_action.gte.${windowStart.toISOString()},site_action.is.null`)
+            .then((r) => { if (r.error) throw r.error; return r.data; })
+            .catch(warn('alarm improvements'))
+        : [];
+
+      if (cancelled) return;
+
       // ── Deformation: head records → resolve chain → trim ───────────────────
       const defRecords = defRes ?? [];
       const referenced = new Set();
@@ -403,6 +435,26 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         tone: deriveAlarmTone(recs, regionsRes ?? []),
       }));
 
+      // Alarm improvements dated inside the window, on the SITE's wall clock —
+      // the dates are timestamptz, so the window test is a direct instant
+      // comparison and the timezone enters only when the day is printed.
+      // fromUTC throws on an unparseable value; a bad timestamp must degrade to
+      // a blank cell, never take the whole report down.
+      const siteDay = (iso) => {
+        try {
+          return fromUTC(iso, timeZone);
+        } catch {
+          return null;
+        }
+      };
+      const improvements = selectImprovementsInWindow(
+        improvementRows ?? [],
+        windowStart,
+        windowEnd,
+        regionsRes ?? [],
+        siteDay,
+      );
+
       // Which folders actually fed this report — downtime, deformation, or alarm.
       // A single note under the KPIs fires whenever more than one contributed.
       const overlapsWindow = (d) => {
@@ -459,6 +511,12 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
             tone: alarmTone,
             regions: regionsRes ?? [],
             byFolder: alarmFolders,
+          },
+          // Recommendations raised or resolved inside the window. Empty means
+          // the section — header included — does not print at all.
+          alarmImprovements: {
+            rows: improvements,
+            summary: summarizeImprovements(improvements),
           },
           wallFolders,
           radarRecord,

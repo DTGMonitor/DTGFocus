@@ -34,12 +34,14 @@ const EVENT_ICON = {
   'Blast Event': '💥',
   'Rock Fall': '🪨',
   'Material Detachment': '⛏️',
+  'Rainfall Event': '🌧️',
   Failure: '⚠️',
 };
 const EVENT_SHORT = {
   'Blast Event': 'Blast',
   'Rock Fall': 'Rock Fall',
   'Material Detachment': 'Material Detachment',
+  'Rainfall Event': 'Rainfall',
   Failure: 'Failure',
 };
 
@@ -607,7 +609,7 @@ function MenuItem({ children, onClick, disabled }) {
 
 /**
  * DeformationEventsPanel — lists deformation events (Material Detachment, Rock
- * Fall, Blast Event, Failure) found within the analysis period for the wall
+ * Fall, Blast Event, Rainfall Event, Failure) found within the analysis period for the wall
  * folder, including archived ones (request 2). Each can be toggled in/out; the
  * included set is plotted on the charts and folded into the report summary.
  */

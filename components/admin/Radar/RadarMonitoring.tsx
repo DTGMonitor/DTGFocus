@@ -11,7 +11,18 @@ import SensorDetail from '@/components/admin/Radar/SensorDetail';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { HandoverTemplate } from "@/components/admin/Reports/HandoverTemplates";
 import AddSensorModal from '@/components/admin/Radar/AddSensorModal';
-import { blankChecks, localClock, localRecordDate, nextChecks, toChecks } from '@/utils/checklistDay';
+import {
+  blankChecks,
+  clearedShiftHours,
+  localClock,
+  nextChecks,
+  shiftChecks as composeShiftChecks,
+  shiftWindow,
+  toChecks,
+  withStoredDay
+} from '@/utils/checklistDay';
+import { carriedChecks, predecessorFolderIds } from '@/utils/checklistCarryOver';
+import type { FolderLike } from '@/utils/checklistCarryOver';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -84,9 +95,12 @@ function RadarMonitoring() {
 
   // Keep a live ref of the list so serialized toggles read the freshest checklist.
   const liveViewListRef = useRef<RadarWallFolder[]>([]);
-  // Per-wallfolder promise chain that serializes toggles, preventing the
+  // Per-record promise chain that serializes toggles, preventing the
   // read-then-insert race that created duplicate dqp_records.
-  const toggleLocks = useRef<Map<number, Promise<unknown>>>(new Map());
+  const toggleLocks = useRef<Map<string, Promise<unknown>>>(new Map());
+  // Every wall folder the board's radars have ever had, archived ones included:
+  // what a re-aimed radar carries its checklist from. Loaded with the board.
+  const radarFoldersRef = useRef<FolderLike[]>([]);
 
   const [showPreview, setShowPreview] = useState(false);
   const [showAddSensor, setShowAddSensor] = useState(false);
@@ -122,29 +136,69 @@ function RadarMonitoring() {
   };
 
   /**
-   * Persist the checklist of one sensor's current day.
+   * The checklist a folder with no record of its own for `recordDate` inherits
+   * from the folder it replaced. Null when nothing carries.
    *
-   * `decide` receives the checklist already stored against that day — null when
-   * the day has no record yet — and returns the array to write. The new array is
-   * derived from the row just read, never from what is on screen: the view hands
-   * back the newest dqp_record whatever its date, so a sensor nobody checked
-   * yesterday displays an older day's ticks, and writing those forward stamped
-   * them onto today's record. They then sat on hours the gate had already
-   * locked, which is what made a wrongly-ticked row impossible to clear.
+   * See utils/checklistCarryOver.ts — scoped to the one date, and to folders the
+   * radar has retired.
+   */
+  const carriedFor = async (
+    sensor: RadarWallFolder,
+    recordDate: string
+  ): Promise<boolean[] | null> => {
+    const predecessors = predecessorFolderIds(
+      radarFoldersRef.current,
+      sensor.id,
+      sensor.wallfolder_id
+    );
+    if (predecessors.length === 0) return null;
+
+    const { data, error } = await supabase
+      .from('dqp_records')
+      .select('wall_folder_id, checklist')
+      .in('wall_folder_id', predecessors)
+      .eq('record_date', recordDate);
+
+    if (error) {
+      // A folder change without its history is still workable — the day just
+      // starts blank, as it did before carry-over existed.
+      console.error('Error reading the previous folder\'s checklist:', error);
+      return null;
+    }
+
+    return carriedChecks(
+      predecessors,
+      new Map((data || []).map((r) => [r.wall_folder_id, r.checklist]))
+    );
+  };
+
+  /**
+   * Persist one sensor's checklist for one record date.
    *
-   * Resolves with the array that was stored.
+   * `decide` receives what already stands for that date — the folder's own
+   * record, else the folder it replaced (a re-aimed radar keeps the shift it was
+   * halfway through), else null when nothing is recorded at all — and returns the
+   * array to write, or null to leave the date alone.
+   *
+   * The new array is derived from the row just read, never from what is on
+   * screen: the view hands back the newest dqp_record whatever its date, so a
+   * sensor nobody checked yesterday displays an older day's ticks, and writing
+   * those forward stamped them onto today's record. They then sat on hours the
+   * gate had already locked, which is what made a wrongly-ticked row impossible
+   * to clear.
+   *
+   * Resolves with the array that stands for that date afterwards.
    */
   const writeChecklist = async (
     sensor: RadarWallFolder,
-    decide: (todayChecks: boolean[] | null) => boolean[]
+    recordDate: string,
+    decide: (dayChecks: boolean[] | null) => boolean[] | null
   ): Promise<boolean[]> => {
-    const todayDate = localRecordDate();
-
     const { data: existingRecord, error: fetchError } = await supabase
       .from('dqp_records')
       .select('id, checklist')
       .eq('wall_folder_id', sensor.wallfolder_id)
-      .eq('record_date', todayDate)
+      .eq('record_date', recordDate)
       .maybeSingle();
 
     if (fetchError) {
@@ -152,7 +206,13 @@ function RadarMonitoring() {
       throw fetchError;
     }
 
-    const newChecks = decide(existingRecord ? toChecks(existingRecord.checklist) : null);
+    const standing = existingRecord
+      ? toChecks(existingRecord.checklist)
+      : await carriedFor(sensor, recordDate);
+
+    const newChecks = decide(standing);
+    // Nothing to change on this date — don't create a record just to hold blanks.
+    if (!newChecks) return standing ?? blankChecks();
 
     if (existingRecord) {
       const { error: updateError } = await supabase
@@ -171,8 +231,9 @@ function RadarMonitoring() {
       return newChecks;
     }
 
-    // First write of this site's day. The working notes carry forward from the
-    // previous record; the ticks never do.
+    // First write of this folder's day. The working notes carry forward from the
+    // folder's own previous record; ticks only ever carry within one date, and
+    // only from the folder this one replaced (see carriedFor).
     const { data: latestRecord, error: latestError } = await supabase
       .from('dqp_records')
       .select('id, notes, action')
@@ -190,7 +251,7 @@ function RadarMonitoring() {
       .insert({
         radar_id: sensor.id,
         wall_folder_id: sensor.wallfolder_id,
-        record_date: todayDate,
+        record_date: recordDate,
         checklist: newChecks,
         created_time: new Date().toISOString(),
         created_by: userID,
@@ -214,7 +275,7 @@ function RadarMonitoring() {
             created_by: userID
           })
           .eq('wall_folder_id', sensor.wallfolder_id)
-          .eq('record_date', todayDate);
+          .eq('record_date', recordDate);
 
         if (conflictUpdateError) {
           console.error('Conflict update error:', conflictUpdateError);
@@ -260,19 +321,22 @@ function RadarMonitoring() {
   };
 
   /**
-   * Serialize checklist writes per wallfolder: the next write only runs after the
+   * Serialize checklist writes per record: the next write only runs after the
    * previous one has fully committed. This kills the read-then-insert race where
    * a quick check-then-uncheck both saw "no record yet" and each inserted a row,
-   * leaving two dqp_records with the same wall_folder_id + record_date.
+   * leaving two dqp_records with the same wall_folder_id + record_date. Keyed by
+   * both, since a night shift's two dates are two rows that cannot race.
    */
   const queueChecklistWrite = (
     sensor: RadarWallFolder,
-    decide: (todayChecks: boolean[] | null) => boolean[]
+    recordDate: string,
+    decide: (dayChecks: boolean[] | null) => boolean[] | null
   ): Promise<boolean[]> => {
-    const previous = toggleLocks.current.get(sensor.wallfolder_id) ?? Promise.resolve();
-    const current = previous.then(() => writeChecklist(sensor, decide));
+    const key = `${sensor.wallfolder_id}:${recordDate}`;
+    const previous = toggleLocks.current.get(key) ?? Promise.resolve();
+    const current = previous.then(() => writeChecklist(sensor, recordDate, decide));
     // Swallow errors on the stored lock so one failure doesn't break the chain.
-    toggleLocks.current.set(sensor.wallfolder_id, current.catch(() => {}));
+    toggleLocks.current.set(key, current.catch(() => {}));
     return current;
   };
 
@@ -291,7 +355,12 @@ function RadarMonitoring() {
       return;
     }
 
-    const actualIndex = shifts[selectedShift].indices[hourIndex];
+    const indices = shifts[selectedShift].indices;
+    const shiftDates = shiftWindow(indices);
+    const actualIndex = indices[hourIndex];
+    // The record this slot belongs to — for the night shift, 01:00 is the day
+    // after the 19:00 that opened the same shift.
+    const recordDate = shiftDates.dateForHour(actualIndex);
     const previousChecks = toChecks(sensor.hourlychecks);
     // What the click asks for, read off the box the user actually saw.
     const desired = !previousChecks[actualIndex];
@@ -307,14 +376,18 @@ function RadarMonitoring() {
     );
 
     try {
-      const stored = await queueChecklistWrite(sensor, (todayChecks) =>
-        nextChecks(todayChecks, actualIndex, desired)
+      const stored = await queueChecklistWrite(sensor, recordDate, (dayChecks) =>
+        nextChecks(dayChecks, actualIndex, desired)
       );
 
-      // Settle on what was actually stored. If the row on screen was showing an
-      // older day, its other ticks vanish here rather than being written forward.
+      // Settle on what was actually stored, for the hours that date owns — the
+      // other date of a night shift keeps what it is already showing.
       setLiveViewList((prev) =>
-        prev.map((s, sIdx) => (sIdx === ssrIndex ? { ...s, hourlychecks: stored } : s))
+        prev.map((s, sIdx) =>
+          sIdx === ssrIndex
+            ? { ...s, hourlychecks: withStoredDay(s.hourlychecks, indices, shiftDates, recordDate, stored) }
+            : s
+        )
       );
     } catch (error) {
       console.error('Error updating checklist:', error);
@@ -329,38 +402,86 @@ function RadarMonitoring() {
   };
 
   /**
-   * Replace each row's checklist with the one stored against today's date.
+   * Replace each row's checklist with the one the displayed shift actually stands
+   * on — which is one record for the day and cross shifts, and two for the night
+   * shift, whose evening hours are filed under the date it started.
    *
-   * `latest_radar_wall_folders` carries the newest dqp_record for a wallfolder
-   * whatever its date, so a sensor that went unchecked yesterday arrives holding
-   * yesterday's ticks — which then read as today's work, and inflate the
-   * completion figures below. A day with no record yet shows blank.
+   * Three ways the view's own `hourlychecks` misleads, all corrected here:
+   *
+   *   - `latest_radar_wall_folders` carries the newest dqp_record for a wallfolder
+   *     whatever its date, so a sensor that went unchecked yesterday arrives
+   *     holding yesterday's ticks, which read as today's work and inflate the
+   *     completion figures below.
+   *   - it is one record, so at midnight a night shift lost the 19:00..23:00 it
+   *     had already verified.
+   *   - it is keyed by wall folder, so a radar re-aimed mid-shift arrived blank.
+   *     A folder with no record of its own for a date carries the retired
+   *     folder's — see utils/checklistCarryOver.ts.
    */
-  const withTodaysChecklists = async (rows: RadarWallFolder[]): Promise<RadarWallFolder[]> => {
+  const withShiftChecklists = async (rows: RadarWallFolder[]): Promise<RadarWallFolder[]> => {
     const wallfolderIds = rows
       .map((r) => r.wallfolder_id)
       .filter((id): id is number => id != null);
     if (wallfolderIds.length === 0) return rows;
 
+    const indices = shifts[selectedShift].indices;
+    const shiftDates = shiftWindow(indices);
+    const radarIds = Array.from(new Set(rows.map((r) => r.id).filter((id) => id != null)));
+
+    // Every folder these radars have, retired ones included: the board only shows
+    // the live one, and carry-over needs to know what came before it.
+    const { data: folderData, error: folderError } = await supabase
+      .from('radar_wall_folders')
+      .select('id, radar_id, type, commenced_at, decommissioned_at')
+      .in('radar_id', radarIds);
+
+    if (folderError) {
+      // Without the folder history there is no carry-over, but the shift's own
+      // records still read correctly. Don't fail the board over it.
+      console.error('Error fetching wall folder history:', folderError);
+    }
+    const folders = (folderData as FolderLike[]) || [];
+    radarFoldersRef.current = folders;
+
+    const readableIds = Array.from(
+      new Set([...wallfolderIds, ...folders.map((f) => f.id)])
+    );
+
     const { data, error } = await supabase
       .from('dqp_records')
-      .select('wall_folder_id, checklist')
-      .in('wall_folder_id', wallfolderIds)
-      .eq('record_date', localRecordDate());
+      .select('wall_folder_id, record_date, checklist')
+      .in('wall_folder_id', readableIds)
+      .in('record_date', shiftDates.dates);
 
     if (error) {
       // Keep the view's value rather than blanking the whole board on a
       // transient read failure.
-      console.error("Error fetching today's checklists:", error);
+      console.error("Error fetching the shift's checklists:", error);
       return rows;
     }
 
-    const todaysChecklists = new Map((data || []).map((r) => [r.wall_folder_id, r.checklist]));
+    // date → wall folder → checklist. Sliced to the calendar date so the key
+    // matches shiftDates whatever PostgREST hands back for the column.
+    const byDate = new Map<string, Map<number, boolean[] | null>>();
+    (data || []).forEach((r) => {
+      const date = String(r.record_date).slice(0, 10);
+      const forDate = byDate.get(date) ?? new Map<number, boolean[] | null>();
+      forDate.set(r.wall_folder_id, r.checklist);
+      byDate.set(date, forDate);
+    });
 
-    return rows.map((r) => ({
-      ...r,
-      hourlychecks: toChecks(todaysChecklists.get(r.wallfolder_id))
-    }));
+    return rows.map((r) => {
+      const predecessors = predecessorFolderIds(folders, r.id, r.wallfolder_id);
+
+      return {
+        ...r,
+        hourlychecks: composeShiftChecks(indices, shiftDates, (date) => {
+          const forDate = byDate.get(date) ?? new Map<number, boolean[] | null>();
+          if (forDate.has(r.wallfolder_id)) return forDate.get(r.wallfolder_id);
+          return carriedChecks(predecessors, forDate);
+        })
+      };
+    });
   };
 
   /**
@@ -420,7 +541,7 @@ function RadarMonitoring() {
 
 
       setLiveViewList(
-        await withRiskPresentation(await withTodaysChecklists((data as RadarWallFolder[]) || []))
+        await withRiskPresentation(await withShiftChecklists((data as RadarWallFolder[]) || []))
       );
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -428,16 +549,23 @@ function RadarMonitoring() {
       setLoadingLiveViewList(false);
     }
     ;
-  }, [selectedStation]);
+    // The shift decides which record dates the grid is assembled from, so
+    // switching shift has to re-read, not just re-slice what is in state.
+  }, [selectedStation, selectedShift]);
 
   /**
-   * Clear today's checklist for these sensors — in the database, not just on
-   * screen.
+   * Clear the displayed shift's checklist for these sensors — in the database,
+   * not just on screen.
    *
    * Reset used to clear state alone, so the ticks came straight back on the next
    * refetch (a shift change, a closed sensor detail, a reload). With the hour
    * gate refusing clicks on slots that have passed, a row holding ticks nobody
    * meant to make had no way out at all. Clearing has to reach dqp_records.
+   *
+   * It reaches every record the shift stands on — both dates of a night shift —
+   * but only that shift's own hours: a night operator resetting their grid must
+   * not take the day shift's morning with it. A date holding nothing is left
+   * alone rather than given an empty record.
    */
   const clearChecklists = async (sensors: RadarWallFolder[]) => {
     if (!userID) {
@@ -447,24 +575,35 @@ function RadarMonitoring() {
     }
     if (sensors.length === 0) return;
 
+    const indices = shifts[selectedShift].indices;
+    const shiftDates = shiftWindow(indices);
+
     const clearing = new Set(sensors.map((s) => s.wallfolder_id));
+    // A row only ever holds the displayed shift's hours, so blanking it on screen
+    // says exactly "this shift is cleared".
     setLiveViewList((prev) =>
       prev.map((s) => (clearing.has(s.wallfolder_id) ? { ...s, hourlychecks: blankChecks() } : s))
     );
 
     const results = await Promise.allSettled(
-      sensors.map((sensor) => queueChecklistWrite(sensor, () => blankChecks()))
+      sensors.flatMap((sensor) =>
+        shiftDates.dates.map((date) =>
+          queueChecklistWrite(sensor, date, (dayChecks) =>
+            dayChecks ? clearedShiftHours(dayChecks, indices, shiftDates, date) : null
+          )
+        )
+      )
     );
 
     const failed = results.filter((r) => r.status === 'rejected');
     if (failed.length > 0) {
       console.error('Checklist clear failures:', failed.map((f) => (f as PromiseRejectedResult).reason));
-      toast.error(`Failed to clear ${failed.length} of ${sensors.length} sensors.`);
+      toast.error(`Failed to clear ${failed.length} of ${results.length} records.`);
     } else {
       toast.success(
         sensors.length === 1
-          ? `Cleared today's checklist for ${sensors[0].radar_number}.`
-          : `Cleared today's checklist for ${sensors.length} sensors.`
+          ? `Cleared this shift's checklist for ${sensors[0].radar_number}.`
+          : `Cleared this shift's checklist for ${sensors.length} sensors.`
       );
     }
 
@@ -479,7 +618,7 @@ function RadarMonitoring() {
     if (!sensor || sensor.wallfolder_id == null) return;
 
     if (!window.confirm(
-      `Clear today's checklist for ${sensor.radar_number} (${sensor.site_name})?`
+      `Clear the ${shifts[selectedShift].label} checklist for ${sensor.radar_number} (${sensor.site_name})?`
     )) return;
 
     clearChecklists([sensor]);
@@ -498,8 +637,8 @@ function RadarMonitoring() {
 
     const sites = Array.from(new Set(sensors.map((s) => s.site_name))).join(', ');
     if (!window.confirm(
-      `Clear today's checklist for all ${sensors.length} sensors on station ${selectedStation} (${sites})?\n\n` +
-      `Checks already recorded today will be lost, and hours that have passed cannot be re-ticked. ` +
+      `Clear the ${shifts[selectedShift].label} checklist for all ${sensors.length} sensors on station ${selectedStation} (${sites})?\n\n` +
+      `Checks already recorded this shift will be lost, and hours that have passed cannot be re-ticked. ` +
       `To clear a single radar instead, use the reset icon on its row.`
     )) return;
 
@@ -795,8 +934,8 @@ function RadarMonitoring() {
                         </span>
                         <button
                           type="button"
-                          title={`Clear today's checklist for ${sensor.radar_number}`}
-                          aria-label={`Clear today's checklist for ${sensor.radar_number}`}
+                          title={`Clear this shift's checklist for ${sensor.radar_number}`}
+                          aria-label={`Clear this shift's checklist for ${sensor.radar_number}`}
                           onClick={(e) => { e.stopPropagation(); handleClearSensorChecklist(sensorIdx); }}
                           className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
                         >

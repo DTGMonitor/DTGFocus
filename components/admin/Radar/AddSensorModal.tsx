@@ -13,6 +13,7 @@ import {
   describeParameterSet,
   type ParameterRow,
 } from "@/config/radarParameterSets";
+import { localRecordDate } from "@/utils/checklistDay";
 
 const NEW = "__new__";
 
@@ -47,8 +48,10 @@ const emptySite = {
 
 const emptyBrand = { brand: "", color: "#F8901F" };
 
-/** Matches the UTC+7 "today" used by the hourly checklist in RadarMonitoring. */
-const todayUtc7 = () => new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split("T")[0];
+// The seed record's date has to be the one the checklist board will look for, or
+// the first tick creates a second record for the same day. That is the operator's
+// own calendar date — a hard-coded UTC+7 filed it under tomorrow for anyone east
+// of Jakarta. See utils/checklistDay.ts.
 
 export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: AddSensorModalProps) {
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -195,7 +198,7 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
       }
 
       const now = new Date().toISOString();
-      const recordDate = todayUtc7();
+      const recordDate = localRecordDate();
 
       // 3. Radar
       const { data: radar, error: radarError } = await supabase

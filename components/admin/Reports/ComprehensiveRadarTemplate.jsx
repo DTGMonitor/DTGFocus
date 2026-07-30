@@ -11,8 +11,8 @@
  *
  * Block order:
  *   Header → Executive Summary → Key Findings → Deformation image → Deformation
- *   timeline → Data Quality → System Performance → Procedural Updates (TARP) →
- *   Glossary → Appendix[] → Disclaimer
+ *   timeline → Data Quality → System Performance → Alarm Improvement →
+ *   Procedural Updates (TARP) → Glossary → Appendix[] → Disclaimer
  *
  * Unlike RadarTemplate, this destructures `reportInfo`. RadarTemplate is declared
  * ({ data, sensor, exportMode }) while both call sites pass reportInfo, so it is
@@ -33,10 +33,12 @@ import { KeyFindings, buildKeyFindings } from '@/components/admin/Radar/report/b
 import { DeformationImage, DeformationTimeline } from '@/components/admin/Radar/report/blocks/DeformationTimeline';
 import { DataQuality } from '@/components/admin/Radar/report/blocks/DataQuality';
 import { SystemPerformance } from '@/components/admin/Radar/report/blocks/SystemPerformance';
+import { AlarmImprovements } from '@/components/admin/Radar/report/blocks/AlarmImprovements';
 import { ProceduralUpdates } from '@/components/admin/Radar/report/blocks/ProceduralUpdates';
 import { Glossary, AppendixItem, Disclaimer } from '@/components/admin/Radar/report/blocks/GlossaryAppendix';
 
 import { buildStatusGroups, buildAppendixItems } from '@/utils/reportDqp';
+import { chunkImprovements } from '@/utils/reportAlarmImprovements';
 import { supabase } from '@/lib/supabaseClient';
 
 export const COMPREHENSIVE_TITLE = 'Daily Radar Reporting Services';
@@ -166,11 +168,22 @@ export function ComprehensiveRadarTemplate({
 
   const findings = useMemo(() => buildKeyFindings(data), [data]);
 
+  // Pre-chunked: the paginator never splits a block, so a long recommendation
+  // table has to arrive as several. Empty when nothing was raised or resolved
+  // this period, which is what drops the section entirely. Stabilised for the
+  // same reason as dqpRows — a fresh `?? []` each render would re-fire the
+  // pagination effect forever.
+  const improvementRows = useMemo(
+    () => data?.alarmImprovements?.rows ?? [],
+    [data?.alarmImprovements?.rows]
+  );
+  const improvementChunks = useMemo(() => chunkImprovements(improvementRows), [improvementRows]);
+
   // Declared before the blocks: they close over bumpMeasure.
   // `annotation.image` is a dep because adding a figure changes the block's
   // height and the pages must re-pack around it.
   const { pages, measureRef, measureLayer, bumpMeasure } = useReportPagination([
-    data, appendixItems, statusGroups, annotation?.image, annotation?.boundaries,
+    data, appendixItems, statusGroups, improvementChunks, annotation?.image, annotation?.boundaries,
   ]);
 
   const metaItems = [
@@ -268,6 +281,22 @@ export function ComprehensiveRadarTemplate({
         alarmFolders={data?.alarms?.byFolder ?? []}
       />
     );
+
+    // Alarm improvements sit directly under System Performance: that section
+    // reports what the alarms did, this one what was asked of the site about
+    // them. Only when something was raised or resolved inside the window — a
+    // period with no exchange gets no section at all.
+    improvementChunks.forEach((chunk, i) => {
+      out.push(
+        <AlarmImprovements
+          key={`alarm-improvements-${i}`}
+          rows={chunk}
+          summary={data?.alarmImprovements?.summary}
+          withHeader={i === 0}
+          withLegend={i === improvementChunks.length - 1}
+        />
+      );
+    });
 
     // Only when the TARP actually changed inside the window — an unchanged plan
     // gets no section at all (the block also guards this).

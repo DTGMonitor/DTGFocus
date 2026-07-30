@@ -33,7 +33,13 @@ const PR_API_BASE =
  * Deformation event types overlaid on the analysis charts and folded into the
  * slope-behaviour summary (request 2). Archived records are included.
  */
-const EVENT_DEF_TYPES = ['Material Detachment', 'Rock Fall', 'Blast Event', 'Failure'];
+const EVENT_DEF_TYPES = [
+  'Material Detachment',
+  'Rock Fall',
+  'Blast Event',
+  'Rainfall Event',
+  'Failure',
+];
 
 /** Parse a tz-naive timestamp (window edge / event time) to epoch-ms locally. */
 function localMs(s) {
@@ -172,8 +178,8 @@ export default function PatternRecognitionPopup({
   const [rerunningVcpIndex, setRerunningVcpIndex] = useState(null);
 
   // ── Deformation events for the related wall-folder (request 2) ─────────────
-  // All Material Detachment / Rock Fall / Blast Event / Failure records for the
-  // wall folder, including archived ones. Filtered to the analysis period and
+  // All EVENT_DEF_TYPES records for the wall folder, including archived ones
+  // (Material Detachment / Rock Fall / Blast / Rainfall / Failure). Filtered to the analysis period and
   // toggled in/out by the analyst before plotting / summarising.
   const [deformationEvents, setDeformationEvents] = useState([]);
   const [excludedEventIds, setExcludedEventIds] = useState(() => new Set());
