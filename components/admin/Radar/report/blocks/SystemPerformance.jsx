@@ -106,11 +106,23 @@ function AvailabilityDonut({ availability }) {
         fontSize={6.5}
         fill={MUTED}
       >
-        {a.windowHours.toFixed(0)} h window
+        {windowLabel(a.windowHours)} window
       </text>
     </svg>
   );
 }
+
+/**
+ * '48 h' / '7 days' — the window named the way a reader would say it. Hours stay
+ * hours while they are still countable; past three days "Last 720 h" is a figure
+ * nobody converts in their head.
+ */
+const windowLabel = (hours) => {
+  if (!Number.isFinite(hours) || hours <= 0) return '—';
+  if (hours <= 72) return `${hours.toFixed(0)} h`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
+};
 
 /** A ring's headline percentage, its bar, and only the reasons that cost time. */
 const Breakdown = ({ heading, pct, color, buckets }) => {
@@ -180,7 +192,7 @@ export function SystemPerformance({ availability, alarmCauses = [], alarmFolders
         right={
           a ? (
             <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em' }}>
-              Last {a.windowHours.toFixed(0)} h
+              Last {windowLabel(a.windowHours)}
             </span>
           ) : null
         }
@@ -190,7 +202,10 @@ export function SystemPerformance({ availability, alarmCauses = [], alarmFolders
           floating boxes there — and read as two different templates. */}
       <div style={{ border: `1px solid ${LINE}`, borderTop: 'none', display: 'flex' }}>
         <div style={{ flex: 1, minWidth: 0, padding: 6 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: INK, marginBottom: 4 }}>Daily Availability</div>
+          {/* Not "Daily Availability" — the window is whatever the granularity
+              says, and the section bar states it. A fixed "Daily" contradicted
+              the "Last 168 h" printed inches above it. */}
+          <div style={{ fontSize: 9, fontWeight: 700, color: INK, marginBottom: 4 }}>Availability</div>
           {!a ? (
             <div style={{ height: SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 9 }}>
               Availability data unavailable.

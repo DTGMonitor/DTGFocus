@@ -220,11 +220,39 @@ export function toGaugeShape(availability) {
  */
 const REPORT_DAY_BOUNDARY = '05:00:00';
 
+/** The named granularities and the span, in days, each one covers. */
+export const FREQUENCY_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+
+/** A day count a window can actually be built from: finite, positive, ≤ a year. */
+const sanitizeDays = (n) => (Number.isFinite(n) && n > 0 ? Math.min(n, 366) : 1);
+
 /**
- * The report window for a frequency: always EXACTLY 1 / 7 / 30 × 24 hours long,
- * measured back from the window END. `reportDay` is the report's calendar day as
- * 'YYYY-MM-DD' (the form's End Date); `now` is the moment the report is generated
- * (injected for testing).
+ * How many days a granularity covers.
+ *
+ * Accepts the three named frequencies, a plain number of days, or the
+ * `custom:<n>` form the report modal emits once an analyst types their own span
+ * (`custom:2` for the two-day report). A bare `'2'` / `'2d'` is read the same way,
+ * so a caller that already holds a day count does not have to encode it.
+ *
+ * Anything unreadable falls back to 1 day — the behaviour before custom spans
+ * existed, and the only safe default for a window that must always exist.
+ */
+export function daysForFrequency(frequency) {
+  if (typeof frequency === 'number') return sanitizeDays(frequency);
+
+  const raw = String(frequency ?? '').trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(FREQUENCY_DAYS, raw)) return FREQUENCY_DAYS[raw];
+
+  const m = /^(?:custom[:-])?(\d+(?:\.\d+)?)\s*d?(?:ays?)?$/.exec(raw);
+  return m ? sanitizeDays(Number(m[1])) : 1;
+}
+
+/**
+ * The report window for a frequency: always EXACTLY N × 24 hours long, measured
+ * back from the window END, where N comes from daysForFrequency (1 / 7 / 30 for
+ * the named granularities, or whatever a `custom:<n>` span asks for).
+ * `reportDay` is the report's calendar day as 'YYYY-MM-DD' (the form's End Date);
+ * `now` is the moment the report is generated (injected for testing).
  *
  * The END, and therefore the START:
  *   - report day is TODAY or in the future → the period is still open, so the
@@ -247,7 +275,7 @@ const REPORT_DAY_BOUNDARY = '05:00:00';
  */
 export function windowForFrequency(frequency, reportDay, timeZone = 'UTC', now = Date.now()) {
   const nowMs = now instanceof Date ? now.getTime() : Number(now);
-  const days = frequency === 'weekly' ? 7 : frequency === 'monthly' ? 30 : 1;
+  const days = daysForFrequency(frequency);
 
   const scheduledEndIso = reportDay ? toUTC(`${reportDay}T${REPORT_DAY_BOUNDARY}`, timeZone) : null;
   const scheduledEnd = scheduledEndIso ? new Date(scheduledEndIso).getTime() : nowMs;

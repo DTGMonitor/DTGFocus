@@ -365,6 +365,65 @@ describe('ComprehensiveRadarTemplate', () => {
       expect((await screen.findAllByText('Alarm Mask')).length).toBeGreaterThan(0);
     });
   });
+
+  describe('custom granularity — the report names the window it actually read', () => {
+    /** A payload for an N-day window, the shape useComprehensiveReportData emits. */
+    const dataForDays = (days) => {
+      const windowStart = new Date(NOW - days * 24 * HOUR_MS);
+      const windowEnd = new Date(NOW);
+      return buildData({
+        window: { windowStart, windowEnd, hours: days * 24, days },
+        availability: computeAvailability(
+          [{ reason: 'Maintenance', from: at(5), to: at(4) }],
+          windowStart,
+          windowEnd
+        ),
+      });
+    };
+
+    it('titles a two-day report by its span, not "Daily"', async () => {
+      // The title is also the filename stem, so a two-day report headed
+      // "Daily Radar Reporting Services" would mislabel the archive as well.
+      renderReport(dataForDays(2));
+      expect((await screen.findAllByText(/2-DAY RADAR REPORTING SERVICES/i)).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/DAILY RADAR REPORTING SERVICES/i)).toBeNull();
+    });
+
+    it('keeps the established wording for the named granularities', async () => {
+      renderReport(dataForDays(7));
+      expect((await screen.findAllByText(/WEEKLY RADAR REPORTING SERVICES/i)).length).toBeGreaterThan(0);
+    });
+
+    it('captions the alarm tile and the performance section with the real span', async () => {
+      // Both used to be hardcoded to a day: the tile read "(24h)" and the section
+      // bar "Last 168 h" over the same 24h record set. They now agree.
+      renderReport(dataForDays(2));
+      expect((await screen.findAllByText('Valid / Total (48h)')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Last 48 h').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('48 h window').length).toBeGreaterThan(0);
+    });
+
+    it('says days, not hours, once the window is long enough to need them', async () => {
+      renderReport(dataForDays(30));
+      expect((await screen.findAllByText('Last 30 days')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Valid / Total (30d)').length).toBeGreaterThan(0);
+    });
+
+    it('words the alarm finding for the window rather than "the last 24 hours"', async () => {
+      renderReport(dataForDays(2));
+      expect(
+        (await screen.findAllByText(/3 alarm events in the last 2 days, 0 assessed as valid/)).length
+      ).toBeGreaterThan(0);
+    });
+
+    it('still says 24 hours for the daily edition', async () => {
+      renderReport(dataForDays(1));
+      expect(
+        (await screen.findAllByText(/3 alarm events in the last 24 hours/)).length
+      ).toBeGreaterThan(0);
+      expect(screen.getAllByText('Valid / Total (24h)').length).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe('useImageAnnotation — zone drawing', () => {

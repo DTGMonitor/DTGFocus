@@ -90,19 +90,24 @@ var Viewer = (function () {
   var VS_MESH = [
     'attribute vec3 aPos; attribute vec3 aNorm; attribute vec3 aCol;',
     'uniform mat4 uMVP; uniform float uZS;',
-    'varying vec3 vN; varying vec3 vC;',
+    'varying vec3 vN; varying vec3 vC; varying vec3 vClip;',
     'void main(){',
     '  vec3 p = vec3(aPos.xy, aPos.z*uZS);',
     '  vN = normalize(vec3(aNorm.xy, aNorm.z/uZS));',
     '  vC = aCol;',
+    '  vClip = aPos;',                 // unscaled local coords, for the clip test
     '  gl_Position = uMVP*vec4(p,1.0);',
     '}'
   ].join('\n');
   var FS_MESH = [
     'precision mediump float;',
     'uniform vec3 uSun; uniform float uShade; uniform float uAlpha;',
-    'varying vec3 vN; varying vec3 vC;',
+    'uniform float uClipOn; uniform vec3 uClipMin; uniform vec3 uClipMax;',
+    'varying vec3 vN; varying vec3 vC; varying vec3 vClip;',
     'void main(){',
+    '  if (uClipOn > 0.5) {',
+    '    if (any(lessThan(vClip, uClipMin)) || any(greaterThan(vClip, uClipMax))) discard;',
+    '  }',
     '  float lam = abs(dot(normalize(vN), uSun));',
     '  float sh  = 0.32 + 0.78*lam;',
     '  vec3 c = mix(vC, vC*sh, uShade);',
@@ -112,15 +117,24 @@ var Viewer = (function () {
   var VS_LINE = [
     'attribute vec3 aPos;',
     'uniform mat4 uMVP; uniform float uZS;',
+    'varying vec3 vClip;',
     'void main(){',
     '  vec3 p = vec3(aPos.xy, aPos.z*uZS);',
+    '  vClip = aPos;',
     '  gl_Position = uMVP*vec4(p,1.0);',
     '  gl_PointSize = 7.0;',
     '}'
   ].join('\n');
   var FS_LINE = [
     'precision mediump float; uniform vec4 uColor;',
-    'void main(){ gl_FragColor = uColor; }'
+    'uniform float uClipOn; uniform vec3 uClipMin; uniform vec3 uClipMax;',
+    'varying vec3 vClip;',
+    'void main(){',
+    '  if (uClipOn > 0.5) {',
+    '    if (any(lessThan(vClip, uClipMin)) || any(greaterThan(vClip, uClipMax))) discard;',
+    '  }',
+    '  gl_FragColor = uColor;',
+    '}'
   ].join('\n');
 
   function compile(gl, type, src) {
@@ -168,6 +182,14 @@ var Viewer = (function () {
     this.points = [];
     this.grid = null;
     this._drag = null;
+    /* clip box, in unscaled local coordinates (world minus this.off) */
+    this.clip = {
+      on: false, handles: true,
+      min: [0, 0, 0], max: [0, 0, 0],
+      bmin: [0, 0, 0], bmax: [0, 0, 0]      // model extent = drag limits
+    };
+    this._clipDrag = null;
+    this._clipHover = -1;
     this._bind();
     this.resize();
   }
@@ -223,6 +245,15 @@ var Viewer = (function () {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.norm); gl.bufferData(gl.ARRAY_BUFFER, nor, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices, gl.STATIC_DRAW);
+    /* local-space extent — clip limits and “reset” come from this */
+    this.clip.bmin = [g.x0 - this.off.x, g.y0 - this.off.y, g.zmin - this.off.z];
+    this.clip.bmax = [
+      g.x0 + (nx - 1) * g.dx - this.off.x,
+      g.y0 + (ny - 1) * g.dy - this.off.y,
+      g.zmax - this.off.z
+    ];
+    this.clipFit();
+
     var grey = new Float32Array(n * 3);
     grey.fill(0.55);
     this.setColors(grey);          // so the first draw has a valid colour buffer
@@ -262,6 +293,166 @@ var Viewer = (function () {
     this.wireType = T === Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
     this.wireReady = true;
   };
+
+  /* ================================================== clip box ==============
+     Six axis-aligned planes held as a min/max pair. The fragment shaders
+     discard anything outside, so nothing is re-uploaded while dragging.
+     Face order: 0 -X, 1 +X, 2 -Y, 3 +Y, 4 -Z, 5 +Z
+     (face>>1 = axis, face&1 = is-max) — arrow colours are R/G/B per axis.
+     ========================================================================= */
+  var FACE_COL = [[1, .35, .35], [1, .35, .35], [.35, 1, .45], [.35, 1, .45], [.4, .68, 1], [.4, .68, 1]];
+
+  /** reset the box to the full model extent */
+  Viewer.prototype.clipFit = function () {
+    this.clip.min = this.clip.bmin.slice();
+    this.clip.max = this.clip.bmax.slice();
+    this._clipNotify();
+  };
+
+  Viewer.prototype.setClipEnabled = function (on, handles) {
+    this.clip.on = !!on;
+    if (handles !== undefined) this.clip.handles = !!handles;
+    this.draw();
+  };
+
+  /** world-space box in; stored clamped to the model extent */
+  Viewer.prototype.setClipWorld = function (wmin, wmax) {
+    var o = [this.off.x, this.off.y, this.off.z];
+    for (var a = 0; a < 3; a++) {
+      var lo = this.clip.bmin[a], hi = this.clip.bmax[a];
+      var gap = Math.max((hi - lo) * 1e-4, 1e-6);
+      var mn = Math.min(Math.max(wmin[a] - o[a], lo), hi);
+      var mx = Math.min(Math.max(wmax[a] - o[a], lo), hi);
+      if (mx - mn < gap) mx = Math.min(hi, mn + gap);
+      this.clip.min[a] = mn; this.clip.max[a] = mx;
+    }
+    this.draw();
+  };
+
+  Viewer.prototype.clipWorld = function () {
+    var o = [this.off.x, this.off.y, this.off.z];
+    function add(v) { return [v[0] + o[0], v[1] + o[1], v[2] + o[2]]; }
+    return {
+      min: add(this.clip.min), max: add(this.clip.max),
+      bmin: add(this.clip.bmin), bmax: add(this.clip.bmax)
+    };
+  };
+
+  /** move one face; value is an unscaled local coordinate on that face's axis */
+  Viewer.prototype.setClipFace = function (face, value) {
+    var axis = face >> 1, isMax = (face & 1) === 1;
+    var lo = this.clip.bmin[axis], hi = this.clip.bmax[axis];
+    var gap = Math.max((hi - lo) * 1e-4, 1e-6);
+    var v = Math.min(Math.max(value, lo), hi);
+    if (isMax) this.clip.max[axis] = Math.max(v, this.clip.min[axis] + gap);
+    else this.clip.min[axis] = Math.min(v, this.clip.max[axis] - gap);
+    this._clipNotify();
+    this.draw();
+  };
+
+  Viewer.prototype._clipNotify = function () {
+    if (this.onClipChange) {
+      var w = this.clipWorld();
+      this.onClipChange(w.min, w.max);
+    }
+  };
+
+  Viewer.prototype._clipCentre = function () {
+    var c = [], i;
+    for (i = 0; i < 3; i++) c.push((this.clip.min[i] + this.clip.max[i]) / 2);
+    return c;
+  };
+
+  /** local (unscaled) position of a face handle */
+  Viewer.prototype._handlePos = function (face) {
+    var axis = face >> 1, isMax = (face & 1) === 1;
+    var p = this._clipCentre();
+    p[axis] = isMax ? this.clip.max[axis] : this.clip.min[axis];
+    return p;
+  };
+
+  /** local point → CSS pixels, or null when behind the camera */
+  Viewer.prototype._project = function (l) {
+    if (!this._mvp) return null;
+    var v = xform(this._mvp, [l[0], l[1], l[2] * this.opt.zScale, 1]);
+    if (v[3] <= 1e-9) return null;
+    return {
+      x: (v[0] / v[3] * 0.5 + 0.5) * this.W,
+      y: (0.5 - v[1] / v[3] * 0.5) * this.H,
+      z: v[2] / v[3]
+    };
+  };
+
+  /** which handle is under the pointer (screen space, forgiving) */
+  Viewer.prototype.clipHandleAt = function (ev) {
+    if (!this.clip.on || !this.clip.handles || !this.grid) return -1;
+    var r = this.canvas.getBoundingClientRect();
+    var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    var best = -1, tol = 16 * 16, bestZ = Infinity;
+    for (var f = 0; f < 6; f++) {
+      var p = this._project(this._handlePos(f));
+      if (!p) continue;
+      var dx = p.x - mx, dy = p.y - my;
+      if (dx * dx + dy * dy <= tol && p.z < bestZ) { best = f; bestZ = p.z; }
+    }
+    return best;
+  };
+
+  /** ray in scaled-local space — the space the screen actually shows */
+  Viewer.prototype._rayLocal = function (ev) {
+    var r = this.canvas.getBoundingClientRect();
+    var nx = ((ev.clientX - r.left) / r.width) * 2 - 1;
+    var ny = 1 - ((ev.clientY - r.top) / r.height) * 2;
+    var M = this.matrices();
+    var inv = invert(mul(M.proj, M.view));
+    if (!inv) return null;
+    var a = xform(inv, [nx, ny, -1, 1]), b = xform(inv, [nx, ny, 1, 1]);
+    for (var k = 0; k < 3; k++) { a[k] /= a[3]; b[k] /= b[3]; }
+    return { o: [a[0], a[1], a[2]], d: [b[0] - a[0], b[1] - a[1], b[2] - a[2]] };
+  };
+
+  Viewer.prototype._clipDragStart = function (ev, face) {
+    var ray = this._rayLocal(ev);
+    if (!ray) return false;
+    var axis = face >> 1, zs = this.opt.zScale;
+    var axisDir = [0, 0, 0]; axisDir[axis] = 1;
+    var eye = this.eye(), t = this.cam.target;
+    var cam = [t[0] - eye[0], t[1] - eye[1], t[2] - eye[2]];
+    var n = cross(cross(axisDir, cam), axisDir);
+    var len = Math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (len < 1e-8) { n = [0, 0, 1]; len = 1; }
+    n = [n[0] / len, n[1] / len, n[2] / len];
+    var h = this._handlePos(face); h[2] *= zs;
+    var hit = rayPlane(ray, n, h);
+    if (hit === null) return false;
+    var cur = (face & 1) ? this.clip.max[axis] : this.clip.min[axis];
+    this._clipDrag = {
+      face: face, n: n, anchor: h,
+      offset: (axis === 2 ? cur * zs : cur) - hit[axis]
+    };
+    return true;
+  };
+
+  Viewer.prototype._clipDragMove = function (ev) {
+    var d = this._clipDrag; if (!d) return;
+    var ray = this._rayLocal(ev); if (!ray) return;
+    var hit = rayPlane(ray, d.n, d.anchor); if (hit === null) return;
+    var axis = d.face >> 1;
+    var v = hit[axis] + d.offset;
+    if (axis === 2) v /= this.opt.zScale;
+    this.setClipFace(d.face, v);
+  };
+
+  function cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  }
+  function rayPlane(ray, n, p0) {
+    var den = ray.d[0] * n[0] + ray.d[1] * n[1] + ray.d[2] * n[2];
+    if (Math.abs(den) < 1e-12) return null;
+    var num = (p0[0] - ray.o[0]) * n[0] + (p0[1] - ray.o[1]) * n[1] + (p0[2] - ray.o[2]) * n[2];
+    var t = num / den;
+    return [ray.o[0] + ray.d[0] * t, ray.o[1] + ray.d[1] * t, ray.o[2] + ray.d[2] * t];
+  }
 
   /* ---------------------------------------------------- camera */
   Viewer.prototype.fit = function (keepAngles) {
@@ -339,6 +530,7 @@ var Viewer = (function () {
       gl.uniform1f(gl.getUniformLocation(P, 'uShade'), o.shade);
       gl.uniform1f(gl.getUniformLocation(P, 'uAlpha'), o.alpha);
       gl.uniform3fv(gl.getUniformLocation(P, 'uSun'), new Float32Array(sun));
+      this._clipUniforms(P, this.clip.on);
       if (o.alpha < 0.999) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
       else gl.disable(gl.BLEND);
       this._attr(P, 'aPos', this.buf.pos, 3);
@@ -360,6 +552,7 @@ var Viewer = (function () {
       this._buildWire();
       if (this.nWire) {
         this._attr(L, 'aPos', this.buf.pos, 3);
+        this._clipUniforms(L, this.clip.on);      // wireframe follows the clip
         gl.uniform4f(cLoc, 0.55, 0.62, 0.72, 0.45);
         gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.wire);
@@ -367,6 +560,10 @@ var Viewer = (function () {
         gl.disable(gl.BLEND);
       }
     }
+
+    /* overlays are never clipped — the sensor, its rays and the axes must stay
+       visible even when the terrain around them is cut away */
+    this._clipUniforms(L, false);
 
     for (var i = 0; i < this.lines.length; i++) {
       var b = this.lines[i];
@@ -382,6 +579,78 @@ var Viewer = (function () {
       gl.drawArrays(b.points ? gl.POINTS : gl.LINES, 0, b.verts.length / 3);
       gl.disable(gl.BLEND);
       if (b.noDepth) gl.enable(gl.DEPTH_TEST);
+    }
+
+    if (this.clip.on) this._drawClipBox(L, cLoc);
+  };
+
+  Viewer.prototype._clipUniforms = function (P, on) {
+    var gl = this.gl;
+    gl.uniform1f(gl.getUniformLocation(P, 'uClipOn'), on ? 1 : 0);
+    if (on) {
+      gl.uniform3fv(gl.getUniformLocation(P, 'uClipMin'), new Float32Array(this.clip.min));
+      gl.uniform3fv(gl.getUniformLocation(P, 'uClipMax'), new Float32Array(this.clip.max));
+    }
+  };
+
+  /** yellow box outline plus one arrow handle per face */
+  Viewer.prototype._drawClipBox = function (L, cLoc) {
+    var gl = this.gl, c = this.clip;
+    var mn = c.min, mx = c.max;
+    var self = this;
+    function seg(arr, a, b) { arr.push(a[0], a[1], a[2], b[0], b[1], b[2]); }
+    function corner(i) {
+      return [(i & 1) ? mx[0] : mn[0], (i & 2) ? mx[1] : mn[1], (i & 4) ? mx[2] : mn[2]];
+    }
+    var box = [];
+    /* 12 edges of the cuboid */
+    for (var i = 0; i < 8; i++) {
+      for (var bit = 1; bit <= 4; bit <<= 1) {
+        if (!(i & bit)) seg(box, corner(i), corner(i | bit));
+      }
+    }
+    function drawBatch(verts, col, noDepth) {
+      if (!verts.length) return;
+      gl.bindBuffer(gl.ARRAY_BUFFER, self.buf.line);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.DYNAMIC_DRAW);
+      var loc = gl.getAttribLocation(L, 'aPos');
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+      gl.uniform4f(cLoc, col[0], col[1], col[2], col[3] == null ? 1 : col[3]);
+      if (noDepth) gl.disable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawArrays(gl.LINES, 0, verts.length / 3);
+      gl.disable(gl.BLEND);
+      if (noDepth) gl.enable(gl.DEPTH_TEST);
+    }
+    drawBatch(box, [1, 0.88, 0.3, 0.95], true);
+
+    if (!this.clip.handles) return;
+    var size = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+    var s = Math.max(size[0], size[1], size[2] * this.opt.zScale) * 0.05;
+    for (var f = 0; f < 6; f++) {
+      var axis = f >> 1, isMax = (f & 1) === 1;
+      var p = this._handlePos(f);
+      var dir = [0, 0, 0]; dir[axis] = isMax ? 1 : -1;
+      /* z handles live in a squashed space — keep them the same visual size */
+      var len = axis === 2 ? s / this.opt.zScale : s;
+      var tip = [p[0] + dir[0] * len, p[1] + dir[1] * len, p[2] + dir[2] * len];
+      var v = [];
+      seg(v, p, tip);
+      /* four barbs, built on the two axes the arrow does not point along */
+      var o1 = [0, 0, 0], o2 = [0, 0, 0];
+      o1[(axis + 1) % 3] = 1; o2[(axis + 2) % 3] = 1;
+      var back = [p[0] + dir[0] * len * 0.55, p[1] + dir[1] * len * 0.55, p[2] + dir[2] * len * 0.55];
+      var w1 = (axis + 1) % 3 === 2 ? len * 0.3 / this.opt.zScale : len * 0.3;
+      var w2 = (axis + 2) % 3 === 2 ? len * 0.3 / this.opt.zScale : len * 0.3;
+      [[o1, w1], [o2, w2]].forEach(function (pair) {
+        var o = pair[0], w = pair[1];
+        seg(v, tip, [back[0] + o[0] * w, back[1] + o[1] * w, back[2] + o[2] * w]);
+        seg(v, tip, [back[0] - o[0] * w, back[1] - o[1] * w, back[2] - o[2] * w]);
+      });
+      var col = FACE_COL[f].slice();
+      var hot = (this._clipHover === f) || (this._clipDrag && this._clipDrag.face === f);
+      drawBatch(v, [col[0], col[1], col[2], hot ? 1 : 0.75], true);
     }
   };
 
@@ -399,16 +668,37 @@ var Viewer = (function () {
     cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     cv.addEventListener('mousedown', function (e) {
       cv.focus();
+      /* a clip handle wins over orbiting — both live on the same canvas */
+      if (e.button === 0) {
+        var f = self.clipHandleAt(e);
+        if (f >= 0 && self._clipDragStart(e, f)) { e.preventDefault(); return; }
+      }
       self._drag = { x: e.clientX, y: e.clientY, b: e.button, moved: 0 };
       e.preventDefault();
     });
     window.addEventListener('mouseup', function (e) {
+      if (self._clipDrag) {
+        self._clipDrag = null;
+        if (self.onClipCommit) self.onClipCommit();
+        self.draw();
+        return;
+      }
       if (self._drag && self._drag.moved < 4 && self._drag.b === 0 && self.onClick) {
         self.onClick(self.pickAt(e), e);
       }
       self._drag = null;
     });
     window.addEventListener('mousemove', function (e) {
+      if (self._clipDrag) { self._clipDragMove(e); e.preventDefault(); return; }
+      if (!self._drag && self.clip.on && self.clip.handles) {
+        var f = self.clipHandleAt(e);
+        if (f !== self._clipHover) {
+          self._clipHover = f;
+          self.canvas.style.cursor = f >= 0 ? 'move' : '';
+          self.draw();
+        }
+        if (f >= 0) return;                  // don't probe while over a handle
+      }
       if (self._drag) {
         var dx = e.clientX - self._drag.x, dy = e.clientY - self._drag.y;
         self._drag.moved += Math.abs(dx) + Math.abs(dy);
@@ -459,7 +749,8 @@ var Viewer = (function () {
     var dx = pb[0] - pa[0], dy = pb[1] - pa[1], dz = (pb[2] - pa[2]) / zs;
     var g = this.grid;
     var far = this.cam.dist * 6 + Math.max(g.nx * g.dx, g.ny * g.dy) * 3;
-    return Grid.rayHit(g, ox, oy, oz, dx, dy, dz, far);
+    var cw = this.clip.on ? this.clipWorld() : null;
+    return Grid.rayHit(g, ox, oy, oz, dx, dy, dz, far, cw);
   };
 
   /* --------------------------------------------- overlay helper */

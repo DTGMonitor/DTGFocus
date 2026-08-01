@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <title>SensiMap — Radar Line-of-Sight Sensitivity Tool</title>
+<link rel="stylesheet" href="css/platform-theme.css">
 <link rel="stylesheet" href="css/style.css">
+<script src="js/platform-theme.js"></script>
 </head>
 <body>
 
@@ -46,8 +48,9 @@
         <!-- ASCII column mapping -->
         <div id="asciiPanel" class="subpanel hidden">
           <div class="subhead">ASCII column mapping</div>
+          <div id="asciiNote" class="info hidden"></div>
           <div class="grid2">
-            <label>Delimiter
+            <label title="Character separating the columns. Auto inspects the first rows and usually gets it right.">Delimiter
               <select id="selDelim">
                 <option value="auto">Auto detect</option>
                 <option value=",">Comma</option>
@@ -56,11 +59,11 @@
                 <option value=";">Semicolon</option>
               </select>
             </label>
-            <label>Skip rows <input type="number" id="inpSkip" value="0" min="0" step="1"></label>
-            <label>X column <select id="selX"></select></label>
-            <label>Y column <select id="selY"></select></label>
-            <label>Z column <select id="selZ"></select></label>
-            <label class="chk"><input type="checkbox" id="chkSwapXY"> Swap X / Y</label>
+            <label title="Header or preamble lines to ignore before the data starts.">Skip rows <input type="number" id="inpSkip" value="0" min="0" step="1"></label>
+            <label title="Column holding the easting. Check it against the preview table below.">X column <select id="selX"></select></label>
+            <label title="Column holding the northing.">Y column <select id="selY"></select></label>
+            <label title="Column holding the elevation / RL.">Z column <select id="selZ"></select></label>
+            <label class="chk" title="Quick fix when the model comes out mirrored or rotated 90°: Surpac and some survey exports write northing before easting."><input type="checkbox" id="chkSwapXY"> Swap X / Y</label>
           </div>
           <div class="previewWrap"><table id="previewTable"></table></div>
           <button id="btnApplyAscii" class="primary wide">Apply mapping</button>
@@ -70,23 +73,23 @@
         <div class="subpanel">
           <div class="subhead">Model gridding</div>
           <div class="grid2">
-            <label>Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
-            <label>Target cells<input type="number" id="inpTarget" value="320" min="40" max="1400" step="10"></label>
-            <label>Search radius<select id="selSearch">
+            <label title="Raster cell size in metres. Leave blank to derive it from Target cells. Rule of thumb: about one third of your berm width, otherwise benches get averaged into a smooth ramp and steepest sensitivity is biased.">Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
+            <label title="Used only when Cell size is blank: number of cells along the longer side of the model. 320 is fast, 1000 is detailed. Ceiling is about 2.2 million nodes.">Target cells<input type="number" id="inpTarget" value="1000" min="40" max="1400" step="10"></label>
+            <label title="How far to look for source points when filling a cell, in cells. Raise it for sparse survey data, lower it to keep gaps honest instead of interpolating across them."><span>Search radius</span><select id="selSearch">
                 <option value="1">1 cell</option>
                 <option value="2" selected>2 cells</option>
                 <option value="3">3 cells</option>
                 <option value="5">5 cells</option>
               </select></label>
-            <label>Interp<select id="selInterp">
+            <label title="How several points inside one cell are combined. IDW weights by 1/distance² (best general choice), Nearest keeps original values untouched, Mean is the smoothest."><span>Interp</span><select id="selInterp">
                 <option value="idw">IDW (power 2)</option>
                 <option value="nearest">Nearest</option>
                 <option value="mean">Mean</option>
               </select></label>
-            <label class="chk"><input type="checkbox" id="chkFill" checked> Fill small holes</label>
-            <label>Fill passes<input type="number" id="inpFillIter" value="2" min="0" max="20" step="1"></label>
-            <label class="chk"><input type="checkbox" id="chkSmooth"> Smooth normals</label>
-            <label>Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
+            <label class="chk" title="Fills empty cells from their neighbours (needs at least 4 valid ones). Closes pinholes in a TIN; it never alters cells that already have data."><input type="checkbox" id="chkFill" checked> Fill small holes</label>
+            <label title="How many times to repeat the hole filling. Each pass grows the filled area by one cell, so 2 closes gaps up to about 4 cells wide.">Fill passes<input type="number" id="inpFillIter" value="2" min="0" max="20" step="1"></label>
+            <label class="chk" title="Averages the elevations before computing slopes. Off by default — it removes real bench edges. Only use it on noisy photogrammetry or laser data."><input type="checkbox" id="chkSmooth"> Smooth normals</label>
+            <label title="Number of smoothing passes when the option above is on. Each pass is a weighted 3×3 average.">Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
           </div>
           <button id="btnBuild" class="primary wide">Build / rebuild model</button>
           <div id="gridInfo" class="info"></div>
@@ -111,30 +114,32 @@
         <div class="subpanel">
           <div class="subhead">Selected sensor</div>
           <div class="grid2">
-            <label>Name<input type="text" id="rName" value="Radar 1"></label>
-            <label>Colour<input type="color" id="rColor" value="#ffd400"></label>
-            <label>Easting X<input type="number" id="rX" step="0.1"></label>
-            <label>Northing Y<input type="number" id="rY" step="0.1"></label>
-            <label>Level Z<input type="number" id="rZ" step="0.1"></label>
-            <label>Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
+            <label title="Label for this position — it appears in the ranking table, the legend and exported reports.">Name<input type="text" id="rName" value="Radar 1"></label>
+            <label title="Colour of this sensor's marker, mast and scan footprint in the 3D view.">Colour<input type="color" id="rColor" value="#FFC000"></label>
+            <label title="Sensor easting in your mine grid. Or use “Pick position on model” and click.">Easting X<input type="number" id="rX" step="0.1"></label>
+            <label title="Sensor northing in your mine grid.">Northing Y<input type="number" id="rY" step="0.1"></label>
+            <label title="Antenna level (RL). Locked while “Z = terrain + antenna height” is ticked, because it then follows the surface.">Level Z<input type="number" id="rZ" step="0.1"></label>
+            <label title="Height of the antenna above ground in metres — mast, trailer or vehicle. Added to the terrain level when snapping.">Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
           </div>
-          <label class="chk"><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
+          <label class="chk" title="Keeps the antenna a fixed height above the terrain, so moving X/Y automatically re-levels it. Untick to type an absolute RL."><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
+          <div id="rNote" class="info hidden"></div>
           <div class="row">
             <button id="btnPickRadar" class="wide">⊕ Pick position on model</button>
           </div>
-          <div class="subhead">Scan geometry</div>
+          <div class="subhead">Scan geometry <span class="dim">— total widths, as quoted in radar specs</span></div>
           <div class="grid2">
-            <label>Boresight az °<input type="number" id="rAz" value="0" step="1"></label>
-            <label title="Total azimuth aperture — the full sector width, centred on the boresight, as quoted on radar datasheets.">Az aperture °<input type="number" id="rApAz" value="180" min="2" max="360" step="1"></label>
-            <label title="Total elevation aperture — the full sector height, centred on the horizontal, as quoted on radar datasheets.">El aperture °<input type="number" id="rApEl" value="90" min="2" max="180" step="1"></label>
-            <label>Range min<input type="number" id="rRmin" value="30" min="0" step="10"></label>
-            <label>Range max<input type="number" id="rRmax" value="4000" min="10" step="50"></label>
-            <label class="chk"><input type="checkbox" id="chkAutoAim" checked> Auto-aim at model</label>
+            <label title="Direction the antenna faces: degrees from grid north, clockwise. 0 = north, 90 = east, 180 = south. Ignored while Auto-aim is on.">Boresight az °<input type="number" id="rAz" value="0" min="0" max="360" step="5"></label>
+            <label title="TOTAL horizontal scan width, centred on the boresight — enter the number from the radar datasheet (e.g. 90). Internally that is ±45° either side. 360 = no azimuth limit.">Az scan width °<input type="number" id="rApAz" value="180" min="2" max="360" step="5"></label>
+            <label title="Antenna TILT: the elevation the boresight points at, in degrees. Positive = aimed upwards. A radar on a pit floor watching a high wall is tilted up, so the elevation cone must follow it — leave 0 only for a level shot. Auto-aim sets this at the model centre.">Boresight el °<input type="number" id="rEl" value="0" min="-90" max="90" step="1"></label>
+            <label title="TOTAL vertical scan width, centred on the boresight elevation above. 90 means 45° above and below the tilt direction. Cells outside this cone are flagged “out of scan”.">El scan width °<input type="number" id="rApEl" value="90" min="2" max="180" step="5"></label>
+            <label title="Minimum measurable range in metres. Cells closer than this are excluded — this is what creates a blind wedge right under the antenna.">Range min m<input type="number" id="rRmin" value="30" min="0" step="10"></label>
+            <label title="Maximum measurable range in metres. Cells beyond it are flagged “out of scan”. Set it to the instrument's rated range.">Range max m<input type="number" id="rRmax" value="4000" min="10" step="50"></label>
+            <label class="chk" title="Points the boresight at the centre of the model automatically. Untick to type your own azimuth."><input type="checkbox" id="chkAutoAim" checked> Auto-aim at model</label>
           </div>
         </div>
         <div class="subpanel">
           <div class="subhead">Multi-sensor combination</div>
-          <select id="selCombine" class="wide">
+          <select id="selCombine" class="wide" title="How several enabled sensors are merged into one map. Best of all = the highest sensitivity available at each cell, i.e. what a combined installation would achieve.">
             <option value="selected">Show selected sensor only</option>
             <option value="max">Best of all sensors (max)</option>
             <option value="mean">Average of all sensors</option>
@@ -150,45 +155,48 @@
       <div class="body">
         <div class="subhead">Assumed movement vector</div>
         <div class="modeList">
-          <label class="mode"><input type="radio" name="smode" value="steepest" checked>
-            <span class="sw" style="background:#ff5252"></span>
+          <label class="mode" title="Movement straight down the steepest line of the local surface — recomputed per cell from the surface gradient. The usual planning default."><input type="radio" name="smode" value="steepest" checked>
+            <span class="sw" style="background:#E63946"></span>
             <b>Steepest</b><i>down the steepest direction of the slope</i></label>
-          <label class="mode"><input type="radio" name="smode" value="horizontal">
-            <span class="sw" style="background:#4caf50"></span>
+          <label class="mode" title="Movement in the horizontal plane along the dip direction — also per cell. Suits toppling and horizontal translation."><input type="radio" name="smode" value="horizontal">
+            <span class="sw" style="background:#00B050"></span>
             <b>Horizontal</b><i>along the horizontal plane (dip direction)</i></label>
-          <label class="mode"><input type="radio" name="smode" value="vertical">
-            <span class="sw" style="background:#2196f3"></span>
+          <label class="mode" title="Movement straight down (0,0,−1) everywhere — one global direction. Suits subsidence, sinkholes and undercutting."><input type="radio" name="smode" value="vertical">
+            <span class="sw" style="background:#05CAC8"></span>
             <b>Vertical</b><i>vertically downwards</i></label>
-          <label class="mode"><input type="radio" name="smode" value="custom">
-            <span class="sw" style="background:#e040fb"></span>
+          <label class="mode" title="Movement straight out of the face along the local surface normal — recomputed per cell. Suits bulging, buckling and rockfall off a steep wall. Sensitivity then equals the amplitude proxy."><input type="radio" name="smode" value="normal">
+            <span class="sw" style="background:#ff9800"></span>
+            <b>Normal</b><i>perpendicular to each surface</i></label>
+          <label class="mode" title="Your own trend and plunge, applied globally — use it when the failure mechanism is known (a wedge, a planar slide on a mapped joint set)."><input type="radio" name="smode" value="custom">
+            <span class="sw" style="background:#8B5CF6"></span>
             <b>Custom vector</b><i>user defined failure mechanism</i></label>
         </div>
         <div class="grid2" id="customVec">
-          <label>Trend az °<input type="number" id="inpCustAz" value="180" step="1"></label>
-          <label>Plunge °<input type="number" id="inpCustPl" value="45" step="1"></label>
+          <label title="Direction the mass is expected to move, in degrees from grid north, clockwise. 180 = due south.">Trend az °<input type="number" id="inpCustAz" value="180" min="0" max="360" step="5"></label>
+          <label title="Angle below the horizontal, in degrees. 0 = horizontal, 90 = straight down (identical to Vertical mode).">Plunge °<input type="number" id="inpCustPl" value="45" min="-90" max="90" step="5"></label>
         </div>
 
         <div class="subpanel">
           <div class="subhead">Line of sight</div>
-          <label class="chk"><input type="checkbox" id="chkOcclusion" checked> Terrain occlusion (shadow) test</label>
+          <label class="chk" title="Walks the straight line from sensor to cell over the terrain and flags anything hidden behind a crest, ridge or bench as “shadowed”. Turn it off to see the pure geometric cosine map ignoring visibility."><input type="checkbox" id="chkOcclusion" checked> Terrain occlusion (shadow) test</label>
           <div class="grid2">
-            <label>Accuracy<select id="selOccAcc">
+            <label title="Sampling step along the line of sight, in cells. Coarse = 2 cells per sample (fast, can miss thin crests), Fine = 0.5 (slow, catches everything)."><span>Accuracy</span><select id="selOccAcc">
                 <option value="2">Coarse (fast)</option>
                 <option value="1" selected>Normal</option>
                 <option value="0.5">Fine (slow)</option>
               </select></label>
-            <label>Tolerance m<input type="number" id="inpOccTol" value="0.5" step="0.1" min="0"></label>
+            <label title="How far the terrain must rise above the sight line before it counts as blocking, in metres. Raise it if survey noise creates speckled shadows.">Tolerance m<input type="number" id="inpOccTol" value="0.5" step="0.1" min="0"></label>
           </div>
-          <label class="chk"><input type="checkbox" id="chkGrazing"> Reject grazing incidence &gt;<input type="number" id="inpGraz" value="85" min="10" max="90" step="1" class="inline"> °</label>
+          <label class="chk" title="Discards cells the beam only grazes. 90° incidence means the line of sight is parallel to the surface — strong geometry on paper, no usable return in practice."><input type="checkbox" id="chkGrazing"> Reject grazing incidence &gt;<input type="number" id="inpGraz" value="85" min="10" max="90" step="1" class="inline"> °</label>
         </div>
 
         <div class="subpanel">
           <div class="subhead">Alarm calibration</div>
           <div class="grid2">
-            <label>Threshold<input type="number" id="inpThresh" value="0.5" min="0" max="1" step="0.05"></label>
-            <label>Displ. factor<input type="number" id="inpTrue" value="10" min="0" step="1" title="True slope displacement (mm) used to show the radar-measured LOS component"></label>
+            <label title="Sensitivity below which you consider a cell unreliable for alarming. Drives the “usable area” statistic, the position ranking and the white marker on the colour bar. 0.5 means the radar measures at least half of any real movement.">Threshold<input type="number" id="inpThresh" value="0.5" min="0" max="1" step="0.05"></label>
+            <label title="A hypothetical TRUE slope movement in mm. The Measurable displacement layer and the probe then show how much of it the radar would actually see along its line of sight (sensitivity × this value).">Displ. factor mm<input type="number" id="inpTrue" value="10" min="0" step="1"></label>
           </div>
-          <label class="chk"><input type="checkbox" id="chkMaskBelow"> Grey-out cells below threshold</label>
+          <label class="chk" title="Paints every cell below the threshold in the flat “below thr.” colour, so only the reliably measurable ground keeps its colour."><input type="checkbox" id="chkMaskBelow"> Grey-out cells below threshold</label>
         </div>
 
         <button id="btnCompute" class="primary wide big">⟳ Compute sensitivity map</button>
@@ -200,22 +208,22 @@
     <details>
       <summary><span class="num">4</span> Selection Mask / AOI</summary>
       <div class="body">
-        <label class="chk"><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
+        <label class="chk" title="Limits statistics, the histogram and the position ranking to the cells inside the mask. Cells outside are dimmed in the view, not deleted. It does not change the gridding extent."><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
         <div class="grid2">
-          <label>X min<input type="number" id="aoiXmin" step="1"></label>
-          <label>X max<input type="number" id="aoiXmax" step="1"></label>
-          <label>Y min<input type="number" id="aoiYmin" step="1"></label>
-          <label>Y max<input type="number" id="aoiYmax" step="1"></label>
-          <label>Z min<input type="number" id="aoiZmin" step="1"></label>
-          <label>Z max<input type="number" id="aoiZmax" step="1"></label>
-          <label>Slope min °<input type="number" id="aoiSlopeMin" value="0" min="0" max="90"></label>
-          <label>Slope max °<input type="number" id="aoiSlopeMax" value="90" min="0" max="90"></label>
+          <label title="Western edge of the box of interest, in grid eastings.">X min<input type="number" id="aoiXmin" step="1"></label>
+          <label title="Eastern edge of the box of interest.">X max<input type="number" id="aoiXmax" step="1"></label>
+          <label title="Southern edge of the box of interest, in grid northings.">Y min<input type="number" id="aoiYmin" step="1"></label>
+          <label title="Northern edge of the box of interest.">Y max<input type="number" id="aoiYmax" step="1"></label>
+          <label title="Lowest bench level to include — e.g. exclude the pit floor from wall statistics.">Z min<input type="number" id="aoiZmin" step="1"></label>
+          <label title="Highest level to include — e.g. exclude the plateau above the crest.">Z max<input type="number" id="aoiZmax" step="1"></label>
+          <label title="Excludes ground flatter than this. Set to about 25° to score only the steep wall and ignore roads, berms and the floor.">Slope min °<input type="number" id="aoiSlopeMin" value="0" min="0" max="90"></label>
+          <label title="Excludes ground steeper than this.">Slope max °<input type="number" id="aoiSlopeMax" value="90" min="0" max="90"></label>
         </div>
         <div class="row">
           <button id="btnAoiFull">Full extent</button>
           <button id="btnAoiPick">⊕ Pick 2 corners</button>
         </div>
-        <p class="hint">The mask keeps the GBD-style analysis focused on the slope that matters — cells outside are excluded from statistics and planning scores.</p>
+        <p class="hint">The mask keeps the analysis focused on the slope that matters — cells outside are excluded from statistics and planning scores.</p>
       </div>
     </details>
 
@@ -223,7 +231,7 @@
     <details open>
       <summary><span class="num">5</span> Layer &amp; Colour Scale</summary>
       <div class="body">
-        <label>Displayed layer
+        <label title="Which quantity to drape on the terrain. Sensitivity is the main product; Amplitude proxy shows reflection strength; Visibility shows what is shadowed; Measurable displacement converts sensitivity into millimetres.">Displayed layer
           <select id="selLayer" class="wide">
             <option value="sens">Sensitivity (cos θ)</option>
             <option value="amp">Amplitude proxy (incidence)</option>
@@ -247,14 +255,14 @@
             <button id="btnRevStops">Reverse</button>
           </div>
           <div class="grid2">
-            <label>Scale min<input type="number" id="inpVmin" value="0" step="0.05"></label>
-            <label>Scale max<input type="number" id="inpVmax" value="1" step="0.05"></label>
-            <label>Bands (0=cont.)<input type="number" id="inpBands" value="0" min="0" max="32" step="1"></label>
-            <label>Gamma<input type="number" id="inpGamma" value="1" min="0.2" max="4" step="0.1"></label>
-            <label>No-data<input type="color" id="colNoData" value="#3a4048"></label>
-            <label>Shadowed<input type="color" id="colOccluded" value="#5b5f66"></label>
-            <label>Out of scan<input type="color" id="colOutside" value="#2b3038"></label>
-            <label>Below thr.<input type="color" id="colBelow" value="#6e7681"></label>
+            <label title="Value mapped to the bottom of the colour scale. Keep 0 for sensitivity so maps stay comparable between sites and dates.">Scale min<input type="number" id="inpVmin" value="0" step="0.05"></label>
+            <label title="Value mapped to the top of the colour scale. Keep 1 for sensitivity.">Scale max<input type="number" id="inpVmax" value="1" step="0.05"></label>
+            <label title="0 = continuous gradient. Any other number quantises the scale into that many flat bands — useful for classified maps like 4 × 0.25 sensitivity classes.">Bands (0=cont.)<input type="number" id="inpBands" value="0" min="0" max="32" step="1"></label>
+            <label title="Bends the scale without moving the end points. Below 1 stretches the top of the range, above 1 stretches the bottom. Use it to bring out detail where the values cluster.">Gamma<input type="number" id="inpGamma" value="1" min="0.2" max="4" step="0.1"></label>
+            <label title="Cells with no elevation — holes inside the surveyed area.">No-data<input type="color" id="colNoData" value="#525252"></label>
+            <label title="Cells hidden from the sensor by the terrain itself. Amplitude and sensitivity are meaningless there.">Shadowed<input type="color" id="colOccluded" value="#6b7280"></label>
+            <label title="Cells outside the scan sector, the elevation cone, or the min/max range gates.">Out of scan<input type="color" id="colOutside" value="#404040"></label>
+            <label title="Cells whose sensitivity is under the alarm threshold, when the grey-out option in panel 3 is on.">Below thr.<input type="color" id="colBelow" value="#9ca3af"></label>
           </div>
           <div class="row">
             <button id="btnAutoRange">Auto range</button>
@@ -266,20 +274,20 @@
         <div class="subpanel">
           <div class="subhead">3D view</div>
           <div class="grid2">
-            <label>Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
-            <label>Z exagg.<input type="range" id="inpZScale" min="0.5" max="4" step="0.1" value="1"></label>
-            <label>Sun az °<input type="range" id="inpSunAz" min="0" max="360" step="5" value="315"></label>
-            <label>Sun el °<input type="range" id="inpSunEl" min="5" max="90" step="5" value="45"></label>
-            <label>Shading<input type="range" id="inpShade" min="0" max="1" step="0.05" value="0.55"></label>
-            <label>Projection<select id="selProjection">
+            <label title="Surface transparency. Lower it to see the sensor mast and line-of-sight rays through the terrain.">Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
+            <label title="Vertical exaggeration for display only. It never affects the computed sensitivity — the maths always uses true coordinates.">Z exagg.<input type="range" id="inpZScale" min="0.5" max="4" step="0.1" value="1"></label>
+            <label title="Azimuth of the artificial sun used for hill shading. Purely cosmetic; rotate it to reveal relief.">Sun az °<input type="range" id="inpSunAz" min="0" max="360" step="5" value="315"></label>
+            <label title="Elevation of the artificial sun. Low angles exaggerate small features.">Sun el °<input type="range" id="inpSunEl" min="5" max="90" step="5" value="45"></label>
+            <label title="How strongly hill shading darkens the colours. 0 = flat colour, ideal for reading exact values off the colour bar; higher values show the shape better.">Shading<input type="range" id="inpShade" min="0" max="1" step="0.05" value="0.55"></label>
+            <label title="Perspective looks natural; orthographic removes perspective distortion so distances and areas stay comparable — use it for plan-view figures."><span>Projection</span><select id="selProjection">
                 <option value="persp">Perspective</option>
                 <option value="ortho">Orthographic</option>
               </select></label>
           </div>
-          <label class="chk"><input type="checkbox" id="chkWire"> Wireframe</label>
-          <label class="chk"><input type="checkbox" id="chkBox" checked> Bounding box &amp; axes</label>
-          <label class="chk"><input type="checkbox" id="chkFan" checked> Scan footprint / LOS rays</label>
-          <label class="chk"><input type="checkbox" id="chkVec" checked> Movement vectors at cursor</label>
+          <label class="chk" title="Draws the raster mesh over the surface, so you can judge whether the cell size resolves your benches."><input type="checkbox" id="chkWire"> Wireframe</label>
+          <label class="chk" title="Shows the model extent box plus a north arrow and axis triad at the south-west corner."><input type="checkbox" id="chkBox" checked> Bounding box &amp; axes</label>
+          <label class="chk" title="Draws the selected sensor's scan sector draped on the terrain, and the line of sight to the probed cell."><input type="checkbox" id="chkFan" checked> Scan footprint / LOS rays</label>
+          <label class="chk" title="At the probed cell, draws the steepest (red), horizontal (green), vertical (blue), normal (orange) and custom (magenta) movement vectors, plus the white line of sight."><input type="checkbox" id="chkVec" checked> Movement vectors at cursor</label>
           <div class="row">
             <button id="btnViewIso">Iso</button>
             <button id="btnViewTop">Plan</button>
@@ -290,13 +298,68 @@
       </div>
     </details>
 
-    <!-- ── 6. STATS ── -->
+    <!-- ── 6. CLIPPING ── -->
+    <details>
+      <summary><span class="num">6</span> Clipping &amp; Cross-section</summary>
+      <div class="body">
+        <div class="segBtns" id="clipModes">
+          <button data-mode="off" class="on">Off</button>
+          <button data-mode="box">Clip box</button>
+          <button data-mode="slab">Cross-section</button>
+        </div>
+        <div id="clipOpts" class="hidden">
+          <div class="row">
+            <label class="chk" title="Shows a draggable coloured arrow on each face of the box. Drag one in the 3D view to slide that face; orbiting is suspended while you do."><input type="checkbox" id="chkClipHandles" checked> Drag handles</label>
+            <button id="btnClipReset">Reset</button>
+          </div>
+
+          <!-- box mode -->
+          <div id="clipBoxPane" class="subpanel">
+            <div class="subhead">Box limits <span class="dim">survey coordinates</span></div>
+            <div id="clipSliders"></div>
+            <p class="hint">Drag the coloured arrows in the view to move a face, or use the
+              sliders. Red = easting, green = northing, blue = elevation.</p>
+          </div>
+
+          <!-- slab mode -->
+          <div id="clipSlabPane" class="subpanel hidden">
+            <div class="subhead">Section plane</div>
+            <div class="segBtns" id="clipAxes">
+              <button data-axis="0">Easting</button>
+              <button data-axis="1">Northing</button>
+              <button data-axis="2" class="on">Elevation</button>
+            </div>
+            <label title="Where the slab sits along the chosen axis, in survey coordinates.">Position
+              <input type="range" id="clipPos" step="0.1"></label>
+            <div class="grid2">
+              <label>Position value<input type="number" id="clipPosNum" step="0.1"></label>
+              <label title="How thick the retained slice is, in metres. A thin slab reads as a cross-section line; a thick one as a slice.">Thickness m<input type="number" id="clipThick" min="0.01" step="0.5"></label>
+            </div>
+            <label title="Slab thickness as a fraction of the model extent."><input type="range" id="clipThickRange" step="0.1"></label>
+            <div class="row">
+              <button id="btnClipStepBack">← back</button>
+              <button id="btnClipStepFwd">forward →</button>
+            </div>
+            <div id="clipSlabInfo" class="info"></div>
+            <p class="hint">Step moves the slab by one thickness, so repeated clicks walk
+              through the model section by section.</p>
+          </div>
+
+          <div class="row">
+            <button id="btnClipToAOI" title="Copies the current box into the Selection Mask, so statistics and position ranking cover exactly what you are looking at.">Use box as AOI</button>
+            <button id="btnClipFromAOI" title="Sets the clip box to the current Selection Mask bounds.">Box from AOI</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── 7. STATS ── -->
     <details open>
-      <summary><span class="num">6</span> Statistics, Planning &amp; Export</summary>
+      <summary><span class="num">7</span> Statistics, Planning &amp; Export</summary>
       <div class="body">
         <div id="statsBox" class="info"></div>
         <canvas id="histCanvas" height="110"></canvas>
-        <div class="subhead">Position ranking <span class="dim">(IBIS-style planning)</span></div>
+        <div class="subhead">Position ranking <span class="dim">(installation planning)</span></div>
         <div class="previewWrap"><table id="rankTable" class="dataTable"></table></div>
         <div class="row">
           <button id="btnExportPNG">PNG view</button>
@@ -328,6 +391,7 @@
       <div id="legend">
         <div id="legendTitle">Sensitivity</div>
         <canvas id="cbCanvas" width="76" height="300"></canvas>
+        <div id="legendMask" class="legendMask"></div>
       </div>
 
       <div id="viewHint" class="hud hint2">
@@ -350,11 +414,62 @@
     <ol>
       <li><b>Load terrain</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
       <li><b>Place the sensor</b> — type coordinates or use <b>Pick position on model</b>. Antenna height is added to the terrain level when snapping.</li>
-      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical, or a custom trend &amp; plunge for a known failure mechanism.</li>
+      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism.</li>
       <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar.</li>
       <li><b>Plan</b> — add several sensor positions and read the ranking table to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
     </ol>
     <p class="hint">Remember: the sensitivity map is a starting point — it does not know the real failure mechanism.</p>
+
+    <h3>Parameter reference</h3>
+    <p class="hint">Every field also shows this on hover.</p>
+
+    <h4>1 · Terrain data</h4>
+    <table class="helpTable">
+      <tr><td>Cell size</td><td>Raster resolution in metres. Blank = derived from <i>Target cells</i>. Aim for <b>≈ ⅓ of your berm width</b> — coarser than that and benches average into a smooth ramp, which biases steepest sensitivity.</td></tr>
+      <tr><td>Target cells</td><td>Cells along the longer side when <i>Cell size</i> is blank. 320 fast · 1000 detailed · ceiling ≈ 2.2 M nodes.</td></tr>
+      <tr><td>Search radius</td><td>How far to hunt for source points when filling a cell. Raise for sparse data.</td></tr>
+      <tr><td>Interp</td><td>Combining several points in one cell. <b>IDW</b> weights by 1/d² (default), <b>Nearest</b> preserves original values, <b>Mean</b> is smoothest.</td></tr>
+      <tr><td>Fill small holes<br>Fill passes</td><td>Fills empty cells from ≥ 4 valid neighbours; each pass grows the fill by one cell. Never modifies cells that already have data.</td></tr>
+      <tr><td>Smooth normals</td><td><b>Off by default</b> — it averages elevations and erases real bench edges. Only for noisy photogrammetry/laser data.</td></tr>
+    </table>
+
+    <h4>2 · Radar positions</h4>
+    <table class="helpTable">
+      <tr><td>Easting / Northing / Level</td><td>Sensor coordinates in your mine grid. <i>Pick position on model</i> sets X/Y by clicking.</td></tr>
+      <tr><td>Ant. height</td><td>Metres added to the terrain when <i>Z = terrain + antenna height</i> is ticked — mast or vehicle height.</td></tr>
+      <tr><td>Boresight az</td><td>Where the antenna faces: degrees from grid north, clockwise (0 = N, 90 = E). Ignored while <i>Auto-aim</i> is on.</td></tr>
+      <tr><td>Boresight el</td><td><b>Antenna tilt.</b> The elevation the boresight points at; positive = aimed up. A sensor on a pit floor watching a high wall is tilted <b>up</b>, and the elevation cone follows it. Leaving this at 0 with a narrow <i>El scan width</i> is the usual reason a whole wall reads <i>out of scan</i>. <i>Auto-aim</i> sets it at the model centre.</td></tr>
+      <tr><td>Az scan width<br>El scan width</td><td><b>Total</b> angular coverage, exactly as printed on the datasheet. 90 means ±45° either side of the boresight. Az 360 = no azimuth limit. El width is measured around the tilt above, not around the horizon.</td></tr>
+      <tr><td>Range min / max</td><td>Instrument range gates in metres. <i>Range min</i> is what creates the blind wedge directly under the antenna.</td></tr>
+      <tr><td>Multi-sensor combination</td><td><b>Selected</b> = one sensor · <b>Best of all</b> = max sensitivity per cell · <b>Average</b> · <b>Which is best</b> = colour by winning sensor.</td></tr>
+    </table>
+
+    <h4>3 · Sensitivity model</h4>
+    <table class="helpTable">
+      <tr><td>Movement vector</td><td><b>Steepest</b>/<b>Horizontal</b>/<b>Normal</b> are recomputed per cell from the local surface; <b>Vertical</b>/<b>Custom</b> apply one global direction to the whole model. <b>Normal</b> assumes each facet moves straight out of itself (bulging, buckling, rockfall), so its sensitivity map is identical to the amplitude proxy.</td></tr>
+      <tr><td>Trend az / Plunge</td><td>Custom vector only: azimuth from north clockwise, plunge below horizontal. Plunge 90 = straight down.</td></tr>
+      <tr><td>Occlusion test</td><td>Marches the sight line over the terrain and flags hidden cells as <i>shadowed</i>. A finer grid finds <b>more</b> shadow — resolved bench crests really do block the beam.</td></tr>
+      <tr><td>Accuracy / Tolerance</td><td>Sampling step along the ray (in cells), and how far terrain must rise above the ray to count as blocking. Raise the tolerance if noise causes speckled shadows.</td></tr>
+      <tr><td>Grazing rejection</td><td>Drops cells the beam only skims. 90° incidence = line of sight parallel to the surface: fine geometry, no usable return.</td></tr>
+      <tr><td>Threshold</td><td>Sensitivity you consider alarm-worthy. Drives <i>usable area</i>, the position ranking and the colour-bar marker.</td></tr>
+      <tr><td>Displ. factor</td><td>A hypothetical true movement in mm. The probe and the <i>Measurable displacement</i> layer show sensitivity × this value — what the radar would actually register.</td></tr>
+    </table>
+
+    <h4>4 · Selection mask</h4>
+    <table class="helpTable">
+      <tr><td>X/Y/Z bounds, slope band</td><td>Restrict statistics and position ranking to the slope you care about. Outside cells are dimmed, not deleted. <i>Pick 2 corners</i> draws the box by clicking. Note it masks the analysis, not the gridding.</td></tr>
+    </table>
+
+    <h4>5 · Layer &amp; colour scale</h4>
+    <table class="helpTable">
+      <tr><td>Sensitivity</td><td>|cos θ| between line of sight and movement vector. <b>The main product.</b></td></tr>
+      <tr><td>Amplitude proxy</td><td>|cos i| against the surface normal — how well the facet reflects back. Strong amplitude with low sensitivity is still useless.</td></tr>
+      <tr><td>Visibility</td><td>1 = the sensor sees it, 0 = shadowed.</td></tr>
+      <tr><td>Measurable displacement</td><td>Millimetres of the <i>Displ. factor</i> that survive projection onto the line of sight.</td></tr>
+      <tr><td>Scale min/max</td><td>Keep 0–1 for sensitivity so maps stay comparable between sites and dates.</td></tr>
+      <tr><td>Bands / Gamma</td><td>Bands quantise into classes (0 = continuous). Gamma bends the ramp without moving the ends.</td></tr>
+      <tr><td>Mask colours</td><td><b>No-data</b> hole in the survey · <b>Shadowed</b> terrain in the way · <b>Out of scan</b> outside sector/range · <b>Below thr.</b> under the alarm threshold.</td></tr>
+    </table>
     <button id="btnHelpClose" class="primary">Close</button>
   </div>
 </div>

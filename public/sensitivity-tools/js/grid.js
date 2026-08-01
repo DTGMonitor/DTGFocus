@@ -37,18 +37,20 @@ var Grid = (function () {
       for (var m = 0; m < t.length; m++) tris[to + m] = t[m] + ibase;
       po += p.length; to += t.length; base = vbase;
     }
-    /* clamp stray indices */
+    /* drop triangles whose node numbers fall outside the loaded vertices —
+       happens when a .dtm is paired with the wrong .str */
+    var dropped = 0;
     if (tris) {
       var nv = pts.length / 3, w = 0;
       for (var q = 0; q < tris.length; q += 3) {
         if (tris[q] < nv && tris[q + 1] < nv && tris[q + 2] < nv) {
           tris[w++] = tris[q]; tris[w++] = tris[q + 1]; tris[w++] = tris[q + 2];
-        }
+        } else dropped++;
       }
       tris = tris.subarray(0, w);
       if (!w) tris = null;
     }
-    return { pts: pts, tris: tris, needNodes: needNodes };
+    return { pts: pts, tris: tris, needNodes: needNodes, dropped: dropped };
   }
 
   function bbox(pts) {
@@ -70,7 +72,13 @@ var Grid = (function () {
   function build(merged, opts) {
     opts = opts || {};
     var pts = merged.pts, tris = merged.tris;
-    if (!pts.length) throw new Error('No coordinates found in the loaded file(s).');
+    if (!pts.length) {
+      if (merged.needNodes) throw new Error(
+        'This Surpac .dtm holds only the triangle list — the XYZ coordinates live in the ' +
+        'matching .str file. Load BOTH files together (select both in the dialog, or drag ' +
+        'them in at the same time).');
+      throw new Error('No coordinates found in the loaded file(s).');
+    }
     var b = bbox(pts);
     var W = b.xmax - b.xmin, H = b.ymax - b.ymin;
     if (!(W > 0) || !(H > 0)) throw new Error('Degenerate extent — check the column mapping (X / Y may be identical).');
@@ -113,6 +121,7 @@ var Grid = (function () {
     g.method = filledBy;
     g.nPoints = pts.length / 3;
     g.nTris = tris ? tris.length / 3 : 0;
+    g.dropped = merged.dropped || 0;
     if (!valid) throw new Error('Gridding produced no valid cells — try a bigger cell size / search radius.');
     return g;
   }
@@ -352,8 +361,46 @@ var Grid = (function () {
     return true;
   }
 
+  /**
+   * Same march as losClear, but reports the WORST obstruction instead of
+   * bailing out at the first one — used by the probe to explain a shadow.
+   * Returns null when the sight line is clear, otherwise
+   * {f, dist, excess, x, y, z, raise} where `excess` is how far the terrain
+   * pokes above the sight line and `raise` is how much higher the antenna
+   * would have to sit to clear it.
+   */
+  function losBlocker(g, rx, ry, rz, tx, ty, tz, stepCells, tol) {
+    var dx = tx - rx, dy = ty - ry, dz = tz - rz;
+    var horiz = Math.sqrt(dx * dx + dy * dy);
+    if (horiz < 1e-6) return null;
+    var slant = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    var stepLen = Math.max(0.05, stepCells) * g.dx;
+    var n = Math.ceil(horiz / stepLen);
+    if (n < 2) return null;
+    var stopF = 1 - Math.max(1.5 * g.dx, 1e-6) / horiz;
+    if (stopF <= 0) return null;
+    var worst = null;
+    for (var k = 1; k < n; k++) {
+      var f = k / n;
+      if (f > stopF) break;
+      var px = rx + dx * f, py = ry + dy * f, pz = rz + dz * f;
+      var zt = sampleZ(g, px, py);
+      if (zt !== zt) continue;
+      var excess = zt - (pz + tol);
+      if (excess > 0 && (!worst || excess > worst.excess)) {
+        worst = {
+          f: f, dist: f * slant, excess: excess, x: px, y: py, z: zt,
+          /* raising the antenna by d lifts the ray at fraction f by d(1-f) */
+          raise: excess / Math.max(1e-6, 1 - f)
+        };
+      }
+    }
+    return worst;
+  }
+
   /* ---------------------------- ray → terrain intersection (picking) */
-  function rayHit(g, ox, oy, oz, dx, dy, dz, maxDist) {
+  /** clip = {min:[x,y,z], max:[x,y,z]} in world coords, or null */
+  function rayHit(g, ox, oy, oz, dx, dy, dz, maxDist, clip) {
     var L = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (L < 1e-12) return null;
     dx /= L; dy /= L; dz /= L;
@@ -363,6 +410,10 @@ var Grid = (function () {
     for (var t = 0; t < far; t += step) {
       var px = ox + dx * t, py = oy + dy * t, pz = oz + dz * t;
       var zt = sampleZ(g, px, py);
+      /* geometry hidden by the clip box must not be pickable */
+      if (clip && zt === zt && (px < clip.min[0] || px > clip.max[0] ||
+        py < clip.min[1] || py > clip.max[1] ||
+        zt < clip.min[2] || zt > clip.max[2])) { prevD = null; prevT = t; continue; }
       if (zt !== zt) { prevD = null; prevT = t; continue; }
       var d = pz - zt;
       if (prevD !== null && prevD > 0 && d <= 0) {
@@ -390,7 +441,8 @@ var Grid = (function () {
 
   return {
     merge: merge, bbox: bbox, build: build, derive: derive,
-    sampleZ: sampleZ, losClear: losClear, rayHit: rayHit, nodeIndex: nodeIndex,
+    sampleZ: sampleZ, losClear: losClear, losBlocker: losBlocker,
+    rayHit: rayHit, nodeIndex: nodeIndex,
     fillHoles: fillHoles
   };
 })();

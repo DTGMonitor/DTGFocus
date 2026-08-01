@@ -1,10 +1,10 @@
 /* ============================================================
-   sensitivity.js — the IBIS-style line-of-sight sensitivity model
+   sensitivity.js — the line-of-sight sensitivity model
 
    For every terrain cell P and sensor R:
         u = unit(P - R)                     radar line of sight
         m = assumed movement unit vector    (steepest | horizontal |
-                                             vertical | custom)
+                                             vertical | normal | custom)
         S = |u · m|                         sensitivity, 0…1
    S is the fraction of a real slope displacement that the radar can
    actually measure along its line of sight.  S = 1 → movement dead-on
@@ -63,9 +63,6 @@ var Sens = (function () {
   /* ------------------------------------------------- main compute */
   /**
    * radars: [{x,y,z, az, apAz, apEl, rmin, rmax, on, name, color}]
-   *   apAz / apEl are HALF-angles about the boresight: a sensor with a 32°
-   *   total azimuth aperture has apAz = 16, gated as |az - boresight| <= 16.
-   *   The UI inputs are the total apertures and are halved on the way in.
    * opts  : {mode, custAz, custPl, occlusion, occStep, occTol,
    *          grazing, grazMax, threshold, combine, mask}
    */
@@ -89,6 +86,9 @@ var Sens = (function () {
 
       var apAz = R.apAz == null ? 180 : R.apAz, apEl = R.apEl == null ? 90 : R.apEl;
       var rmin = R.rmin || 0, rmax = R.rmax || 1e9, bore = R.az || 0;
+      /* elevation cone is centred on the antenna tilt, not on the horizon —
+         a sensor in a pit is aimed up at the wall it monitors */
+      var tilt = R.el || 0;
 
       for (var start = 0; start < n; start += CHUNK) {
         var end = Math.min(n, start + CHUNK);
@@ -113,6 +113,12 @@ var Sens = (function () {
           var mx, my, mz, mag2 = fx * fx + fy * fy, mag = Math.sqrt(mag2);
           if (mode === 'vertical') { mx = 0; my = 0; mz = -1; }
           else if (mode === 'custom') { mx = cust[0]; my = cust[1]; mz = cust[2]; }
+          else if (mode === 'normal') {
+            /* straight out of the face — the outward surface normal, per cell.
+               S then equals the amplitude proxy by construction: the geometry
+               that reflects best is the geometry that measures best. */
+            mx = der.nx[id]; my = der.ny[id]; mz = der.nz[id];
+          }
           else if (mode === 'horizontal') {
             if (mag < 1e-9) { sens[id] = NaN; vis[id] = VIS.NODATA; continue; }
             mx = -fx / mag; my = -fy / mag; mz = 0;
@@ -134,9 +140,9 @@ var Sens = (function () {
             while (d > 180) d -= 360; while (d < -180) d += 360;
             if (Math.abs(d) > apAz) { vis[id] = VIS.OUTSIDE; continue; }
           }
-          if (apEl < 90) {
+          if (apEl < 90 || tilt !== 0) {
             var el = Math.asin(Math.max(-1, Math.min(1, dz / dist))) / DEG;
-            if (Math.abs(el) > apEl) { vis[id] = VIS.OUTSIDE; continue; }
+            if (Math.abs(el - tilt) > apEl) { vis[id] = VIS.OUTSIDE; continue; }
           }
           if (grazOn && ncos < grazCos) { vis[id] = VIS.GRAZING; continue; }
           if (occ && !Grid.losClear(g, R.x, R.y, R.z, px, py, z, occStep, occTol)) {

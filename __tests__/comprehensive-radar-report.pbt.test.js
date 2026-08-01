@@ -11,6 +11,7 @@ import {
   computeAvailability,
   toGaugeShape,
   windowForFrequency,
+  daysForFrequency,
   MECHANICAL_REASONS,
   USE_OF_REASONS,
 } from '@/utils/reportAvailability';
@@ -534,6 +535,72 @@ describe('computeAvailability', () => {
       const open = { from: '2026-07-19 10:00:00+00', to: null, reason: 'Maintenance' };
       const a = computeAvailability([open], windowStart, windowEnd);
       expect(a.mechanical.Maintenance.hours).toBeCloseTo(12, 2); // 10:00Z → 22:00Z
+    });
+  });
+
+  describe('daysForFrequency — custom granularity', () => {
+    it.each([
+      ['daily', 1],
+      ['weekly', 7],
+      ['monthly', 30],
+      ['DAILY', 1],       // case is not the caller's problem
+      ['  weekly ', 7],
+    ])('%s → %i days', (freq, days) => {
+      expect(daysForFrequency(freq)).toBe(days);
+    });
+
+    it.each([
+      ['custom:2', 2],    // what the modal emits for the two-day report
+      ['custom-3', 3],
+      ['2', 2],           // a bare day count, for a caller that already has one
+      [2, 2],
+      ['14d', 14],
+      ['10 days', 10],
+      ['0.5', 0.5],       // half-day spans are a legitimate window, not an error
+    ])('%s → %s days', (freq, days) => {
+      expect(daysForFrequency(freq)).toBe(days);
+    });
+
+    it.each([
+      ['fortnightly'],    // a word it cannot read
+      [''],
+      [null],
+      [undefined],
+      ['custom:0'],       // a zero-length window is not a window
+      ['custom:-3'],
+      [NaN],
+    ])('%s falls back to one day rather than an empty window', (freq) => {
+      expect(daysForFrequency(freq)).toBe(1);
+    });
+
+    it('caps an absurd span at a year instead of building an unbounded query', () => {
+      expect(daysForFrequency('custom:99999')).toBe(366);
+    });
+
+    it('a custom span produces a window of exactly that many days', () => {
+      // The two-day report this was added for: an OPEN period, so the window ends
+      // at `now` and runs exactly 48h back — the same anchoring the presets use.
+      const now = new Date('2026-07-29T06:30:00Z');
+      // Perth never observes DST, so a span is exactly N*24h.
+      const { windowStart, windowEnd } = windowForFrequency('custom:2', '2026-07-29', 'Australia/Perth', now);
+      expect((windowEnd - windowStart) / HOUR_MS).toBeCloseTo(48, 6);
+      expect(windowEnd.toISOString()).toBe('2026-07-29T06:30:00.000Z');
+      expect(windowStart.toISOString()).toBe('2026-07-27T06:30:00.000Z');
+    });
+
+    it('a custom span honours the 05:00 boundary for a CLOSED report day', () => {
+      // 05:00 Jakarta on 2026-07-27 == 2026-07-26T22:00Z; two days back is
+      // 2026-07-24T22:00Z. Historical reports stay reproducible at any span.
+      const after = new Date('2026-07-30T08:00:00Z');
+      const { windowStart, windowEnd } = windowForFrequency('custom:2', '2026-07-27', 'Asia/Jakarta', after);
+      expect(windowEnd.toISOString()).toBe('2026-07-26T22:00:00.000Z');
+      expect(windowStart.toISOString()).toBe('2026-07-24T22:00:00.000Z');
+
+      // And the availability denominator follows it: 12h down over 48h, not 24h.
+      const rec = { from: '2026-07-25 10:00:00+00', to: '2026-07-25 22:00:00+00', reason: 'Maintenance' };
+      const a = computeAvailability([rec], windowStart, windowEnd);
+      expect(a.windowHours).toBeCloseTo(48, 6);
+      expect(a.uptimePercentage).toBeCloseTo((36 / 48) * 100, 6);
     });
   });
 });

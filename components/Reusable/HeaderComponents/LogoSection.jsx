@@ -30,8 +30,10 @@ function LogoSection({ Subtitle = [] }) {
     // 👇 NEW: This function routes to the correct home page
     const handleLogoClick = () => {
         if (pathname.startsWith("/admin")) {
-            // If we are anywhere in the admin section, go to admin home
-            router.push("/admin/home");
+            // Monitoring selection is the admin landing page. /admin/home is a
+            // separate radar+safety board whose cards point at routes that do
+            // not exist, so it is not where "home" should take anyone.
+            router.push("/admin/monitoring");
         } else {
             // Otherwise, we must be in the client section, so use the client param
             router.push(`/tools/${client}/home`);
@@ -41,7 +43,15 @@ function LogoSection({ Subtitle = [] }) {
     return (
         <div className="flex justify-between items-center bg-[image:var(--dtg-bg-header)] py-2 px-5">
             <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-                <FocusLogo size="xs" orientation="horizontal" showTagline={false}/>
+                <button
+                    type="button"
+                    onClick={handleLogoClick}
+                    title="Back to home"
+                    aria-label="Back to home"
+                    className="flex items-center bg-transparent border-0 p-0 cursor-pointer"
+                >
+                    <FocusLogo size="xs" orientation="horizontal" showTagline={false}/>
+                </button>
             </div>
             {!loading && userSite && (
                 <div style={{ display: "flex", alignItems: "center", padding: "0 10px", flex: "0 0 auto", gap: 20 }}>

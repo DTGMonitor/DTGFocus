@@ -41,7 +41,27 @@ import { buildStatusGroups, buildAppendixItems } from '@/utils/reportDqp';
 import { chunkImprovements } from '@/utils/reportAlarmImprovements';
 import { supabase } from '@/lib/supabaseClient';
 
+/** The daily edition's title, kept for callers that only ever produce that one. */
 export const COMPREHENSIVE_TITLE = 'Daily Radar Reporting Services';
+
+/**
+ * The report's printed title for a given window length, in days.
+ *
+ * The three named granularities keep their established wording; anything else —
+ * the custom spans, the two-day report this was added for — is named by its
+ * length. The title is also the filename stem, so the two cannot drift.
+ */
+export function comprehensiveTitle(windowDays) {
+  const days = Number(windowDays);
+  if (!Number.isFinite(days) || days <= 0) return COMPREHENSIVE_TITLE;
+
+  const whole = Math.round(days);
+  if (Math.abs(days - whole) > 0.01) return `${days.toFixed(1)}-Day Radar Reporting Services`;
+  if (whole === 1) return COMPREHENSIVE_TITLE;
+  if (whole === 7) return 'Weekly Radar Reporting Services';
+  if (whole === 30) return 'Monthly Radar Reporting Services';
+  return `${whole}-Day Radar Reporting Services`;
+}
 
 const fmtLongDate = (d) =>
   new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -215,7 +235,7 @@ export function ComprehensiveRadarTemplate({
     const out = [
       <HeaderBlock
         key="header"
-        title={COMPREHENSIVE_TITLE}
+        title={comprehensiveTitle(data?.window?.days)}
         titleSuffix=""
         company={reportInfo?.company}
         siteName={reportInfo?.site ?? sensor?.site_name}
@@ -230,6 +250,7 @@ export function ComprehensiveRadarTemplate({
         quality={data?.quality}
         uptime={data?.availability?.uptimePercentage}
         alarms={data?.alarms}
+        reportWindow={data?.window}
       />,
       <KeyFindings key="findings" findings={findings} />,
     ];
@@ -257,8 +278,9 @@ export function ComprehensiveRadarTemplate({
         withHeader={!hasImageBlock}
         // Continue the figure's frame when the two end up on the same page.
         joinPrev={timelineJoinsImage}
-        // The same instant the chains were trimmed against.
+        // The same instant AND horizon the chains were trimmed against.
         now={data?.timelineNow}
+        recentMs={data?.timelineWindowMs}
         // Whether a card's badge quotes a TARP level or names the band.
         riskMode={data?.riskPresentation?.mode}
       />

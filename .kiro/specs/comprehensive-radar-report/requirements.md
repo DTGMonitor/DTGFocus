@@ -17,8 +17,8 @@ The report is generated per sensor, from the existing report-generator modal, an
 - **Block**: One indivisible unit of report content placed onto a page by the pagination engine.
 - **Chain**: An ordered `root → current` sequence of `def_records` linked by `precursors[0]`.
 - **Current Node**: The tail of a Chain — the active (`isactive='Yes'`) record.
-- **Recent Node**: A Chain node whose `created_at` falls within the latest 24 hours.
-- **Granularity**: The report's aggregation window, derived from the existing frequency selector (`daily` / `weekly` / `monthly`).
+- **Recent Node**: A Chain node whose `created_at` falls within the Window.
+- **Granularity**: The report's aggregation window, derived from the existing frequency selector (`daily` / `weekly` / `monthly`) or from a Custom span in days.
 - **Window**: The concrete `[start, end)` interval implied by Granularity and the report's end date.
 - **Non-Optimal Parameter**: A `dqp_values` row whose `value` is not `Optimal`, not `N/A`, and not null, at parameter level 2.
 - **Operator**: A logged-in user generating a report.
@@ -57,7 +57,7 @@ The report is generated per sensor, from the existing report-generator modal, an
 4. THE Data Quality tile SHALL display the `quality` label and `normalised_score` formatted as a percentage to two decimal places.
 5. THE System Uptime tile SHALL display uptime as a percentage computed over the Window.
 6. THE Alarm Events tile SHALL display valid and total alarm counts as `valid/total`.
-7. THE Window SHALL be derived from the existing frequency selector: `daily` → 24h, `weekly` → 7d, `monthly` → 30d, each ending at the report's end date.
+7. THE Window SHALL be derived from the existing frequency selector: `daily` → 24h, `weekly` → 7d, `monthly` → 30d, or `custom:<n>` → n days (1–366), each ending at the report's end date.
 8. THE uptime computation SHALL NOT hardcode a 24-hour window or a 24-hour denominator.
 9. THE KPI tiles SHALL derive their colours from the existing `config/statusConfig.ts` helpers.
 10. IF the assessment data contains no overall (level-0) status, THEN THE Data Quality tile SHALL render a placeholder and SHALL NOT throw.
@@ -138,13 +138,15 @@ The report is generated per sensor, from the existing report-generator modal, an
 
 ### Requirement 7: Alarm Cause Distribution
 
-**User Story:** As an Operator, I want a 24-hour alarm-cause breakdown, so that nuisance-alarm drivers are visible.
+**User Story:** As an Operator, I want an alarm-cause breakdown over the report's period, so that nuisance-alarm drivers are visible.
+
+> **Amended when custom granularity was added.** 7.1 and 7.3 originally pinned the alarm set to the latest 24 hours, which was only ever right for the daily edition: a two-day report showed one day of alarms and a weekly one a seventh of its period, under a section bar that printed the full window. The bound was also measured from the generation time, so a report for a past day listed today's alarms. The alarm set now uses the same Window as every other section.
 
 #### Acceptance Criteria
 
-1. THE Comprehensive Report SHALL render an alarm-cause pie chart covering the latest 24 hours.
+1. THE Comprehensive Report SHALL render an alarm-cause pie chart covering the Window.
 2. THE alarm query SHALL resolve regions by wall folder, then records by region.
-3. THE 24-hour filter SHALL apply to the alarm trigger timestamp, not the row insert timestamp.
+3. THE Window filter SHALL apply to the alarm trigger timestamp, not the row insert timestamp.
 4. THE pie SHALL label each slice with its cause and either a count or a percentage, and SHALL NOT label a count with a percent sign.
 5. THE slice percentages SHALL sum to 100 and SHALL be consistent with the displayed counts.
 6. THE causes SHALL use the canonical cause vocabulary defined in `config/formConfig.ts`.

@@ -45,8 +45,13 @@ const Tile = ({ label, value, sub, accent, valueColor, background }) => (
  * @param {{label: string|null, score: number|null}} quality  score is 0..1
  * @param {number} uptime      percentage 0..100
  * @param {{valid: number, total: number, tone: string}} alarms  `tone` per deriveAlarmTone.
+ * @param {{hours: number}} reportWindow  The report window (data.window). The
+ *        alarm tile names the span it counted over; it used to be captioned
+ *        "(24h)" unconditionally, which was wrong for every non-daily edition.
+ *        Omitted falls back to the plain caption rather than asserting a span.
+ *        Not named `window` — that shadows the global in a client component.
  */
-export function ExecutiveSummary({ risk, riskPresentation, quality, uptime, alarms }) {
+export function ExecutiveSummary({ risk, riskPresentation, quality, uptime, alarms, reportWindow }) {
   // No risk at all is "unknown", not "nothing active" — a report still loading
   // must not assert a verdict it has not read yet.
   const riskInfo = riskPresentation ?? (risk ? presentationFromLabel(risk) : null);
@@ -58,6 +63,15 @@ export function ExecutiveSummary({ risk, riskPresentation, quality, uptime, alar
     typeof quality?.score === 'number' && Number.isFinite(quality.score)
       ? `${(quality.score * 100).toFixed(2)}%`
       : '—';
+
+  // '24h' / '48h' / '7d' — hours while they stay short enough to read, days
+  // beyond that, so the caption never becomes '720h'.
+  const windowHours = Number(reportWindow?.hours);
+  const windowTag = !Number.isFinite(windowHours) || windowHours <= 0
+    ? null
+    : windowHours <= 72
+      ? `${Math.round(windowHours)}h`
+      : `${Math.round(windowHours / 24)}d`;
 
   const uptimeText = Number.isFinite(uptime) ? `${uptime.toFixed(2)}%` : '—';
   const uptimeLabel = uptimeSeverityLabel(uptime);
@@ -90,7 +104,7 @@ export function ExecutiveSummary({ risk, riskPresentation, quality, uptime, alar
       <Tile
         label="Alarm Events"
         value={`${alarms?.valid ?? 0}/${alarms?.total ?? 0}`}
-        sub="Valid / Total (24h)"
+        sub={windowTag ? `Valid / Total (${windowTag})` : 'Valid / Total'}
         accent={alarmSev.color}
         valueColor={alarmSev.color}
       />

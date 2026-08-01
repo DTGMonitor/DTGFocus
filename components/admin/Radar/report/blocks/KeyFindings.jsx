@@ -20,6 +20,28 @@ const fmtDay = (value) => {
 };
 
 /**
+ * How a finding names the period it read, from the payload's window.
+ *
+ * A day is still worded as "the last 24 hours" — that is what the report has
+ * always said and what the daily edition means. Longer spans say days; a span
+ * that is not a whole number of days says hours rather than rounding a 36-hour
+ * window down to "1 day". With no window at all the phrase stays true but vague:
+ * a finding must never name a period it cannot substantiate.
+ */
+export function windowPhrase(window) {
+  const hours = Number(window?.hours);
+  if (!Number.isFinite(hours) || hours <= 0) return 'in the reporting period';
+  if (Math.abs(hours - 24) < 0.5) return 'in the last 24 hours';
+
+  const days = hours / 24;
+  if (Math.abs(days - Math.round(days)) < 0.01) {
+    const n = Math.round(days);
+    return `in the last ${n} day${n === 1 ? '' : 's'}`;
+  }
+  return `in the last ${Math.round(hours)} hours`;
+}
+
+/**
  * @param {{text: string, detail?: string, tone?: string, color?: string}[]} findings
  *        `tone` is a severity label ('critical' | 'optimal' | …) driving the dot.
  *        `color` overrides it with an explicit hex, for scales severityColor
@@ -64,7 +86,7 @@ export function KeyFindings({ findings = [] }) {
  * takes the resolved presentation the tile is given (`riskPresentation`), so the
  * two cannot word or colour the same risk differently.
  *
- * @param {{risk: string, riskPresentation: object, quality: object, availability: object, alarms: object, timelines: array}} d
+ * @param {{risk: string, riskPresentation: object, quality: object, availability: object, alarms: object, timelines: array, window: object}} d
  * @returns {{text: string, detail?: string, tone?: string, color?: string}[]}
  */
 export function buildKeyFindings(d) {
@@ -119,10 +141,15 @@ export function buildKeyFindings(d) {
   }
 
   const { total = 0, valid = 0, tone: alarmTone } = d.alarms ?? {};
+  // Alarms now cover the report window, not a fixed day, so the sentence has to
+  // name the window it actually read — "the last 24 hours" printed on a two-day
+  // or weekly report was simply false. Falls back to the neutral wording when the
+  // payload carries no window (older callers, and the render tests' fixtures).
+  const alarmPeriod = windowPhrase(d.window);
   if (total > 0) {
     const top = d.alarms?.causes?.[0];
     out.push({
-      text: `${total} alarm event${total === 1 ? '' : 's'} in the last 24 hours, ${valid} assessed as valid.`,
+      text: `${total} alarm event${total === 1 ? '' : 's'} ${alarmPeriod}, ${valid} assessed as valid.`,
       detail: top ? `Most frequent cause: ${top.cause} (${top.count}).` : undefined,
       // Alarm tones are region colour names ('red', 'blue', …), which
       // severityColor cannot read — resolve to hex here.
@@ -130,7 +157,7 @@ export function buildKeyFindings(d) {
     });
   } else {
     out.push({
-      text: 'No alarm events recorded in the last 24 hours.',
+      text: `No alarm events recorded ${alarmPeriod}.`,
       color: alarmToneColor(alarmTone ?? 'none').color,
     });
   }

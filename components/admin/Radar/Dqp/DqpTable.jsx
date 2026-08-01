@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { getRiskColorSolid } from "@/config/statusConfig";
 import { PARAMETER_CONFIG } from "@/config/parameterConfig";
 import { supabase } from "@/lib/supabaseClient";
-import { ExternalLink, X, Loader, ImageDown } from 'lucide-react';
+import { ExternalLink, X, Loader, ImageDown, FilePlus2 } from 'lucide-react';
 import { exportDqpTableImage } from "./dqpImageExport";
 import toast from 'react-hot-toast';
 
@@ -12,6 +12,13 @@ const isRowInvalid = (item) => {
     // If it's NOT Alarms (ID 6) and value is N/A, mark it red
     return item.parameter?.parent_id !== 6 && item.value === 'N/A';
 };
+
+/**
+ * Only a row that already sits on a non-optimal status can take another action
+ * plan — Optimal and N/A are the states the modal exists to move *away* from,
+ * and requesting either of them never opens it.
+ */
+const canAddAction = (item) => item.value !== 'Optimal' && item.value !== 'N/A';
 
 export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exportSubtitle = '' }) => {
     const [previewItem, setPreviewItem] = useState(null);
@@ -231,6 +238,20 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                                                 >
                                                     {item.notes}
                                                 </label>
+                                                {/* Re-open the action plan at the status the row already
+                                                    holds. Ticking the checked box cannot do this — for an
+                                                    alarm child that gesture means "clear to N/A" — so
+                                                    logging a second improvement against an unchanged
+                                                    status needs its own affordance. */}
+                                                {canAddAction(item) && (
+                                                    <button
+                                                        onClick={() => onUpdate(item, 'value', item.value)}
+                                                        className="flex-shrink-0 text-[var(--dtg-gray-400)] hover:text-[var(--dtg-text-primary)] transition-colors"
+                                                        title={`Add another improvement at ${item.value} (starts from the current notes and figures)`}
+                                                    >
+                                                        <FilePlus2 size={14} />
+                                                    </button>
+                                                )}
                                                 {item.images?.length > 0 && (
                                                     <button
                                                         onClick={() => handleViewImage(item)}

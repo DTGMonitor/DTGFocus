@@ -32,7 +32,7 @@ import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 const TIMELINE_SELECT =
   'id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties, wallfolder_id';
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const MS_PER_HOUR = 60 * 60 * 1000;
 
 /**
  * The names `get_safe_crosscheckers` will return.
@@ -125,7 +125,10 @@ export function filterTarpUpdatesInWindow(revisions, windowStart, windowEnd, tim
 
 /**
  * @param {object} sensor      { wallfolder_id, radar_number, brand, dqp_record_id, site_name, ... }
- * @param {string} frequency   'daily' | 'weekly' | 'monthly'
+ * @param {string|number} frequency  'daily' | 'weekly' | 'monthly', or a custom
+ *   span as `custom:<days>` (e.g. 'custom:2' for a two-day report). See
+ *   daysForFrequency — every section below is windowed off the result, so a
+ *   custom span needs no further plumbing here.
  * @param {string} endDate     ISO date string ('YYYY-MM-DD') — the window end.
  * @param {boolean} enabled
  */
@@ -280,16 +283,24 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
       if (cancelled) return;
 
       // ── Alarms: regions → records (no direct wall-folder FK on alarm_records) ──
-      // Always the latest 24h, regardless of report granularity (Requirement 7.1).
+      // Windowed like every other section, NOT pinned to the latest 24h.
+      //
+      // Requirement 7.1 wrote the alarm window as a fixed 24h because the report
+      // was conceived as a daily one. That stopped being defensible the moment a
+      // window could be any length: a two-day report showed one day of alarms, a
+      // weekly one showed a thirtieth of its period — while the section bar above
+      // the pie printed "Last 168 h" over it. Worse, the bound was measured from
+      // `Date.now()`, so a report for a PAST day listed alarms from today.
+      // The pie and the KPI tile still share one record set, so they still agree.
       const regionIds = (regionsRes ?? []).map((r) => r.id);
-      const since = new Date(Date.now() - ONE_DAY_MS).toISOString();
       const alarmRecords = regionIds.length
         ? await supabase
             .from('alarm_records')
             .select('id, triggered_at, alarm_region, location, reason, cause, detected_by')
             // triggered_at, not created_at: the latter is row-insert time.
             .in('alarm_region', regionIds)
-            .gte('triggered_at', since)
+            .gte('triggered_at', windowStart.toISOString())
+            .lte('triggered_at', windowEnd.toISOString())
             .order('triggered_at', { ascending: false })
             .then((r) => { if (r.error) throw r.error; return r.data; })
             .catch(warn('alarm records'))
@@ -346,10 +357,22 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
 
       let timelineError = null;
       const timelines = [];
-      // One instant for every chain, captured once and handed to the template.
-      // Trimming and the "is this node still recent" muting MUST agree on the
-      // clock, or a node can be trimmed in as recent and then rendered as stale.
-      const timelineNow = Date.now();
+      // One instant and one horizon for every chain, captured once and handed to
+      // the template. Trimming and the "is this node still recent" muting MUST
+      // agree on both, or a node can be trimmed in as recent and then rendered as
+      // stale.
+      //
+      // The anchor is the WINDOW END, not `Date.now()`: a report for a past day
+      // was measuring recency against the present, so every node in the period it
+      // covers printed greyed-out as stale history. For the open period the two
+      // are the same instant anyway.
+      //
+      // The horizon is the window itself rather than a fixed 24h — "what changed
+      // during the period this report covers" is the same question the rest of
+      // the sections answer, and a two-day report that trimmed at 24h would drop
+      // the precursors its own availability figures are explaining.
+      const timelineNow = windowEnd.getTime();
+      const timelineWindowMs = Math.max(0, windowEnd.getTime() - windowStart.getTime());
       // N+1 by nature (one round-trip per ancestor). Acceptable for a single
       // sensor's heads; would need a recursive-CTE RPC if this ever goes
       // site-wide across many radars.
@@ -366,7 +389,7 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
           const isCurrent = head.wallfolder_id === currentFolderId;
           if (!shouldIncludeChain({ isCurrent, chain, windowStart, windowEnd })) continue;
 
-          const trimmed = trimChain(chain, timelineNow);
+          const trimmed = trimChain(chain, timelineNow, timelineWindowMs);
           timelines.push({
             chain,
             trimmed,
@@ -495,7 +518,16 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         key: requestKey,
         error: null,
         data: {
-          window: { windowStart, windowEnd },
+          window: {
+            windowStart,
+            windowEnd,
+            // The span the whole report speaks for. Blocks that name their period
+            // ("Last 48 h", "in the last 2 days") read it from here rather than
+            // assuming a day, which is what let the old copy claim 24 h over a
+            // weekly report.
+            hours: (windowEnd.getTime() - windowStart.getTime()) / MS_PER_HOUR,
+            days: (windowEnd.getTime() - windowStart.getTime()) / (24 * MS_PER_HOUR),
+          },
           // `risk` stays the printed label so every existing consumer keeps
           // working; `riskPresentation` carries the colour and severity behind it.
           risk: riskPresentation.label,
@@ -524,6 +556,7 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
           timelines,
           timelineError,
           timelineNow,
+          timelineWindowMs,
           deformationImage,
           crosscheckers: crosscheckersRes ?? [],
           tarp: {

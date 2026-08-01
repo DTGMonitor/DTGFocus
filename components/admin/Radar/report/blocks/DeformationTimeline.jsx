@@ -26,7 +26,7 @@ import { DAY_MS } from '@/utils/reportTimeline';
 import { buildEventDetails } from '@/utils/reportDefDetails';
 import { groupTimelinesByFolder, folderDisplayLabel } from '@/utils/reportWallFolders';
 
-/** Text tone for a node that is neither current nor from the last 24h. */
+/** Text tone for a node that is neither current nor from within the window. */
 const FAINT = '#9ca3af';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,15 +55,21 @@ const fmtDetected = (iso) => {
 };
 
 /**
- * Was this node detected within the report's 24h "recent" horizon?
+ * Was this node detected within the report's "recent" horizon?
+ *
+ * The horizon is the report window (24h for a daily one, 48h for a two-day one),
+ * supplied by the caller as `recentMs` — it MUST be the same span the chains were
+ * trimmed against, or a node trimmed in as recent would print as stale. Defaults
+ * to 24h for callers that predate custom spans.
  *
  * With no clock supplied nothing is muted: greying a node claims it is stale,
  * and that is not a claim to make on a guess.
  */
-const isRecent = (node, now) => {
+const isRecent = (node, now, recentMs = DAY_MS) => {
   if (!Number.isFinite(now)) return true;
+  const span = Number.isFinite(recentMs) && recentMs > 0 ? recentMs : DAY_MS;
   const ms = new Date(node?.created_at).getTime();
-  return Number.isFinite(ms) && ms >= now - DAY_MS;
+  return Number.isFinite(ms) && ms >= now - span;
 };
 
 const Badge = ({ text, color, bg, border }) => (
@@ -189,7 +195,7 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, r
  * Without the caption two chains are just two runs of cards with a gap between
  * them — indistinguishable from one chain whose spacing happened to widen.
  */
-function TimelineChain({ timeline, index, count, crosscheckers, now, riskMode }) {
+function TimelineChain({ timeline, index, count, crosscheckers, now, recentMs, riskMode }) {
   const nodes = timeline?.trimmed ?? [];
   if (nodes.length === 0) return null;
   const current = nodes[nodes.length - 1];
@@ -239,7 +245,7 @@ function TimelineChain({ timeline, index, count, crosscheckers, now, riskMode })
             isCurrent={last}
             isRoot={i === 0 && timeline.headIsTrueRoot && nodes.length > 1}
             isLast={last}
-            muted={!last && !isRecent(node, now)}
+            muted={!last && !isRecent(node, now, recentMs)}
             crosscheckers={crosscheckers}
             riskMode={riskMode}
           />
@@ -267,7 +273,7 @@ const fmtDay = (iso) => {
  * current folder's — the current folder is badged Current, a retired one Archived
  * with the day it was decommissioned.
  */
-function FolderTimelineSection({ group, crosscheckers, now, isLastGroup, riskMode }) {
+function FolderTimelineSection({ group, crosscheckers, now, recentMs, isLastGroup, riskMode }) {
   const { folder, isArchived, timelines } = group;
   const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at) : null;
 
@@ -315,6 +321,7 @@ function FolderTimelineSection({ group, crosscheckers, now, isLastGroup, riskMod
           count={timelines.length}
           crosscheckers={crosscheckers}
           now={now}
+          recentMs={recentMs}
           riskMode={riskMode}
         />
       ))}
@@ -387,6 +394,10 @@ export function DeformationImage({
  *   (data.timelineNow). Passed in rather than read from the clock here: a
  *   render must be pure, and trimming and muting have to share one clock or a
  *   node can be trimmed in as recent and then printed as stale.
+ * @param {number} recentMs     The horizon the chains were trimmed against
+ *   (data.timelineWindowMs — the report window, so a two-day report keeps two
+ *   days of precursors legible). Same reasoning as `now`: it must match what
+ *   trimChain was given. Omitted falls back to 24h.
  * @param {string} riskMode     The site's risk wording (config/riskDisplay.ts),
  *   which decides whether a card's badge quotes a TARP level or names the band.
  *   Omitted defaults to the DTG standard, the TARP level.
@@ -398,6 +409,7 @@ export function DeformationTimeline({
   withHeader = false,
   joinPrev = false,
   now = null,
+  recentMs = DAY_MS,
   riskMode = 'tarp',
 }) {
   const visible = timelines.filter((t) => (t.trimmed?.length ?? 0) > 0);
@@ -441,6 +453,7 @@ export function DeformationTimeline({
               group={g}
               crosscheckers={crosscheckers}
               now={now}
+              recentMs={recentMs}
               isLastGroup={gi === folderGroups.length - 1}
               riskMode={riskMode}
             />
@@ -454,6 +467,7 @@ export function DeformationTimeline({
               count={visible.length}
               crosscheckers={crosscheckers}
               now={now}
+              recentMs={recentMs}
               riskMode={riskMode}
             />
           ))

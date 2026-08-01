@@ -7,25 +7,25 @@
 
 var ColorMaps = (function () {
 
-  /* ---- presets (IDS/Guardian-like first) ---- */
+  /* ---- presets (sensitivity-oriented first) ---- */
   var PRESETS = {
-    'ids-green': {
-      name: 'IDS Guardian Green',
+    'green': {
+      name: 'Green (white → dark)',
       stops: [[0.00, '#ffffff'], [0.16, '#dcfadd'], [0.38, '#7fe382'],
               [0.60, '#22c322'], [0.80, '#0c8a12'], [1.00, '#01430a']]
     },
-    'ids-green-dark': {
-      name: 'IDS Green (dark base)',
+    'green-dark': {
+      name: 'Green (dark base)',
       stops: [[0.00, '#0b1a10'], [0.20, '#0f5c22'], [0.45, '#1aa832'],
               [0.70, '#5ce05c'], [1.00, '#e8ffe8']]
     },
-    'ids-jet': {
-      name: 'IDS Radar Jet',
+    'jet': {
+      name: 'Jet',
       stops: [[0.00, '#00007f'], [0.12, '#0000ff'], [0.30, '#00d4ff'],
               [0.48, '#22c322'], [0.62, '#ffff00'], [0.80, '#ff7f00'], [1.00, '#a80000']]
     },
-    'ids-amplitude': {
-      name: 'GBD Amplitude (blue-red)',
+    'amplitude': {
+      name: 'Amplitude (blue → red)',
       stops: [[0.00, '#0a1a6e'], [0.25, '#1060d8'], [0.45, '#22c8d8'],
               [0.62, '#66d84a'], [0.78, '#ffe000'], [0.90, '#ff7400'], [1.00, '#c00000']]
     },
@@ -68,10 +68,21 @@ var ColorMaps = (function () {
     },
     'sensors': {
       name: 'Sensor index (discrete)',
-      stops: [[0.00, '#ffd400'], [0.25, '#2f9bff'], [0.50, '#ff5252'],
-              [0.75, '#12c2a0'], [1.00, '#e040fb']]
+      stops: [[0.00, '#FFC000'], [0.25, '#05CAC8'], [0.50, '#E63946'],
+              [0.75, '#00B050'], [1.00, '#8B5CF6']]
     }
   };
+
+  /* older projects and exported scales may name presets by their previous
+     keys — map them onto the current ones so those files still load */
+  var ALIASES = {
+    'ids-green': 'green', 'ids-green-dark': 'green-dark',
+    'ids-jet': 'jet', 'ids-amplitude': 'amplitude'
+  };
+  function resolve(key) {
+    if (PRESETS[key]) return key;
+    return ALIASES[key] || 'green';
+  }
 
   /* ---- colour helpers ---- */
   function hex2rgb(h) {
@@ -150,13 +161,13 @@ var ColorMaps = (function () {
       g.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
       g.fillRect(bx, by + y, bw, 1);
     }
-    g.strokeStyle = '#5a6472'; g.lineWidth = 1;
+    g.strokeStyle = SMTheme.col('--sm-line2'); g.lineWidth = 1;
     g.strokeRect(bx + 0.5, by + 0.5, bw, bh);
 
     var ticks = opts.ticks || 5;
     g.font = '10px Consolas,monospace';
-    g.fillStyle = '#c9d3df'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    g.strokeStyle = '#8f9bab';
+    g.fillStyle = SMTheme.col('--sm-light'); g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.strokeStyle = SMTheme.col('--sm-dim');
     var dec = opts.decimals != null ? opts.decimals : (Math.abs(vmax - vmin) >= 50 ? 0 : 2);
     for (var i = 0; i < ticks; i++) {
       var f = i / (ticks - 1);
@@ -185,8 +196,8 @@ var ColorMaps = (function () {
       g.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
       g.fillRect(x, y + i, w, 1);
     }
-    g.strokeStyle = '#cfd8e3'; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h);
-    g.font = '12px Consolas,monospace'; g.fillStyle = '#f0f4f8';
+    g.strokeStyle = SMTheme.col('--sm-light'); g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h);
+    g.font = '12px Consolas,monospace'; g.fillStyle = SMTheme.col('--sm-fg');
     g.textAlign = 'left'; g.textBaseline = 'middle';
     var dec = Math.abs(vmax - vmin) >= 50 ? 0 : 2;
     for (var k = 0; k < 5; k++) {
@@ -201,7 +212,8 @@ var ColorMaps = (function () {
   }
 
   return {
-    PRESETS: PRESETS, buildLUT: buildLUT, sample: sample, sampleHex: sampleHex,
+    PRESETS: PRESETS, ALIASES: ALIASES, resolve: resolve,
+    buildLUT: buildLUT, sample: sample, sampleHex: sampleHex,
     hex2rgb: hex2rgb, rgb2hex: rgb2hex, cssGradient: cssGradient,
     drawColorbar: drawColorbar, drawColorbarInto: drawColorbarInto
   };

@@ -234,13 +234,16 @@ Preserving the existing (and easy-to-miss) two-denominator rule:
 
 Records are overlap-clipped against the window (`max(from, windowStart)` → `min(to ?? windowEnd, windowEnd)`), exactly as `RadarDetail.jsx:679-699` does today.
 
-Granularity maps from the **existing frequency picker** (`daily`/`weekly`/`monthly` at `ReportTemplateModal.jsx:110-114`) — no new UI control:
+Granularity maps from the **frequency picker** in `ReportTemplateModal`:
 
 | Frequency | Window |
 |---|---|
 | `daily` | `endDate − 24h → endDate` |
 | `weekly` | `endDate − 7d → endDate` |
 | `monthly` | `endDate − 30d → endDate` |
+| `custom:<n>` | `endDate − n days → endDate` |
+
+`Custom` is the one added control — a fourth button plus a Days field, emitting `custom:<n>` (1–366). `daysForFrequency()` in `utils/reportAvailability.js` owns the mapping and is the single place a span is interpreted; every section windows off `windowForFrequency()`'s result, so nothing else needed changing to support one. Blocks that name their period (the alarm tile, the System Performance bar, the Key Findings alarm line, the report title) read the span from `data.window` rather than assuming a day.
 
 **Returning `hours`/`percentage` as `number`, not `string`, is an intentional break** from the current shape (`RadarDetail.jsx:719-730` emits `.toFixed()` strings that `gaugelive.jsx:19` defensively re-wraps in `Number()`). Formatting moves to the render layer. `GaugeLive` keeps working either way because of that existing `Number()` coercion, but the call site is updated to pass numbers.
 

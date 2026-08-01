@@ -75,8 +75,11 @@ var Parsers = (function () {
     var g = { x: numCols[0] != null ? numCols[0] : 0, y: numCols[1] != null ? numCols[1] : 1, z: numCols[2] != null ? numCols[2] : 2 };
     var ext = (fileName || '').toLowerCase().split('.').pop();
 
-    /* Surpac .str  →  id, Y, X, Z, description */
-    if (ext === 'str' && numCols.length >= 4) g = { x: numCols[2], y: numCols[1], z: numCols[3] };
+    /* Surpac writes id, Y, X, Z, description — northing BEFORE easting.
+       A .str, or any file still carrying the OBJECT/TRISOLATION markers,
+       is a Surpac product and uses that order. */
+    var surpacOrder = (ext === 'str') || isSurpacDTM(txt);
+    if (surpacOrder && numCols.length >= 4) g = { x: numCols[2], y: numCols[1], z: numCols[3] };
     /* leading integer id column (Surpac / Micromine style dumps) */
     else if (numCols.length >= 4 && looksLikeId(rows, numCols[0])) {
       g = { x: numCols[1], y: numCols[2], z: numCols[3] };
@@ -146,6 +149,34 @@ var Parsers = (function () {
   function isSurpacDTM(txt) {
     var head = txt.substr(0, 4000).toUpperCase();
     return head.indexOf('TRISOLATION') >= 0 || (head.indexOf('OBJECT') >= 0 && head.indexOf('NEIGHBOUR') >= 0);
+  }
+
+  /**
+   * Not every .dtm is an index file. Surpac writes node numbers as bare
+   * integers (`1, 4, 5, 12, ...`) while coordinates always carry decimals
+   * (`1, 7458100.000, 512200.000, 1035.500`). Sample the records and decide,
+   * so a coordinate-bearing .dtm is read as XYZ text instead of nonsense
+   * triangles.
+   */
+  function dtmRecordsAreIndices(txt) {
+    var lines = splitLines(txt.substr(0, 400000));
+    var started = false, tot = 0, dotted = 0, big = 0;
+    for (var i = 0; i < lines.length && tot < 300; i++) {
+      var s = lines[i].trim();
+      if (!s) continue;
+      var up = s.toUpperCase();
+      if (up.indexOf('TRISOLATION') === 0 || up.indexOf('OBJECT') === 0) { started = true; continue; }
+      if (!started) continue;
+      var f = s.split(',');
+      if (f.length < 4) continue;
+      if (!isNum(f[0]) || !isNum(f[1]) || !isNum(f[2]) || !isNum(f[3])) continue;
+      tot++;
+      if (/\./.test(f[1]) || /\./.test(f[2]) || /\./.test(f[3])) dotted++;
+      /* node numbers below ~50 million; eastings/northings routinely exceed it */
+      if (Math.abs(parseFloat(f[1])) > 5e7 || Math.abs(parseFloat(f[2])) > 5e7) big++;
+    }
+    if (!tot) return true;                       // nothing to judge — keep old behaviour
+    return (dotted / tot < 0.5) && (big / tot < 0.5);
   }
 
   /* -------------------------------------------------- ESRI ASCII grid */
@@ -290,8 +321,8 @@ var Parsers = (function () {
     var head = txt.substr(0, 3000);
     if (ext === 'dxf' || /^\s*0\s*[\r\n]+\s*SECTION/i.test(head) || head.indexOf('AutoCAD') >= 0 && head.indexOf('$ACADVER') >= 0) return 'dxf';
     if (isESRI(txt)) return 'esri';
-    if (ext === 'dtm' && isSurpacDTM(txt)) return 'surpac-dtm';
-    if (isSurpacDTM(txt)) return 'surpac-dtm';
+    /* a .dtm whose records are coordinates, not node numbers, is really ASCII */
+    if (isSurpacDTM(txt)) return dtmRecordsAreIndices(txt) ? 'surpac-dtm' : 'ascii';
     return 'ascii';
   }
 
@@ -348,6 +379,7 @@ var Parsers = (function () {
   return {
     sniff: sniff, previewASCII: previewASCII, parseASCII: parseASCII,
     parseDXF: parseDXF, parseESRI: parseESRI, parseSurpacDTM: parseSurpacDTM,
-    isSurpacDTM: isSurpacDTM, demoPit: demoPit, splitLines: splitLines
+    isSurpacDTM: isSurpacDTM, dtmRecordsAreIndices: dtmRecordsAreIndices,
+    demoPit: demoPit, splitLines: splitLines
   };
 })();

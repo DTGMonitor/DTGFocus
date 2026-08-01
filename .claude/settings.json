@@ -118,7 +118,19 @@
       "Bash(node verify-aperture2.js)",
       "Bash(node verify-elev.js)",
       "Bash(git config *)",
-      "Bash(git rev-list *)"
+      "Bash(git rev-list *)",
+      "Bash(grep -nE '#[0-9a-fA-F]{3,8}\\\\b' js/ui.js)",
+      "Bash(grep -nE '#[0-9a-fA-F]{3,8}\\\\b' index.html)",
+      "Bash(grep -ohE '#[0-9a-fA-F]{3,8}\\\\b' css/style.css)",
+      "Bash(grep -E '^#\\(\\([0-9a-f]\\)\\\\2\\)\\(\\([0-9a-f]\\)\\\\4\\)\\(\\([0-9a-f]\\)\\\\6\\)$|^#\\([0-9a-f]{2}\\)\\\\7\\\\7$')",
+      "Bash(awk '{h=substr\\($0,2\\); r=substr\\(h,1,2\\); g=substr\\(h,3,2\\); b=substr\\(h,5,2\\); if\\(r==g && g==b\\) print}')",
+      "Bash(grep -ohE '#[0-9a-fA-F]{3,8}\\\\b' index.html)",
+      "Bash(grep -ohE '#[0-9a-fA-F]{3,8}\\\\b' js/ui.js)",
+      "Bash(grep -ohE '#[0-9a-fA-F]{3,8}\\\\b')",
+      "Bash(curl -s -o /dev/null -w \"dev server on 3000: %{http_code}\\\\n\" http://localhost:3000/sensitivity-tools/index.html)",
+      "Bash(curl -s -o /dev/null http://localhost:3000/sensitivity-tools/index.html)",
+      "Bash(curl -s -o /dev/null -w \"/admin/SensitivityTools -> %{http_code}\\\\n\" http://localhost:3000/admin/SensitivityTools)",
+      "Bash(grep -E \"\\\\{|\\\\}|dark[ ,]|\\\\.dark\")"
     ],
     "additionalDirectories": [
       "E:\\Lintang\\dtg-focus-vercel\\.git"

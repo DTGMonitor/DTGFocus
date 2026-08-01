@@ -18,6 +18,8 @@
     radars: [], sel: 0,
     res: null, mask: null,
     layer: 'elev',
+    clip: { mode: 'off', axis: 2, centre: NaN, thick: NaN },
+    clipSyncing: false,
     pickMode: null, pickBuf: [],
     probe: null,
     busy: false,
@@ -25,15 +27,15 @@
   };
 
   var LAYER_DEFAULTS = {
-    sens: { preset: 'ids-green', vmin: 0, vmax: 1 },
-    amp: { preset: 'ids-amplitude', vmin: 0, vmax: 1 },
+    sens: { preset: 'green', vmin: 0, vmax: 1 },
+    amp: { preset: 'amplitude', vmin: 0, vmax: 1 },
     vis: { preset: 'rdylgn', vmin: 0, vmax: 1, bands: 2 },
     range: { preset: 'viridis', auto: true },
     slope: { preset: 'turbo', vmin: 0, vmax: 90 },
     aspect: { preset: 'aspect', vmin: 0, vmax: 360 },
     elev: { preset: 'terrain', auto: true },
     which: { preset: 'sensors', auto: true, discrete: true },
-    mmres: { preset: 'ids-green', auto: true }
+    mmres: { preset: 'green', auto: true }
   };
   var LC = {};   // live per-layer colour configs
   Object.keys(LAYER_DEFAULTS).forEach(function (k) {
@@ -59,6 +61,7 @@
     V.onClick = onCanvasClick;
     V.onHover = throttle(onCanvasHover, 40);
     window.addEventListener('resize', function () { V.resize(); layoutHist(); });
+    window.addEventListener('platformtheme', function () { updateLegend(); layoutHist(); });
 
     buildPresetList();
     bindData();
@@ -66,6 +69,7 @@
     bindSens();
     bindAOI();
     bindDisplay();
+    bindClip();
     bindExport();
 
     $('btnHelp').onclick = function () { $('helpModal').classList.remove('hidden'); };
@@ -95,7 +99,11 @@
     b.className = 'badge' + (cls ? ' ' + cls : '');
   }
   function fmt(v, d) { return (v == null || v !== v) ? '—' : (+v).toFixed(d == null ? 2 : d); }
+  /* counts may be grouped for readability … */
   function fmtInt(v) { return (v == null || v !== v) ? '—' : Math.round(v).toLocaleString(); }
+  /* … but survey coordinates never are: a locale that groups with "." turns
+     57996 into "57.996", which reads as 58 metres. Plain digits only. */
+  function fmtCoord(v) { return (v == null || v !== v) ? '—' : String(Math.round(v)); }
 
   /* =========================================== 1. DATA LOADING */
   function bindData() {
@@ -127,8 +135,8 @@
         buildModel();
         /* handy default sensors: one on the low south berm, one on the high rim */
         S.radars = [];
-        addRadar({ name: 'R1 – low bench', x: 512000, y: 7458000 - 560, color: '#ffd400' });
-        addRadar({ name: 'R2 – high crest', x: 512000, y: 7458000 - 860, color: '#2f9bff' });
+        addRadar({ name: 'R1 – low bench', x: 512000, y: 7458000 - 560, color: '#FFC000' });
+        addRadar({ name: 'R2 – high crest', x: 512000, y: 7458000 - 860, color: '#05CAC8' });
         S.sel = 0;
         renderRadarTable(); loadRadarForm();
         updateOverlays();
@@ -207,6 +215,22 @@
     S.preview = { file: file, pv: pv };
     $('asciiPanel').classList.remove('hidden');
 
+    /* an index-only .dtm has no coordinates in ANY column — say so loudly,
+       otherwise mapping node numbers builds a plausible-looking fake surface */
+    var note = $('asciiNote');
+    if (Parsers.isSurpacDTM(file.text) && Parsers.dtmRecordsAreIndices(file.text)) {
+      file.indexDtm = true;
+      note.innerHTML = '<span class="w"><b>These are not coordinates.</b> This is a Surpac ' +
+        'triangle list: column 1 is the triangle id, columns 2–4 are <b>node numbers</b> ' +
+        'referencing the .str, and 5–7 are neighbour triangle ids (0 = boundary). No ' +
+        'easting, northing or level exists anywhere in this file. Any mapping you choose ' +
+        'here can only produce a meaningless surface — you need the matching .str.</span>';
+      note.classList.remove('hidden');
+    } else {
+      file.indexDtm = false;
+      note.classList.add('hidden');
+    }
+
     ['selX', 'selY', 'selZ'].forEach(function (id, k) {
       var sel = $(id); sel.innerHTML = '';
       for (var c = 0; c < pv.ncol; c++) {
@@ -228,6 +252,16 @@
     t.innerHTML = html;
   }
 
+  /** re-read a file as free-format ASCII and open the column mapper on it */
+  function retryAsAscii(f) {
+    f.dataset = null; f.pending = true; f.type = 'ascii';
+    f.note = 're-read as XYZ text';
+    renderFileList();
+    showPreview(f);
+    applyAsciiMapping(true);
+    status('Re-read as plain text — check the column mapping in panel 1 against the preview.');
+  }
+
   function applyAsciiMapping(auto) {
     if (!S.preview) return;
     var map = {
@@ -240,6 +274,7 @@
       if (!f.pending) return;
       try {
         f.dataset = Parsers.parseASCII(f.text, f.name, map);
+        f.dataset.indexWarning = !!f.indexDtm;   // carried through to the build warning
         f.note = f.dataset.note; f.pending = false; n++;
       } catch (e) { f.note = 'error: ' + e.message; }
     });
@@ -272,7 +307,7 @@
         S.merged = Grid.merge(dss);
         S.grid = Grid.build(S.merged, {
           cell: parseFloat($('inpCell').value) || 0,
-          targetCells: parseInt($('inpTarget').value, 10) || 320,
+          targetCells: parseInt($('inpTarget').value, 10) || 1000,
           searchCells: parseInt($('selSearch').value, 10) || 2,
           interp: $('selInterp').value,
           fill: $('chkFill').checked,
@@ -283,24 +318,60 @@
       S.der = Grid.derive(S.grid);
     } catch (e) {
       status('Build failed: ' + e.message);
-      $('gridInfo').innerHTML = '<span class="w">' + e.message + '</span>';
+      var html = '<span class="w">' + e.message + '</span>';
+      /* a .dtm with no .str is not a dead end — let the user look inside it */
+      var triFile = S.files.filter(function (f) {
+        return f.dataset && f.dataset.kind === 'tri-index';
+      })[0];
+      var hasPts = S.files.some(function (f) {
+        return f.dataset && (f.dataset.pts || []).length;
+      });
+      $('gridInfo').innerHTML = html;
+      if (triFile && !hasPts) {
+        var b = document.createElement('button');
+        b.className = 'wide'; b.style.marginTop = '8px';
+        b.textContent = 'No .str? Read this .dtm as plain text →';
+        b.onclick = function () { retryAsAscii(triFile); };
+        $('gridInfo').appendChild(b);
+      }
       return;
     }
     var g = S.grid, ms = (performance.now() - t0).toFixed(0);
     S.res = null; S.probe = null;
     $('hudReadout').classList.add('hidden');
 
-    $('gridInfo').innerHTML =
+    /* warn when the raster is too coarse to hold the bench geometry */
+    var warn = '';
+    if (dss.some(function (d) { return d.indexWarning; })) warn +=
+      '<span class="w"><b>NOT A REAL SURFACE.</b> This model was built from Surpac triangle ' +
+      'node numbers, not survey coordinates. Every value below is meaningless — load the ' +
+      'matching .str file.</span>\n';
+    if (g.dropped) warn += '<span class="w">' + fmtInt(g.dropped) +
+      ' triangles ignored — node numbers outside the .str (wrong file pair?)</span>\n';
+    if (g.nTris > 0 && g.dx > 4) warn += '<span class="w">cell ' + fmt(g.dx, 1) +
+      ' m may smooth out benches — raise “Target cells” or set “Cell size” to resolve them</span>\n';
+
+    var W = (g.nx - 1) * g.dx, H = (g.ny - 1) * g.dy;
+    var empty = 100 - 100 * g.valid / (g.nx * g.ny);
+    if (empty > 25) warn += '<span class="w">' + empty.toFixed(0) +
+      '% of the bounding box has no data — normal for a non-rectangular survey ' +
+      'outline; those cells draw as background</span>\n';
+
+    $('gridInfo').innerHTML = warn +
       '<b>' + g.nx + ' × ' + g.ny + '</b> cells @ <b>' + fmt(g.dx, 2) + ' m</b>  (' + fmtInt(g.nx * g.ny) + ' nodes)\n' +
-      'valid ' + (100 * g.valid / (g.nx * g.ny)).toFixed(1) + '%   source: ' + g.method + '\n' +
-      'X ' + fmtInt(g.x0) + ' → ' + fmtInt(g.x0 + (g.nx - 1) * g.dx) + '\n' +
-      'Y ' + fmtInt(g.y0) + ' → ' + fmtInt(g.y0 + (g.ny - 1) * g.dy) + '\n' +
+      'valid ' + (100 * g.valid / (g.nx * g.ny)).toFixed(1) + '%   source: ' + g.method +
+      (g.nTris ? '  (' + fmtInt(g.nTris) + ' tri)' : '') + '\n' +
+      'X ' + fmtCoord(g.x0) + ' → ' + fmtCoord(g.x0 + W) + '   (' + fmtCoord(W) + ' m)\n' +
+      'Y ' + fmtCoord(g.y0) + ' → ' + fmtCoord(g.y0 + H) + '   (' + fmtCoord(H) + ' m)\n' +
       'Z ' + fmt(g.zmin, 1) + ' → ' + fmt(g.zmax, 1) + ' m   (' + ms + ' ms)';
 
     V.setGrid(g, S.der);
+    /* a new model resets the clip box to its extent */
+    S.clip.centre = NaN; S.clip.thick = NaN;
+    setClipMode(S.clip.mode);
     setAOIFull();
     if (!S.radars.length) {
-      addRadar({ name: 'Radar 1', x: g.x0 + (g.nx - 1) * g.dx / 2, y: g.y0 + g.dy * 2, color: '#ffd400' });
+      addRadar({ name: 'Radar 1', x: g.x0 + (g.nx - 1) * g.dx / 2, y: g.y0 + g.dy * 2, color: '#FFC000' });
       S.sel = 0;
     }
     S.radars.forEach(snapRadar);
@@ -321,7 +392,7 @@
         name: 'Radar ' + (S.radars.length + 1),
         x: g ? g.x0 + (g.nx - 1) * g.dx * (0.2 + 0.6 * Math.random()) : 0,
         y: g ? g.y0 + (g.ny - 1) * g.dy * (0.2 + 0.6 * Math.random()) : 0,
-        color: ['#ffd400', '#2f9bff', '#ff5252', '#12c2a0', '#e040fb', '#ff9800'][S.radars.length % 6]
+        color: ['#FFC000', '#05CAC8', '#E63946', '#00B050', '#8B5CF6', '#E97132'][S.radars.length % 6]
       });
       S.sel = S.radars.length - 1;
       renderRadarTable(); loadRadarForm(); updateOverlays();
@@ -340,9 +411,8 @@
     };
     $('btnPickRadar').onclick = function () { setPickMode('radar'); };
 
-    ['rName', 'rColor', 'rX', 'rY', 'rZ', 'rDz', 'rAz', 'rApAz', 'rApEl', 'rRmin', 'rRmax'].forEach(function (id) {
-      $(id).oninput = saveRadarForm;
-    });
+    ['rName', 'rColor', 'rX', 'rY', 'rZ', 'rDz', 'rAz', 'rEl', 'rApAz', 'rApEl', 'rRmin', 'rRmax']
+      .forEach(function (id) { $(id).oninput = saveRadarForm; });
     ['chkSnap', 'chkAutoAim'].forEach(function (id) { $(id).onchange = saveRadarForm; });
     $('selCombine').onchange = function () {
       if ($('selCombine').value === 'which') { S.layer = 'which'; $('selLayer').value = 'which'; }
@@ -353,9 +423,9 @@
   function addRadar(o) {
     var g = S.grid;
     var r = {
-      name: o.name || 'Radar', color: o.color || '#ffd400',
+      name: o.name || 'Radar', color: o.color || '#FFC000',
       x: o.x || 0, y: o.y || 0, z: o.z != null ? o.z : 0, dz: o.dz != null ? o.dz : 3,
-      snap: o.snap !== false, az: o.az || 0, apAz: o.apAz != null ? o.apAz : 90,
+      snap: o.snap !== false, az: o.az || 0, el: o.el || 0, apAz: o.apAz != null ? o.apAz : 90,
       apEl: o.apEl != null ? o.apEl : 45, rmin: o.rmin != null ? o.rmin : 30,
       rmax: o.rmax != null ? o.rmax : (g ? Math.round(Math.max((g.nx - 1) * g.dx, (g.ny - 1) * g.dy) * 1.3 / 50) * 50 : 4000),
       on: true, autoAim: o.autoAim !== false
@@ -377,6 +447,12 @@
       var cx = g.x0 + (g.nx - 1) * g.dx / 2, cy = g.y0 + (g.ny - 1) * g.dy / 2;
       var az = Math.atan2(cx - r.x, cy - r.y) / DEG;
       r.az = Math.round(((az % 360) + 360) % 360);
+      /* tilt the antenna at the centre of the model too, so a narrow
+         elevation aperture still covers the slope */
+      var cz = Grid.sampleZ(g, cx, cy);
+      if (cz !== cz) cz = (g.zmin + g.zmax) / 2;
+      var hor = Math.hypot(cx - r.x, cy - r.y);
+      r.el = hor > 1 ? Math.round(Math.atan2(cz - r.z, hor) / DEG) : 0;
     }
   }
 
@@ -411,13 +487,14 @@
     $('rName').value = r.name; $('rColor').value = r.color;
     $('rX').value = fmt(r.x, 2); $('rY').value = fmt(r.y, 2); $('rZ').value = fmt(r.z, 2);
     $('rDz').value = r.dz; $('chkSnap').checked = r.snap;
-    /* The aperture inputs are the *total* sector width/height; r.apAz and r.apEl
-       are the half-angles the model gates on (see Sensitivity.compute). */
-    $('rAz').value = fmt(r.az, 0);
-    $('rApAz').value = r.apAz * 2; $('rApEl').value = r.apEl * 2;
+    /* the form shows TOTAL scan widths; the model stores half-angles */
+    $('rAz').value = fmt(r.az, 0); $('rEl').value = fmt(r.el || 0, 0);
+    $('rApAz').value = fmt(r.apAz * 2, 0); $('rApEl').value = fmt(r.apEl * 2, 0);
     $('rRmin').value = r.rmin; $('rRmax').value = r.rmax;
     $('chkAutoAim').checked = r.autoAim;
     $('rZ').disabled = r.snap;
+    $('rAz').disabled = r.autoAim; $('rEl').disabled = r.autoAim;
+    updateRadarNote();
   }
   function saveRadarForm() {
     var r = S.radars[S.sel]; if (!r) return;
@@ -426,18 +503,54 @@
     r.dz = parseFloat($('rDz').value) || 0;
     r.snap = $('chkSnap').checked; r.autoAim = $('chkAutoAim').checked;
     if (!r.snap) r.z = parseFloat($('rZ').value) || 0;
-    /* total aperture in, half-angle stored — the inverse of loadRadarForm */
-    r.apAz = clamp(parseFloat($('rApAz').value) || 180, 2, 360) / 2;
-    r.apEl = clamp(parseFloat($('rApEl').value) || 90, 2, 180) / 2;
-    r.rmin = Math.max(0, parseFloat($('rRmin').value) || 0);
-    r.rmax = Math.max(r.rmin + 1, parseFloat($('rRmax').value) || 1000);
-    if (!r.autoAim) r.az = parseFloat($('rAz').value) || 0;
+    /* form = total width, model = half-angle. numOr keeps a typed 0 as 0
+       instead of silently snapping back to the default. */
+    r.apAz = clamp(numOr('rApAz', 180) / 2, 1, 180);
+    r.apEl = clamp(numOr('rApEl', 90) / 2, 1, 90);
+    r.rmin = Math.max(0, numOr('rRmin', 0));
+    r.rmax = Math.max(r.rmin + 1, numOr('rRmax', 1000));
+    if (!r.autoAim) { r.az = numOr('rAz', 0); r.el = clamp(numOr('rEl', 0), -90, 90); }
     snapRadar(r);
     $('rZ').disabled = r.snap;
-    $('rZ').value = fmt(r.z, 2); $('rAz').value = fmt(r.az, 0);
+    $('rAz').disabled = r.autoAim; $('rEl').disabled = r.autoAim;
+    $('rZ').value = fmt(r.z, 2);
+    $('rAz').value = fmt(r.az, 0); $('rEl').value = fmt(r.el || 0, 0);
+    updateRadarNote();
     renderRadarTable(); updateOverlays(); invalidate();
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  /** how far a sensor sits above the terrain; negative = underground */
+  function clearance(r) {
+    if (!S.grid || !r) return NaN;
+    var zt = Grid.sampleZ(S.grid, r.x, r.y);
+    return zt === zt ? r.z - zt : NaN;
+  }
+
+  /** a buried antenna makes every line of sight start inside rock */
+  function updateRadarNote() {
+    var el = $('rNote'), r = S.radars[S.sel];
+    if (!r || !S.grid) { el.classList.add('hidden'); return; }
+    var zt = Grid.sampleZ(S.grid, r.x, r.y), c = clearance(r), msg = '';
+    if (zt !== zt) {
+      msg = '<span class="w"><b>Sensor is outside the surveyed area.</b> There is no terrain ' +
+        'beneath it, so it cannot be levelled automatically. Move it over the model, or ' +
+        'set Level Z by hand.</span>';
+    } else if (c < -0.05) {
+      msg = '<span class="w"><b>Sensor is ' + fmt(-c, 1) + ' m BELOW the terrain.</b> ' +
+        'The surface here is ' + fmt(zt, 1) + ' m. Every line of sight starts underground, ' +
+        'so the whole model reads as shadowed and coverage will be 0%. ' +
+        'Tick “Z = terrain + antenna height”, or raise Level Z above ' + fmt(zt, 1) + '.</span>';
+    }
+    if (msg) { el.innerHTML = msg; el.classList.remove('hidden'); }
+    else el.classList.add('hidden');
+  }
+  /** value of a numeric field, falling back only when it is blank or unparseable
+      — `parseFloat(x) || def` would throw away a deliberate 0 */
+  function numOr(id, def) {
+    var v = parseFloat($(id).value);
+    return isFinite(v) ? v : def;
+  }
 
   /* ============================================ 3. SENSITIVITY */
   function bindSens() {
@@ -652,6 +765,7 @@
 
   function syncColorForm() {
     var c = cfg();
+    c.preset = ColorMaps.resolve(c.preset);   // tolerate keys from older files
     $('selPreset').value = c.preset;
     $('inpVmin').value = c.vmin; $('inpVmax').value = c.vmax;
     $('inpBands').value = c.bands; $('inpGamma').value = c.gamma;
@@ -782,6 +896,25 @@
       marker: (S.layer === 'sens') ? (parseFloat($('inpThresh').value) || null) : null,
       decimals: (c.vmax - c.vmin) >= 50 ? 0 : 2
     });
+    updateMaskLegend();
+  }
+
+  /* the dark tones are meaningful, not missing data — spell them out */
+  function updateMaskLegend() {
+    var box = $('legendMask');
+    if (!S.res || TERRAIN_LAYERS[S.layer] || S.layer === 'vis') { box.innerHTML = ''; return; }
+    var st = S.res.stats, n = st.nData || 1;
+    var rows = [
+      ['#colOccluded', 'shadowed', st.nShadow / n],
+      ['#colOutside', 'out of scan', st.nOutside / n]
+    ];
+    if (st.nGraz) rows.push(['#colOccluded', 'grazing', st.nGraz / n]);
+    if ($('chkMaskBelow').checked) rows.push(['#colBelow', 'below thr.', null]);
+    rows.push(['#colNoData', 'no data', null]);
+    box.innerHTML = rows.map(function (r) {
+      return '<div class="r"><i style="background:' + $(r[0].slice(1)).value + '"></i>' + r[1] +
+        (r[2] != null ? '<b>' + (100 * r[2]).toFixed(0) + '%</b>' : '') + '</div>';
+    }).join('');
   }
 
   /* ------------------------------------------------- overlays */
@@ -857,9 +990,22 @@
       V.seg(v, r.x, r.y, zu, r.x, r.y, zu + s * 1.6);
       batches.push({ verts: v, color: [col[0], col[1], col[2], alpha], noDepth: i === S.sel });
 
+      /* the selected marker is drawn through the terrain, which would otherwise
+         hide the fact that the antenna is underground — flag it in red */
+      if (zt === zt && r.z < zt - 0.05) {
+        var bur = [], m2 = ext * 0.014;
+        V.seg(bur, r.x, r.y, r.z, r.x, r.y, zt);
+        V.seg(bur, r.x - m2, r.y, r.z, r.x + m2, r.y, r.z);
+        V.seg(bur, r.x, r.y - m2, r.z, r.x, r.y + m2, r.z);
+        V.seg(bur, r.x - m2, r.y - m2, zt, r.x + m2, r.y + m2, zt);
+        V.seg(bur, r.x - m2, r.y + m2, zt, r.x + m2, r.y - m2, zt);
+        batches.push({ verts: bur, color: [1, 0.15, 0.15, 1], noDepth: true });
+      }
+
       /* scan footprint of the selected sensor */
       if ($('chkFan').checked && i === S.sel && r.on !== false) {
         var f = [], N2 = 64, R = Math.min(r.rmax, ext * 1.6);
+        var lift = R * Math.tan(Math.max(-80, Math.min(80, r.el || 0)) * DEG);
         var a0 = (r.az - r.apAz) * DEG, a1 = (r.az + r.apAz) * DEG;
         var prev = null;
         for (var kk = 0; kk <= N2; kk++) {
@@ -867,14 +1013,15 @@
           var px = r.x + Math.sin(ang) * R, py = r.y + Math.cos(ang) * R;
           var pz = Grid.sampleZ(g, px, py);
           if (pz !== pz) pz = g.zmin;
+          pz += lift;
           if (prev) V.seg(f, prev[0], prev[1], prev[2], px, py, pz);
           prev = [px, py, pz];
         }
         var e0x = r.x + Math.sin(a0) * R, e0y = r.y + Math.cos(a0) * R;
         var e1x = r.x + Math.sin(a1) * R, e1y = r.y + Math.cos(a1) * R;
         var z0 = Grid.sampleZ(g, e0x, e0y), z1b = Grid.sampleZ(g, e1x, e1y);
-        V.seg(f, r.x, r.y, r.z, e0x, e0y, z0 === z0 ? z0 : g.zmin);
-        V.seg(f, r.x, r.y, r.z, e1x, e1y, z1b === z1b ? z1b : g.zmin);
+        V.seg(f, r.x, r.y, r.z, e0x, e0y, (z0 === z0 ? z0 : g.zmin) + lift);
+        V.seg(f, r.x, r.y, r.z, e1x, e1y, (z1b === z1b ? z1b : g.zmin) + lift);
         batches.push({ verts: f, color: [col[0], col[1], col[2], 0.4] });
       }
     });
@@ -908,6 +1055,7 @@
             arrow(-fx / mag, -fy / mag, 0, [0.3, 0.85, 0.35, 1]);        // horizontal
           }
           arrow(0, 0, -1, [0.2, 0.6, 1, 1]);                             // vertical
+          arrow(S.der.nx[id], S.der.ny[id], S.der.nz[id], [1, 0.6, 0.1, 1]); // normal
           if (mode() === 'custom') {
             var cv = Sens.customVec(parseFloat($('inpCustAz').value) || 0, parseFloat($('inpCustPl').value) || 0);
             arrow(cv[0], cv[1], cv[2], [0.88, 0.25, 0.98, 1]);
@@ -984,11 +1132,29 @@
     var html = '<b>PROBE</b><br>' +
       'X ' + fmt(hit.x, 2) + '<br>Y ' + fmt(hit.y, 2) + '<br>Z ' + fmt(hit.z, 2) + ' m<br>' +
       'slope ' + fmt(slope, 1) + '°  dip dir ' + fmt(asp, 0) + '°<br>';
+    /* line-of-sight geometry from the selected sensor, so “out of scan” can be
+       traced to the exact gate that rejected the cell */
+    if (r) {
+      var dx = hit.x - r.x, dy = hit.y - r.y, dz = hit.z - r.z;
+      var hor = Math.hypot(dx, dy), dist = Math.hypot(dx, dy, dz);
+      var azTo = ((Math.atan2(dx, dy) / DEG) % 360 + 360) % 360;
+      var elTo = Math.atan2(dz, hor) / DEG;
+      var dAz = azTo - (((r.az % 360) + 360) % 360);
+      while (dAz > 180) dAz -= 360; while (dAz < -180) dAz += 360;
+      var dEl = elTo - (r.el || 0);
+      var bad = [];
+      if (Math.abs(dAz) > r.apAz) bad.push('az off boresight ' + fmt(Math.abs(dAz), 1) + '° > ±' + fmt(r.apAz, 1) + '°');
+      if (Math.abs(dEl) > r.apEl) bad.push('el off boresight ' + fmt(Math.abs(dEl), 1) + '° > ±' + fmt(r.apEl, 1) + '°');
+      if (dist < r.rmin) bad.push('range ' + fmt(dist, 0) + ' m < min ' + fmt(r.rmin, 0) + ' m');
+      if (dist > r.rmax) bad.push('range ' + fmt(dist, 0) + ' m > max ' + fmt(r.rmax, 0) + ' m');
+      html += 'LOS az ' + fmt(azTo, 1) + '°  el ' + (elTo >= 0 ? '+' : '') + fmt(elTo, 1) + '°<br>';
+      if (bad.length) html += '<span style="color:var(--sm-warn)">✗ ' + bad.join('<br>✗ ') + '</span><br>';
+    }
     if (S.res) {
       var C = S.res.combined, code = C.vis[id];
       var st = ['no data', 'visible', 'SHADOWED', 'outside scan', 'grazing'][code] || '—';
       var f = parseFloat($('inpTrue').value) || 10;
-      html += '<hr style="border:0;border-top:1px solid #2c3542;margin:5px 0">' +
+      html += '<hr style="border:0;border-top:1px solid var(--sm-line);margin:5px 0">' +
         '<b>sensitivity ' + fmt(C.sens[id], 3) + '</b><br>' +
         'amplitude ' + fmt(C.amp[id], 3) + '<br>' +
         'range ' + fmt(C.range[id], 1) + ' m<br>' +
@@ -998,9 +1164,17 @@
         var w = S.res.perRadar[C.which[id]];
         if (w) html += '<br>best: ' + w.radar.name;
       }
-    } else if (r) {
-      var dx = hit.x - r.x, dy = hit.y - r.y, dz = hit.z - r.z;
-      html += 'range ' + fmt(Math.hypot(dx, dy, dz), 1) + ' m';
+      /* explain a shadow: what blocks it, and how much higher the antenna
+         would have to sit to clear it */
+      if (code === Sens.VIS.SHADOW && r) {
+        var b = Grid.losBlocker(S.grid, r.x, r.y, r.z, hit.x, hit.y, hit.z,
+          parseFloat($('selOccAcc').value) || 1, parseFloat($('inpOccTol').value) || 0);
+        if (b) {
+          html += '<br><span style="color:var(--sm-warn)">blocked ' + fmt(b.dist, 0) + ' m out' +
+            '<br>terrain ' + fmt(b.excess, 1) + ' m above the LOS' +
+            '<br>raise antenna ≈ ' + fmt(b.raise, 1) + ' m to clear</span>';
+        }
+      }
     }
     $('hudReadout').innerHTML = html;
     $('hudReadout').classList.remove('hidden');
@@ -1021,8 +1195,35 @@
       'mean / median    <b>' + fmt(st.mean, 3) + '</b> / ' + fmt(st.p50, 3) + '\n' +
       'p10 / p90        ' + fmt(st.p10, 3) + ' / ' + fmt(st.p90, 3) + '\n' +
       'mean amplitude   ' + fmt(st.meanAmp, 3) + '\n' +
-      'mean range       ' + fmt(st.meanRange, 0) + ' m';
+      'mean range       ' + fmt(st.meanRange, 0) + ' m' +
+      hintFor(st);
     drawHist(st.hist);
+  }
+
+  /** turn a bad-looking result into an actionable next step */
+  function hintFor(st) {
+    if (!st.nData) return '';
+    var out = st.nOutside / st.nData, sh = st.nShadow / st.nData;
+    var t = [];
+    /* a buried sensor explains everything else, so lead with it */
+    S.radars.forEach(function (r) {
+      if (r.on === false) return;
+      var c = clearance(r);
+      if (c === c && c < -0.05) t.push('<span class="w"><b>' + r.name + ' is ' + fmt(-c, 1) +
+        ' m below the terrain</b> — that alone forces 0% coverage. Tick “Z = terrain + ' +
+        'antenna height” in panel 2 and recompute.</span>');
+    });
+    if (out > 0.5) t.push('<span class="w">' + (100 * out).toFixed(0) +
+      '% is outside the scan geometry. Widen “Az/El scan width”, raise “Range max”, ' +
+      'or tick “Auto-aim at model” so the boresight and tilt point at the pit.</span>');
+    if (sh > 0.5) t.push('<span class="w">' + (100 * sh).toFixed(0) +
+      '% is shadowed. On a benched wall a low sensor mostly sees berm tops — raise the ' +
+      'antenna, move it back, or click a dark cell to read how much lift it needs. ' +
+      'Untick the shadow test for the pure geometric cosine map.</span>');
+    if (st.nVis && st.mean < 0.3) t.push('<span class="w">mean sensitivity is low — this ' +
+      'line of sight is nearly perpendicular to the assumed movement. Check the movement ' +
+      'vector, or try a position that looks along the failure direction.</span>');
+    return t.length ? '\n\n' + t.join('\n\n') : '';
   }
 
   function layoutHist() { var c = $('histCanvas'); c.width = c.clientWidth * (window.devicePixelRatio || 1); drawHist(S.res ? S.res.stats.hist : null); }
@@ -1035,7 +1236,7 @@
     var W = cv.width / dpr, H = cv.height / dpr;
     g.clearRect(0, 0, W, H);
     if (!h) {
-      g.fillStyle = '#5a6472'; g.font = '11px Segoe UI'; g.textAlign = 'center';
+      g.fillStyle = SMTheme.col('--sm-dim2'); g.font = '11px Segoe UI'; g.textAlign = 'center';
       g.fillText('sensitivity distribution', W / 2, H / 2); return;
     }
     var max = 0;
@@ -1052,10 +1253,10 @@
     }
     /* threshold marker */
     var thr = parseFloat($('inpThresh').value) || 0;
-    g.strokeStyle = '#fff'; g.setLineDash([3, 3]);
+    g.strokeStyle = SMTheme.col('--sm-fg'); g.setLineDash([3, 3]);
     g.beginPath(); g.moveTo(thr * W, 2); g.lineTo(thr * W, H - pad); g.stroke();
     g.setLineDash([]);
-    g.fillStyle = '#8f9bab'; g.font = '9px Consolas'; g.textAlign = 'left';
+    g.fillStyle = SMTheme.col('--sm-dim'); g.font = '9px Consolas'; g.textAlign = 'left';
     g.fillText('0', 2, H - 4);
     g.textAlign = 'center'; g.fillText('sensitivity', W / 2, H - 4);
     g.textAlign = 'right'; g.fillText('1', W - 2, H - 4);
@@ -1078,6 +1279,175 @@
         '<td class="n">' + fmt(o.s.meanRange, 0) + '</td></tr>';
     });
     t.innerHTML = html;
+  }
+
+  /* ================================================ 6. CLIPPING
+     Display-only cutting: a six-face clip box, or a thin slab that reads as a
+     cross-section. The shaders discard the hidden fragments, so the analysis
+     is untouched — link it to the Selection Mask when you want both.
+     ============================================================ */
+  var AXIS_NAME = ['Easting', 'Northing', 'Elevation'];
+  var AXIS_SHORT = ['E', 'N', 'RL'];
+  var AXIS_COL = ['#E63946', '#00B050', '#38BDF8'];
+
+  function bindClip() {
+    Array.prototype.forEach.call($('clipModes').children, function (b) {
+      b.onclick = function () { setClipMode(b.getAttribute('data-mode')); };
+    });
+    Array.prototype.forEach.call($('clipAxes').children, function (b) {
+      b.onclick = function () {
+        S.clip.axis = parseInt(b.getAttribute('data-axis'), 10);
+        var w = V.clipWorld(), a = S.clip.axis;
+        S.clip.centre = (w.bmin[a] + w.bmax[a]) / 2;
+        S.clip.thick = Math.max((w.bmax[a] - w.bmin[a]) / 25, 0.05);
+        applySlab(); syncClipForm();
+      };
+    });
+    $('chkClipHandles').onchange = function () {
+      V.setClipEnabled(S.clip.mode !== 'off', this.checked);
+    };
+    $('btnClipReset').onclick = function () {
+      V.clipFit();
+      if (S.clip.mode === 'slab') {
+        var w = V.clipWorld(), a = S.clip.axis;
+        S.clip.centre = (w.bmin[a] + w.bmax[a]) / 2;
+        S.clip.thick = Math.max((w.bmax[a] - w.bmin[a]) / 25, 0.05);
+        applySlab();
+      }
+      syncClipForm(); V.draw();
+    };
+    $('clipPos').oninput = function () { S.clip.centre = +this.value; applySlab(); syncClipForm(true); };
+    $('clipPosNum').onchange = function () { S.clip.centre = +this.value; applySlab(); syncClipForm(); };
+    $('clipThick').onchange = function () {
+      S.clip.thick = Math.max(0.01, +this.value); applySlab(); syncClipForm();
+    };
+    $('clipThickRange').oninput = function () {
+      S.clip.thick = Math.max(0.01, +this.value); applySlab(); syncClipForm(true);
+    };
+    $('btnClipStepBack').onclick = function () { stepSlab(-1); };
+    $('btnClipStepFwd').onclick = function () { stepSlab(1); };
+    $('btnClipToAOI').onclick = function () {
+      var w = V.clipWorld();
+      $('aoiXmin').value = fmt(w.min[0], 1); $('aoiXmax').value = fmt(w.max[0], 1);
+      $('aoiYmin').value = fmt(w.min[1], 1); $('aoiYmax').value = fmt(w.max[1], 1);
+      $('aoiZmin').value = fmt(w.min[2], 1); $('aoiZmax').value = fmt(w.max[2], 1);
+      $('chkAOI').checked = true;
+      $('aoiXmin').onchange();
+      status('Selection mask set from the clip box.');
+    };
+    $('btnClipFromAOI').onclick = function () {
+      var a = aoiObj();
+      V.setClipWorld([a.xmin, a.ymin, a.zmin], [a.xmax, a.ymax, a.zmax]);
+      syncClipForm();
+      status('Clip box set from the selection mask.');
+    };
+    /* dragging a face in the view must feed the sliders back */
+    V.onClipChange = function () { if (!S.clipSyncing) syncClipForm(true); };
+  }
+
+  function setClipMode(mode) {
+    S.clip.mode = mode;
+    Array.prototype.forEach.call($('clipModes').children, function (b) {
+      b.className = (b.getAttribute('data-mode') === mode) ? 'on' : '';
+    });
+    $('clipOpts').classList.toggle('hidden', mode === 'off');
+    $('clipBoxPane').classList.toggle('hidden', mode !== 'box');
+    $('clipSlabPane').classList.toggle('hidden', mode !== 'slab');
+    if (mode === 'slab') {
+      var w = V.clipWorld(), a = S.clip.axis;
+      if (!isFinite(S.clip.centre)) S.clip.centre = (w.bmin[a] + w.bmax[a]) / 2;
+      if (!isFinite(S.clip.thick)) S.clip.thick = Math.max((w.bmax[a] - w.bmin[a]) / 25, 0.05);
+      applySlab();
+    }
+    V.setClipEnabled(mode !== 'off', $('chkClipHandles').checked);
+    syncClipForm();
+  }
+
+  /** a slab keeps a thin band on one axis and the whole extent on the others */
+  function applySlab() {
+    if (!S.grid) return;
+    var w = V.clipWorld(), a = S.clip.axis;
+    var half = Math.max(S.clip.thick, 0.01) / 2;
+    var mn = w.bmin.slice(), mx = w.bmax.slice();
+    mn[a] = Math.max(w.bmin[a], S.clip.centre - half);
+    mx[a] = Math.min(w.bmax[a], S.clip.centre + half);
+    S.clipSyncing = true;
+    V.setClipWorld(mn, mx);
+    S.clipSyncing = false;
+  }
+
+  function stepSlab(dir) {
+    var w = V.clipWorld(), a = S.clip.axis;
+    S.clip.centre = clamp(S.clip.centre + dir * S.clip.thick, w.bmin[a], w.bmax[a]);
+    applySlab(); syncClipForm();
+  }
+
+  /** rebuild the panel from the viewer's box (quick = numbers only) */
+  function syncClipForm(quick) {
+    if (!S.grid) return;
+    var w = V.clipWorld(), a = S.clip.axis;
+    Array.prototype.forEach.call($('clipAxes').children, function (b) {
+      b.className = (parseInt(b.getAttribute('data-axis'), 10) === a) ? 'on' : '';
+    });
+
+    if (S.clip.mode === 'slab') {
+      var span = w.bmax[a] - w.bmin[a];
+      var step = Math.max(span / 2000, 0.001);
+      var pos = $('clipPos');
+      pos.min = w.bmin[a]; pos.max = w.bmax[a]; pos.step = step; pos.value = S.clip.centre;
+      $('clipPosNum').value = fmt(S.clip.centre, 2);
+      $('clipThick').value = fmt(S.clip.thick, 2);
+      var tr = $('clipThickRange');
+      tr.min = Math.max(span / 5000, 0.01); tr.max = span; tr.step = Math.max(span / 5000, 0.01);
+      tr.value = Math.min(S.clip.thick, span);
+      $('clipSlabInfo').innerHTML = 'slab <b>' + AXIS_SHORT[a] + '</b>  ' +
+        fmt(S.clip.centre - S.clip.thick / 2, 1) + '  →  ' + fmt(S.clip.centre + S.clip.thick / 2, 1) +
+        '   (' + fmt(S.clip.thick, 2) + ' m thick)';
+    }
+
+    /* box sliders */
+    var box = $('clipSliders');
+    if (!quick || box.children.length !== 3) {
+      box.innerHTML = '';
+      for (var ax = 0; ax < 3; ax++) {
+        var row = document.createElement('div');
+        row.className = 'clipRow';
+        var st = Math.max((w.bmax[ax] - w.bmin[ax]) / 2000, 0.001);
+        row.innerHTML =
+          '<span class="ax"><i style="background:' + AXIS_COL[ax] + '"></i>' + AXIS_SHORT[ax] + '</span>' +
+          cell('cmin' + ax, w.bmin[ax], w.bmax[ax], st, w.min[ax]) +
+          cell('cmax' + ax, w.bmin[ax], w.bmax[ax], st, w.max[ax]);
+        box.appendChild(row);
+        wireCell(row, ax);
+      }
+    } else {
+      for (var k = 0; k < 3; k++) {
+        var r = box.children[k];
+        r.querySelector('.c0 input').value = w.min[k];
+        r.querySelector('.c0 span').textContent = fmt(w.min[k], 1);
+        r.querySelector('.c1 input').value = w.max[k];
+        r.querySelector('.c1 span').textContent = fmt(w.max[k], 1);
+      }
+    }
+    function cell(id, lo, hi, st, v) {
+      var which = id.indexOf('cmin') === 0 ? 'c0' : 'c1';
+      return '<span class="clipCell ' + which + '"><input type="range" min="' + lo + '" max="' + hi +
+        '" step="' + st + '" value="' + v + '"><span>' + fmt(v, 1) + '</span></span>';
+    }
+    function wireCell(row, ax) {
+      var lo = row.querySelector('.c0 input'), hi = row.querySelector('.c1 input');
+      lo.oninput = function () { pushFace(ax * 2, +lo.value); };
+      hi.oninput = function () { pushFace(ax * 2 + 1, +hi.value); };
+    }
+    function pushFace(face, worldValue) {
+      var ww = V.clipWorld();
+      var mn = ww.min.slice(), mx = ww.max.slice(), axis = face >> 1;
+      if (face & 1) mx[axis] = worldValue; else mn[axis] = worldValue;
+      S.clipSyncing = true;
+      V.setClipWorld(mn, mx);
+      S.clipSyncing = false;
+      syncClipForm(true);
+    }
   }
 
   /* =================================================== EXPORT */
@@ -1114,13 +1484,13 @@
     var out = V.snapshot(function (g, W, H, sc) {
       /* title block */
       g.font = (14 * sc) + 'px Segoe UI, sans-serif';
-      g.fillStyle = '#0d1014dd';
+      g.fillStyle = SMTheme.col('--sm-hud-bg2');
       g.fillRect(10 * sc, 10 * sc, 430 * sc, 66 * sc);
-      g.strokeStyle = '#2c3542'; g.strokeRect(10 * sc, 10 * sc, 430 * sc, 66 * sc);
-      g.fillStyle = '#ffffff'; g.textAlign = 'left'; g.textBaseline = 'top';
+      g.strokeStyle = SMTheme.col('--sm-line'); g.strokeRect(10 * sc, 10 * sc, 430 * sc, 66 * sc);
+      g.fillStyle = SMTheme.col('--sm-fg'); g.textAlign = 'left'; g.textBaseline = 'top';
       g.fillText('SensiMap — ' + L.label, 20 * sc, 18 * sc);
       g.font = (11 * sc) + 'px Consolas, monospace';
-      g.fillStyle = '#9fb0c4';
+      g.fillStyle = SMTheme.col('--sm-dim');
       var r = S.radars[S.sel];
       var l2 = S.res ? ('mode ' + S.res.opts.mode + '   sensors ' +
         S.radars.filter(function (q) { return q.on !== false; }).length +
@@ -1194,7 +1564,7 @@
           var o = JSON.parse(fr.result);
           var c = o.config || o;
           LC[S.layer] = {
-            preset: c.preset || 'ids-green', stops: c.stops, reverse: !!c.reverse,
+            preset: ColorMaps.resolve(c.preset), stops: c.stops, reverse: !!c.reverse,
             bands: c.bands || 0, gamma: c.gamma || 1, vmin: c.vmin, vmax: c.vmax, auto: false
           };
           syncColorForm(); colorize(); updateLegend();

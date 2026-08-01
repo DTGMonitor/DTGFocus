@@ -1170,49 +1170,44 @@ const SensorDetail = ({
         setDqpList(updatedList);
         try {
             const isAlarmItem = item.parameter?.id === 20 || item.parameter?.id === 21;
+            const isMaskItem = item.parameter?.id === 21;
             const rowsToInsert = [];
 
             if (isAlarmItem) {
-                // Common data for all rows
+                // Common data for all rows; `alarm_mask` is per-row (see below).
                 const basePayload = {
                     recommendation_submission: new Date().toISOString(),
                     improvement_status: "Awaiting Feedback",
                     type: formData.subject,
                     issue: formData.issue,
                     action: formData.action,
-                    alarm_mask: formData.alarmMask || null, // Only relevant for ID 21
                 };
 
                 // --- BRANCH A: ALARM ITEMS (Multi-row logic) ---
-                if (formData.alarmRegions.length > 0) {
+                // One row per selected region+cause. There is nothing to look up
+                // here: the modal only offers region+cause pairs that actually
+                // alarmed in the last 12 h and hands back the alarm_records id
+                // behind each tick. Resolving a "latest record for this region"
+                // at this point could land on a different cause than the one the
+                // analyst read, and would invent a link for a region that never
+                // alarmed at all.
+                const selections = Array.isArray(formData.alarmSelections) ? formData.alarmSelections : [];
 
-                    // Run queries in PARALLEL for speed
-                    const lookupPromises = formData.alarmRegions.map(async (regionId) => {
-                        const { data } = await supabase
-                            .from('alarm_records')
-                            .select('id')
-                            .eq('alarm_region', regionId) // Check THIS specific region
-                            .order('created_at', { ascending: false })
-                            .limit(1)
-                            .maybeSingle();
-                        // Return the ID if found, otherwise null
-                        return data ? data.id : null;
+                selections.forEach((selection) => {
+                    if (!selection?.recordId) return;
+                    rowsToInsert.push({
+                        ...basePayload,
+                        alarm_record: selection.recordId,
+                        // Per-selection mask: two regions produce two rows and
+                        // each carries its own mask.
+                        alarm_mask: isMaskItem ? (selection.alarmMask || null) : null,
                     });
+                });
 
-                    // Wait for all checks to fini
-                    const foundRecordIds = await Promise.all(lookupPromises);
-                    // Build insert rows only for the ones that were found
-                    foundRecordIds.forEach((recordId) => {
-                        if (recordId) {
-                            rowsToInsert.push({
-                                ...basePayload,
-                                alarm_record: recordId, // Link to the specific record found
-                            });
-                        }
-                    });
-                    if (rowsToInsert.length === 0) {
-                        console.warn("Selected regions have no matching alarm_records. Skipping insert as requested.");
-                    }
+                // The modal blocks submission when there is nothing to answer, so
+                // reaching here empty means a selection lost its record id.
+                if (selections.length > 0 && rowsToInsert.length === 0) {
+                    throw new Error('No alarm record could be linked to this improvement.');
                 }
             }
 
@@ -1278,16 +1273,25 @@ const SensorDetail = ({
             // 3. FINAL STEP: Update the DQP table with Status AND Score
             // We reuse the same supabase helper to ensure consistency
             const additionalPayload = { notes: formData.notes };
-            // Uploading REPLACES the row's figures rather than appending, matching
-            // how notes and appendix are replaced: the modal files one action plan
-            // per status change, and figures carried over from a previous incident
-            // would be captioned against notes that no longer describe them.
-            if (uploadedImages.length) {
+
+            // The modal owns the row's whole figure list: it opens holding the
+            // figures already attached, and hands back the ones the analyst kept
+            // (with any re-typed captions) plus whatever was added. Kept figures
+            // come first so their figure numbers are stable across a follow-up
+            // improvement. `imagesManaged` distinguishes "keep nothing" from
+            // "this caller does not deal in figures at all" — without it, an
+            // empty list from a legacy caller would silently detach everything.
+            const keptImages = Array.isArray(formData.existingImages) ? formData.existingImages : [];
+            if (formData.imagesManaged) {
+                // buildDqpImagePayload([]) is exactly CLEARED_DQP_IMAGES, so
+                // removing every figure clears both arrays together and the
+                // dqp_values_image_arrays_aligned CHECK stays satisfied.
+                Object.assign(additionalPayload, buildDqpImagePayload([...keptImages, ...uploadedImages]));
+            } else if (uploadedImages.length) {
                 Object.assign(additionalPayload, buildDqpImagePayload(uploadedImages));
             }
-            if (formData.appendix) {
-                additionalPayload.appendix = formData.appendix;
-            }
+
+            additionalPayload.appendix = formData.appendix || null;
 
             await updateSupabaseDqp(item, 'value', targetStatus, additionalPayload);
 

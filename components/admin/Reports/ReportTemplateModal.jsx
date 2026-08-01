@@ -5,8 +5,9 @@ import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from "../../Reusable/useUserSite";
 import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
 import { RadarTemplate } from '@/components/admin/Reports/RadarReportTemplates';
-import { ComprehensiveRadarTemplate, resolveAppendixImages, COMPREHENSIVE_TITLE } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
+import { ComprehensiveRadarTemplate, resolveAppendixImages, comprehensiveTitle } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
 import { buildAppendixItems } from '@/utils/reportDqp';
+import { daysForFrequency } from '@/utils/reportAvailability';
 import { useComprehensiveReportData } from '@/components/admin/Reports/useComprehensiveReportData';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
@@ -33,6 +34,19 @@ const REPORT_CONFIG = {
 
 /** Radar categories that render their own template rather than the DQ layout. */
 const COMPREHENSIVE = 'Comprehensive';
+
+/** The granularity that takes its span from the Days field rather than a preset. */
+const CUSTOM_FREQUENCY = 'custom';
+
+/** What a custom span may be. Beyond a year the window stops being a report. */
+const MIN_CUSTOM_DAYS = 1;
+const MAX_CUSTOM_DAYS = 366;
+
+const clampCustomDays = (value) => {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return 2;
+  return Math.min(MAX_CUSTOM_DAYS, Math.max(MIN_CUSTOM_DAYS, n));
+};
 
 
 /**
@@ -140,18 +154,35 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         reportType: sensor ? 'Radar' : 'Insar',
         category: sensor ? 'Data Quality' : 'Water Body',
         frequency: '',
+        // The custom span, in days — only read when frequency is 'custom'. Two is
+        // the default because the two-day report is what the control was added for.
+        customDays: 2,
         startDate: formatDate(startDateObj), // "2024-12-26"
         endDate: formatDate(today),          // "2025-12-26"
     });
 
     const isRadar = formData.reportType === 'Radar';
     const isComprehensive = isRadar && formData.category === COMPREHENSIVE;
+    const isCustomFrequency = formData.frequency === CUSTOM_FREQUENCY;
+
+    /**
+     * The granularity as the data layer reads it: a named frequency, or the
+     * `custom:<days>` form daysForFrequency understands. Everything downstream —
+     * the window, the alarm bounds, the timeline horizon — derives from this one
+     * string, so a custom span needs no separate plumbing.
+     */
+    const resolvedFrequency = isCustomFrequency
+        ? `${CUSTOM_FREQUENCY}:${clampCustomDays(formData.customDays)}`
+        : formData.frequency;
+
+    /** How many days the chosen granularity covers. Names the report and its file. */
+    const windowDays = daysForFrequency(resolvedFrequency);
 
     // Comprehensive pulls its own data (KPIs, timelines, availability, alarms)
     // rather than reusing the dqpList the Data Quality template renders.
     const { data: comprehensiveData, loading: comprehensiveLoading } = useComprehensiveReportData(
         sensor,
-        formData.frequency,
+        resolvedFrequency,
         formData.endDate,
         Boolean(sensor) && isComprehensive
     );
@@ -187,7 +218,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const frequencies = [
         { value: 'daily', label: 'Daily', alt: '24h' },
         { value: 'weekly', label: 'Weekly', alt: '7d' },
-        { value: 'monthly', label: 'Monthly', alt: '30d' }
+        { value: 'monthly', label: 'Monthly', alt: '30d' },
+        // Span comes from the Days field below, not from this entry.
+        { value: CUSTOM_FREQUENCY, label: 'Custom', alt: null },
     ];
 
     const reportTypes = Object.keys(REPORT_CONFIG);
@@ -196,14 +229,17 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     //filename
     const rawDate = formData.endDate || new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0];
     const compactDate = rawDate.replaceAll('-', '').slice(0);
-    const freqLabel = frequencies.find(f => f.value === formData.frequency)?.label || 'Unknown';
-    const freqAlt = frequencies.find(f => f.value === formData.frequency)?.alt || 'Unknown';
+    const preset = frequencies.find(f => f.value === formData.frequency && f.value !== CUSTOM_FREQUENCY);
+    // A custom span names itself by its length ("2-Day", "2d") — there is no
+    // preset label to look up, and "Custom" tells a reader nothing about the file.
+    const freqLabel = preset?.label || (isCustomFrequency ? `${windowDays}-Day` : 'Unknown');
+    const freqAlt = preset?.alt || (isCustomFrequency ? `${windowDays}d` : 'Unknown');
     const fileName = (sensor && formData.category === 'Data Quality') ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
         : (sensor && isComprehensive) ?
-            // COMPREHENSIVE_TITLE already begins with "Daily", so skip the freq
-            // prefix for daily reports to avoid "Daily Daily ...".
-            `${compactDate} ${freqLabel === 'Daily' ? '' : `${freqLabel} `}${COMPREHENSIVE_TITLE} of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
+            // The title already carries the granularity ("Daily" / "2-Day" /
+            // "Weekly" …), so nothing is prefixed to it here.
+            `${compactDate} ${comprehensiveTitle(windowDays)} of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
             : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
     useEffect(() => {
@@ -213,12 +249,13 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     }, [onClose]);
 
 
-    const getStartDateForFreq = (freq, cat) => {
+    const getStartDateForFreq = (freq, cat, customDays) => {
         const d = new Date();
         if (freq === 'daily') d.setDate(d.getDate() - 1);
         else if (freq === 'weekly') d.setDate(d.getDate() - 7);
         else if (freq === 'monthly' && cat === 'Water Body') d.setDate(d.getDate() - 183);
         else if (freq === 'monthly') d.setDate(d.getDate() - 30)
+        else if (freq === CUSTOM_FREQUENCY) d.setDate(d.getDate() - clampCustomDays(customDays));
         return d.toLocaleDateString('en-CA');
     };
 
@@ -244,9 +281,10 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
 
-            // If they changed frequency, auto-update the start date
-            if (field === 'frequency' || field === 'category') {
-                newData.startDate = getStartDateForFreq(newData.frequency, newData.category);
+            // If they changed frequency (or the custom span behind it), auto-update
+            // the start date.
+            if (field === 'frequency' || field === 'category' || field === 'customDays') {
+                newData.startDate = getStartDateForFreq(newData.frequency, newData.category, newData.customDays);
             }
 
             return newData;
@@ -367,7 +405,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                 created_at: new Date().toISOString(),
                 subject: 1,
                 location: siteName,
-                category: `${formData.frequency.toLowerCase()} report`,
+                // The LABEL, not the raw value: a custom span's value is the
+                // uninformative 'custom', where the label is '2-Day'.
+                category: `${freqLabel.toLowerCase()} report`,
                 action: 'No action required',
                 notes: `${title} has been generated`,
                 submitted_by: user?.id,
@@ -585,7 +625,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         generatedBy: displayName,
                         type: formData.reportType,
                         category: formData.category,
-                        frequency: formData.frequency,
+                        frequency: freqLabel,
                         period: `${periodAdjustment(formData.startDate)} to ${periodAdjustment(formData.endDate)}`,
                         site: completeSiteName,
                         company: company
@@ -627,7 +667,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                     generatedBy: displayName,
                     type: formData.reportType,
                     category: formData.category,
-                    frequency: formData.frequency,
+                    frequency: freqLabel,
                     period: `${periodAdjustment(formData.startDate)} to ${periodAdjustment(formData.endDate)}`,
                     latest: latestField(fetchedData.mndwi, 'date'),
                     rainfall: currRainfall,
@@ -758,13 +798,38 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             {/* RESTORED FREQUENCY SELECTOR */}
                             <div>
                                 <label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2"><Calendar size={16} className="inline mr-2" />Frequency</label>
-                                <div className="grid grid-cols-3 gap-3">
+                                <div className="grid grid-cols-4 gap-3">
                                     {frequencies.map(freq => (
                                         <button key={freq.value} type="button" onClick={() => handleInputChange('frequency', freq.value)} className={`px-4 py-2 rounded-lg border-2 transition-colors ${formData.frequency === freq.value ? 'border-[var(--dtg-primary-teal-dark)] bg-teal text-[var(--dtg-primary-teal-dark)]' : 'border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] hover:border-gray-400'}`} disabled={loading}>
                                             {freq.label || 'Unknown'}
                                         </button>
                                     ))}
                                 </div>
+                                {/* The span itself, revealed only by Custom — an always-visible
+                                    Days field would read as if it governed the presets too. */}
+                                {isCustomFrequency && (
+                                    <div className="mt-3 flex items-center gap-3">
+                                        <label htmlFor="customDays" className="text-sm text-[var(--dtg-gray-700)]">Window length</label>
+                                        <input
+                                            id="customDays"
+                                            type="number"
+                                            min={MIN_CUSTOM_DAYS}
+                                            max={MAX_CUSTOM_DAYS}
+                                            step={1}
+                                            value={formData.customDays}
+                                            /* Kept raw while typing so the field can be cleared and
+                                               retyped; clamped on blur and again wherever it is read,
+                                               so a half-typed value never reaches the query. */
+                                            onChange={(e) => handleInputChange('customDays', e.target.value)}
+                                            onBlur={(e) => handleInputChange('customDays', clampCustomDays(e.target.value))}
+                                            className="w-24 px-3 py-2 border border-[var(--dtg-gray-300)] rounded-lg text-[var(--dtg-gray-700)]"
+                                            disabled={loading}
+                                        />
+                                        <span className="text-sm text-[var(--dtg-gray-500)]">
+                                            days — covers the {windowDays * 24} h ending at the End Date
+                                        </span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
