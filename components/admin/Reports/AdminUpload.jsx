@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from "@/lib/supabaseClient";
 import { useUserSite } from "../../Reusable/useUserSite";
 import { createReportRecord } from '../../../src/app/actions/reportActions';
-import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 const AdminUpload = ({ onClose }) => {
@@ -22,6 +22,10 @@ const AdminUpload = ({ onClose }) => {
     const [files, setFiles] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState('');
+    // Existing client_images rows keyed by storage path, for the images currently
+    // queued. Populated by the lookup effect below; drives the "Replace" toggle.
+    const [existingImages, setExistingImages] = useState({});
+    const [checkingExisting, setCheckingExisting] = useState(false);
 
     // Handle ESC key press
     useEffect(() => {
@@ -64,6 +68,62 @@ const AdminUpload = ({ onClose }) => {
             fetchClients();
         }
     }, [user]);
+
+    // Storage path an image will occupy — the same key the upload and the
+    // client_images lookup both use.
+    const storagePathFor = (filename) => `${selectedClientId}/${filename}`;
+
+    // Names of the queued images, joined so the lookup effect only re-runs when
+    // the queue itself changes — editing metadata must not refire the query.
+    const queuedImageNames = files
+        .filter((item) => item.recordType === 'client_images')
+        .map((item) => item.file.name)
+        .join('|');
+
+    // Find out which queued images already exist for the selected client, so the
+    // user can choose to replace them instead of hitting a duplicate error.
+    useEffect(() => {
+        if (!selectedClientId || !queuedImageNames) {
+            setExistingImages({});
+            return;
+        }
+
+        let cancelled = false;
+        const paths = queuedImageNames.split('|').map((name) => `${selectedClientId}/${name}`);
+
+        const lookup = async () => {
+            setCheckingExisting(true);
+            try {
+                const { data, error } = await supabase
+                    .from('client_images')
+                    .select('id, image_url, type, category, subcategory, date, uploaded_at, uploadedby')
+                    .eq('client_id', selectedClientId)
+                    .in('image_url', paths);
+
+                if (error) throw error;
+                if (cancelled) return;
+
+                const byPath = {};
+                (data || []).forEach((row) => {
+                    // Keep the newest row when a path somehow has duplicates, so a
+                    // replace updates the record the app is actually showing.
+                    const current = byPath[row.image_url];
+                    if (!current || (row.uploaded_at || '') > (current.uploaded_at || '')) {
+                        byPath[row.image_url] = row;
+                    }
+                });
+                setExistingImages(byPath);
+            } catch (error) {
+                console.error('Error checking for existing images:', error);
+                if (!cancelled) setExistingImages({});
+            } finally {
+                if (!cancelled) setCheckingExisting(false);
+            }
+        };
+
+        lookup();
+        return () => { cancelled = true; };
+    }, [selectedClientId, queuedImageNames]);
 
     // Parse filename and auto-fill metadata
     const parseFileMetadata = (file) => {
@@ -213,6 +273,44 @@ const AdminUpload = ({ onClose }) => {
         }));
     };
 
+    // Opt a single queued image into overwriting the copy already in storage.
+    const toggleReplaceExisting = (index) => {
+        setFiles(prev => prev.map((item, i) => (
+            i === index ? { ...item, replaceExisting: !item.replaceExisting } : item
+        )));
+    };
+
+    // Overwrite the stored object and refresh the client_images row that points at
+    // it, keeping the same path so every existing reference stays valid.
+    const replaceExistingImage = async (fileItem, existing, bucket, path) => {
+        const { error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(path, fileItem.file, {
+                cacheControl: '3600',
+                upsert: true
+            });
+
+        if (uploadError) throw uploadError;
+
+        const { error: dbError } = await supabase
+            .from('client_images')
+            .update({
+                type: fileItem.metadata.type,
+                category: fileItem.metadata.category,
+                uploaded_at: new Date().toISOString(),
+                uploadedby: fileItem.metadata.uploadedby || displayName || '',
+                size: fileItem.metadata.size,
+                date: fileItem.metadata.date,
+                subcategory: fileItem.metadata.subcategory || null,
+                rainfall: fileItem.metadata.rainfall,
+                tsf7: fileItem.metadata.tsf7,
+                tsf8: fileItem.metadata.tsf8,
+            })
+            .eq('id', existing.id);
+
+        if (dbError) throw dbError;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -242,7 +340,24 @@ const AdminUpload = ({ onClose }) => {
                     }
 
                     // Generate unique filename
-                    const fileName = `${selectedClientId}/${fileItem.file.name}`;
+                    const fileName = storagePathFor(fileItem.file.name);
+
+                    const existing = fileItem.recordType === 'client_images'
+                        ? existingImages[fileName]
+                        : null;
+
+                    // Replacing swaps the stored object in place and updates the
+                    // existing row, so nothing downstream has to be re-pointed.
+                    if (existing) {
+                        if (!fileItem.replaceExisting) {
+                            throw new Error('An image with this name already exists. Tick "Replace existing image" to overwrite it.');
+                        }
+
+                        await replaceExistingImage(fileItem, existing, bucket, fileName);
+                        uploadedFiles.push({ ...fileItem, replaced: true });
+                        results.push({ success: true, filename: fileItem.file.name, replaced: true });
+                        continue;
+                    }
 
                     // Upload to storage
                     const { error: uploadError } = await supabase.storage
@@ -304,16 +419,23 @@ const AdminUpload = ({ onClose }) => {
             if (uploadedFiles.length > 0) {
                 const uploadsByCategory = uploadedFiles.reduce((acc, item) => {
                     const cat = item.metadata.category || 'Uncategorized';
-                    if (!acc[cat]) acc[cat] = [];
-                    acc[cat].push(item.file.name);
+                    if (!acc[cat]) acc[cat] = { uploaded: [], replaced: [] };
+                    acc[cat][item.replaced ? 'replaced' : 'uploaded'].push(item.file.name);
                     return acc;
                 }, {});
 
-                for (const [category, filenames] of Object.entries(uploadsByCategory)) {
+                for (const [category, { uploaded, replaced }] of Object.entries(uploadsByCategory)) {
                     try {
-                        const notes = filenames.length === 1
-                            ? `${filenames[0]} has been uploaded`
-                            : `${filenames.length} files uploaded: ${filenames.join(', ')}`;
+                        const describe = (filenames, verb) => {
+                            if (filenames.length === 0) return null;
+                            return filenames.length === 1
+                                ? `${filenames[0]} has been ${verb}`
+                                : `${filenames.length} files ${verb}: ${filenames.join(', ')}`;
+                        };
+
+                        const notes = [describe(uploaded, 'uploaded'), describe(replaced, 'replaced')]
+                            .filter(Boolean)
+                            .join('. ');
 
                         const workLogPayload = {
                             created_at: new Date().toISOString(),
@@ -337,9 +459,11 @@ const AdminUpload = ({ onClose }) => {
             // Show results
             const successCount = results.filter(r => r.success).length;
             const failCount = results.filter(r => !r.success).length;
+            const replacedCount = results.filter(r => r.success && r.replaced).length;
 
             if (failCount === 0) {
-                toast.success(`Successfully uploaded ${successCount} file(s)!`);
+                const replacedNote = replacedCount > 0 ? ` (${replacedCount} replaced)` : '';
+                toast.success(`Successfully uploaded ${successCount} file(s)${replacedNote}!`);
             } else {
                 toast.error(`Uploaded ${successCount} file(s). Failed: ${failCount}\n\nFailed files:\n${results.filter(r => !r.success).map(r => `- ${r.filename}: ${r.error}`).join('\n')}`);
             }
@@ -468,8 +592,14 @@ const AdminUpload = ({ onClose }) => {
                     {/* Files List */}
                     {files.length > 0 && (
                         <div className="mb-5 space-y-3">
-                            <h3 className="text-[var(--dtg-text-primary)] text-sm font-semibold mb-2">
+                            <h3 className="text-[var(--dtg-text-primary)] text-sm font-semibold mb-2 flex items-center gap-2">
                                 Files to Upload ({files.length})
+                                {checkingExisting && (
+                                    <span className="text-[var(--dtg-gray-500)] text-xs font-normal flex items-center gap-1">
+                                        <Loader size={12} className="animate-spin" />
+                                        Checking for existing images...
+                                    </span>
+                                )}
                             </h3>
                             {files.map((fileItem, index) => (
                                 <div key={index} className="bg-[var(--dtg-bg-secondary)] border border-[var(--dtg-border-medium)] rounded-lg p-4">
@@ -486,6 +616,7 @@ const AdminUpload = ({ onClose }) => {
                                                 </p>
                                                 <p className="text-[var(--dtg-gray-500)] text-xs">
                                                     {fileItem.metadata.size} • {fileItem.recordType === 'reports' ? 'Report' : 'Image'} • {fileItem.bucket}
+                                                    {fileItem.replaceExisting && <span className="text-amber-500"> • Replacing</span>}
                                                 </p>
                                             </div>
                                         </div>
@@ -559,6 +690,30 @@ const AdminUpload = ({ onClose }) => {
                                     {/* Metadata fields for images */}
                                     {fileItem.recordType === 'client_images' && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {existingImages[storagePathFor(fileItem.file.name)] && (
+                                                <div className="md:col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-md p-3">
+                                                    <div className="flex gap-2 items-start text-amber-500">
+                                                        <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                                                        <div className="flex-1">
+                                                            <p className="m-0 text-xs">
+                                                                This image already exists for the selected client
+                                                                {existingImages[storagePathFor(fileItem.file.name)].uploaded_at &&
+                                                                    ` (uploaded ${new Date(existingImages[storagePathFor(fileItem.file.name)].uploaded_at).toLocaleDateString('en-CA')})`}.
+                                                            </p>
+                                                            <label className="flex items-center gap-2 mt-2 cursor-pointer text-xs text-[var(--dtg-text-primary)]">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={Boolean(fileItem.replaceExisting)}
+                                                                    onChange={() => toggleReplaceExisting(index)}
+                                                                    className="cursor-pointer accent-amber-500"
+                                                                />
+                                                                <RefreshCw size={12} />
+                                                                Replace existing image
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div>
                                                 <label className="text-[var(--dtg-gray-400)] block mb-1 text-xs">Type</label>
                                                 <select
