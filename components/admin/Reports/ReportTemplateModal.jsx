@@ -7,7 +7,8 @@ import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
 import { RadarTemplate } from '@/components/admin/Reports/RadarReportTemplates';
 import { ComprehensiveRadarTemplate, resolveAppendixImages, comprehensiveTitle } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
 import { buildAppendixItems } from '@/utils/reportDqp';
-import { daysForFrequency } from '@/utils/reportAvailability';
+import { daysForFrequency, windowForFrequency } from '@/utils/reportAvailability';
+import { fromUTC, formatFromUTC } from '@/utils/timezoneUtils';
 import { useComprehensiveReportData } from '@/components/admin/Reports/useComprehensiveReportData';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
@@ -46,6 +47,47 @@ const clampCustomDays = (value) => {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return 2;
   return Math.min(MAX_CUSTOM_DAYS, Math.max(MIN_CUSTOM_DAYS, n));
+};
+
+/**
+ * Today on the SITE's calendar, as 'YYYY-MM-DD'.
+ *
+ * The End Date is a SITE day, not a viewer day: windowForFrequency decides
+ * whether the chosen period is still OPEN (window = now − N×24 h → now) or a
+ * CLOSED historical one (window ends at that day's 05:00 site-local boundary) by
+ * comparing End Date against today in the site's timezone.
+ *
+ * Defaulting the field off the BROWSER clock made the two disagree whenever the
+ * site was ahead of the viewer. A Jakarta analyst at 23:10 was offered
+ * '2026-08-02' for a radar whose site had already rolled over to '2026-08-03',
+ * so the window was read as a closed day and ended at 05:00 the previous
+ * morning — the report silently lost the ~19 h of records nearest to now, and
+ * bumping End Date to "tomorrow" only appeared to fix it because that landed
+ * back on the site's today.
+ *
+ * No timezone (the manual InSAR flow, which has no sensor) keeps the viewer's
+ * date, as before — its queries are plain date ranges with no 05:00 boundary.
+ */
+const siteToday = (timeZone) => {
+  const browserToday = new Date().toLocaleDateString('en-CA');
+  if (!timeZone) return browserToday;
+  try {
+    return (fromUTC(new Date().toISOString(), timeZone) || '').slice(0, 10) || browserToday;
+  } catch {
+    return browserToday;
+  }
+};
+
+/**
+ * Calendar arithmetic on a 'YYYY-MM-DD' string, done in UTC so the result never
+ * depends on the runtime timezone (a `new Date(...).setDate()` on a local-midnight
+ * date can land on the wrong day either side of a DST change).
+ */
+const shiftDay = (day, deltaDays) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
 };
 
 
@@ -138,16 +180,13 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         if (sensor) processRadarData();
     }, [radarData, sensor]);
 
-    // 1. Helper to get "YYYY-MM-DD" string for inputs
-    const formatDate = (dateObj) => dateObj.toLocaleDateString('en-CA');
+    // The calendar the report's dates live on: the SITE's, whenever we know it.
+    // Every window bound downstream is resolved against it (see siteToday).
+    const reportTimeZone = sensor?.timezone || null;
 
-    // 2. Calculate defaults
-    const today = new Date();
-
-    // Create a NEW date object for the start date so we don't modify 'today'
-    const startDateObj = new Date();
-    // Default is 'monthly', so we subtract 365 days (based on your logic)
-    startDateObj.setDate(today.getDate() - 183);
+    // 1. Defaults, on the site's calendar. Default is 'monthly', so the start
+    // date goes back 183 days (based on your logic).
+    const todayDay = siteToday(reportTimeZone);
 
     const [formData, setFormData] = useState({
         clientID: sensor?.site_id || '',
@@ -157,8 +196,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         // The custom span, in days — only read when frequency is 'custom'. Two is
         // the default because the two-day report is what the control was added for.
         customDays: 2,
-        startDate: formatDate(startDateObj), // "2024-12-26"
-        endDate: formatDate(today),          // "2025-12-26"
+        startDate: shiftDay(todayDay, -183), // "2024-12-26"
+        endDate: todayDay,                   // "2025-12-26"
     });
 
     const isRadar = formData.reportType === 'Radar';
@@ -177,6 +216,18 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
     /** How many days the chosen granularity covers. Names the report and its file. */
     const windowDays = daysForFrequency(resolvedFrequency);
+
+    /**
+     * The window the data layer will actually resolve, printed under the dates.
+     * The End Date alone does not say where the window ENDS — the site's today
+     * means "the latest N × 24 h, ending now", any earlier day means a closed
+     * period ending 05:00 that morning — so it is spelled out rather than left
+     * to be inferred from a report that came back short.
+     */
+    const previewWindow = isComprehensive && formData.frequency
+        ? windowForFrequency(resolvedFrequency, formData.endDate, reportTimeZone || 'UTC')
+        : null;
+    const formatWindowBound = (d) => formatFromUTC(d.toISOString(), reportTimeZone || 'UTC');
 
     // Comprehensive pulls its own data (KPIs, timelines, availability, alarms)
     // rather than reusing the dqpList the Data Quality template renders.
@@ -249,14 +300,15 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     }, [onClose]);
 
 
+    // Measured back from the SITE's today, so the Start Date it fills in names the
+    // same calendar the End Date and the report window are resolved on.
     const getStartDateForFreq = (freq, cat, customDays) => {
-        const d = new Date();
-        if (freq === 'daily') d.setDate(d.getDate() - 1);
-        else if (freq === 'weekly') d.setDate(d.getDate() - 7);
-        else if (freq === 'monthly' && cat === 'Water Body') d.setDate(d.getDate() - 183);
-        else if (freq === 'monthly') d.setDate(d.getDate() - 30)
-        else if (freq === CUSTOM_FREQUENCY) d.setDate(d.getDate() - clampCustomDays(customDays));
-        return d.toLocaleDateString('en-CA');
+        const end = siteToday(reportTimeZone);
+        if (freq === 'daily') return shiftDay(end, -1);
+        if (freq === 'weekly') return shiftDay(end, -7);
+        if (freq === 'monthly') return shiftDay(end, cat === 'Water Body' ? -183 : -30);
+        if (freq === CUSTOM_FREQUENCY) return shiftDay(end, -clampCustomDays(customDays));
+        return end;
     };
 
     /**
@@ -833,12 +885,21 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
+                                <div><label htmlFor="reportStartDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Start Date</label><input id="reportStartDate" type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
+                                <div><label htmlFor="reportEndDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">End Date</label><input id="reportEndDate" type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
                             </div>
                             {/* Says WHY the button is dead — a disabled control with no
                                 reason reads as a broken one. */}
                             {invalidDateRange && <p className="text-sm text-red-600">Start Date must be on or before End Date.</p>}
+                            {previewWindow && (
+                                <p className="text-sm text-[var(--dtg-gray-500)]">
+                                    Covers <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowStart)}</span>
+                                    {' → '}
+                                    <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowEnd)}</span>
+                                    {reportTimeZone ? ` (${reportTimeZone})` : ' (UTC)'}
+                                    {formData.endDate >= todayDay ? ` — the latest ${windowDays * 24} h.` : ' — a closed period.'}
+                                </p>
+                            )}
                             {message && <div className={`p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'}`}>{message}</div>}
                             <div className="flex gap-3 pt-4"><button onClick={onClose} className="flex-1 px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] rounded-lg">Cancel</button><button onClick={handleGenerateReport} disabled={loading || !formData.startDate || invalidDateRange} className="flex-1 px-4 py-2 bg-[var(--dtg-primary-teal-dark)] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">{loading ? 'Loading...' : 'Preview Report'}</button> </div>
                         </div>

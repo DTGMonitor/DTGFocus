@@ -21,6 +21,8 @@ import TarpTab from "./Tabs/TarpTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
+import { canBeNotApplicable } from "@/config/parameterConfig";
+import { resolutionUpdates } from "@/utils/dqpImprovements";
 import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
@@ -39,13 +41,11 @@ import { openOutlookDraft } from "@/utils/openOutlookDraft";
 const CLEARED_DQP_IMAGES = { image: null, caption: null, image_ids: [], image_captions: [] };
 
 const validateCompleteness = (dataList) => {
-    // 1. Define the ID for Alarms (from your CSV, Alarms is ID 6)
-    const ALARMS_PARENT_ID = 6;
-
+    // 1. Rows that may legitimately be left blank — the Alarms group, and the
+    //    Reutech Masks row, which its sheet scores at 100% when no mask is needed.
     // 2. Filter for invalid items
     const missingItems = dataList.filter(item => {
-        const parentId = item.parameter?.parent_id;
-        if (parentId !== ALARMS_PARENT_ID && item.value === 'N/A') {
+        if (!canBeNotApplicable(item.parameter) && item.value === 'N/A') {
             return true;
         }
         return false;
@@ -132,6 +132,10 @@ const SensorDetail = ({
     // DQP
     const [isDQPModalOpen, setIsDQPModalOpen] = useState(false);
     const [pendingUpdate, setPendingUpdate] = useState(null);
+    // Editing a row's text and figures, which is a separate gesture from
+    // moving its status — see handleEditSubmit.
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingItem, setEditingItem] = useState(null);
     const [sharedRegions, setSharedRegions] = useState([]);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [feedbackModalData, setFeedbackModalData] = useState([]);
@@ -850,40 +854,67 @@ const SensorDetail = ({
         }
     };
 
+    /**
+     * Stamp the recommendations the analyst answered, and log the work.
+     *
+     * The one writer behind all three surfaces that can close an
+     * alarm_improvement — the "→ Optimal" gate, a status change to another
+     * non-optimal value, and Edit entry — so what a resolution means is decided
+     * once. Rows left open produce no update at all, which is what makes the two
+     * partial surfaces safe to submit without touching the section.
+     *
+     * Throws on a failed write. Each caller decides what that costs: the Optimal
+     * gate halts (the row must not read Optimal on the strength of an update that
+     * did not land), while the partial paths report it on its own — their DQP
+     * write has already succeeded and is not wrong just because a stamp missed.
+     *
+     * @returns {Promise<number>} how many recommendations were closed.
+     */
+    const applyImprovementResolutions = useCallback(async (resolutions) => {
+        const updates = resolutionUpdates(resolutions, new Date().toISOString());
+        if (!updates.length) return 0;
+
+        const results = await Promise.all(
+            updates.map(({ id, patch }) => supabase.from('alarm_improvement').update(patch).eq('id', id))
+        );
+
+        const failures = results.filter(result => result.error);
+        if (failures.length > 0) {
+            console.error("Supabase Update Errors:", failures.map(f => f.error));
+            throw new Error(`Failed to update ${failures.length} of ${updates.length} recommendations.`);
+        }
+
+        // Best-effort: the recommendations are already closed, and a missing log
+        // line is not worth reporting that they are not.
+        try {
+            const { error: logError } = await supabase.from('work_log').insert([{
+                created_at: new Date().toISOString(),
+                subject: 1,
+                wallfolder: sensor.wallfolder_id,
+                location: sensor.area,
+                category: 'dqp',
+                action: 'No action required',
+                notes: `${updates.length} alarm improvement record${updates.length > 1 ? 's have' : ' has'} been updated`,
+                submitted_by: userID
+            }]);
+            if (logError) console.error("Work Log Insert Failed:", logError);
+        } catch (logErr) {
+            console.warn("Failed to create work log, but alarms were saved.", logErr);
+        }
+
+        return updates.length;
+    }, [sensor.wallfolder_id, sensor.area, userID]);
+
     const handleFeedbackSubmit = async (itemData) => {
-        const itemIds = Object.keys(itemData);
-
-        // 1. Process the individual ticket updates
-        if (itemIds.length > 0) {
-            try {
-                // Create an array of update promises so they run concurrently
-                const updatePromises = itemIds.map(id => {
-                    const { status, site_engineer } = itemData[id];
-                    return supabase // Using your browser client here
-                        .from('alarm_improvement')
-                        .update({
-                            improvement_status: status,
-                            site_action: new Date().toISOString(),
-                            site_engineer: status === 'Modified' ? site_engineer : ""
-                        })
-                        .eq('id', id);
-                });
-
-                // Wait for all updates to finish
-                const results = await Promise.all(updatePromises);
-
-                // Check if any of the individual updates threw an error
-                const failures = results.filter(result => result.error);
-                if (failures.length > 0) {
-                    console.error("Supabase Update Errors:", failures.map(f => f.error));
-                    throw new Error(`Failed to update ${failures.length} tickets. Check console for details.`);
-                }
-
-            } catch (error) {
-                console.error("Failed to update feedback items:", error);
-                toast.error("Failed to update feedback tickets. Update paused.");
-                return; // Halt the DQP update if the database update fails
-            }
+        // 1. Close every recommendation. A failure here halts the DQP update:
+        // Optimal is a claim that nothing is outstanding, and it may not be made
+        // on the strength of a write that did not land.
+        try {
+            await applyImprovementResolutions(itemData);
+        } catch (error) {
+            console.error("Failed to update feedback items:", error);
+            toast.error("Failed to update feedback tickets. Update paused.");
+            return;
         }
 
         // 2. Resume the original DQP update to 'Optimal'
@@ -893,29 +924,6 @@ const SensorDetail = ({
             const newNumeric = calculateNumericScore(newValue, weight);
 
             await executeDirectUpdate(item, 'value', newValue, newNumeric);
-        }
-
-        // --- D. INSERT WORK LOG (New) ---
-        try {
-
-            // 2. Prepare Log Payload
-            const workLogPayload = {
-                created_at: new Date().toISOString(),
-                subject: 1, // Fixed ID as requested
-                wallfolder: sensor.wallfolder_id,
-                location: sensor.area,
-                category: `dqp`,
-                action: `No action required`, // Added 'Batch Insert' as the action name
-                notes: `Alarm improvement record have been updated`,
-                submitted_by: userID
-            };
-
-            // 3. Insert Log (Non-blocking: if log fails, we still consider the import a success)
-            const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
-            if (logError) console.error("Work Log Insert Failed:", logError);
-
-        } catch (logErr) {
-            console.warn("Failed to create work log, but alarms were saved.", logErr);
         }
 
         // 3. Clean up the state
@@ -1153,6 +1161,134 @@ const SensorDetail = ({
     }, []);
 
     // 3. Modal Submission Handler (The complex one)
+    /**
+     * Put files in Storage, register them in client_images, and hand back the
+     * {id, caption} pairs a dqp_values row stores.
+     *
+     * A file that fails to upload is skipped rather than aborting the batch —
+     * losing one figure must not lose the notes it was attached to. Callers get
+     * fewer pairs back than they passed in, which is the signal to check.
+     */
+    const uploadDqpFigures = useCallback(async (entries, item) => {
+        const list = Array.isArray(entries) ? entries : [];
+        if (!list.length) return [];
+
+        const clientId = sensor.site_id || userSite?.site?.id;
+        const uploaded = [];
+
+        for (const entry of list) {
+            // Callers hand over { file, caption }; a bare File is tolerated.
+            const file = entry?.file ?? entry;
+            if (!file) continue;
+            const caption = entry?.caption ?? '';
+            const fileName = `${clientId}/${new Date().toISOString().split('T')[0]}_${file.name}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('Radar')
+                .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+            if (uploadError) {
+                console.error("Upload failed:", uploadError);
+                continue;
+            }
+
+            const { data: imgData, error: dbError } = await supabase
+                .from('client_images')
+                .insert({
+                    client_id: clientId,
+                    image_url: fileName,
+                    type: 'radar',
+                    category: 'dqp',
+                    uploaded_at: new Date().toISOString(),
+                    uploadedby: userName,
+                    size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+                    date: new Date().toISOString().split('T')[0],
+                    subcategory: item?.parameter?.name || null,
+                })
+                .select('id')
+                .single();
+
+            if (!dbError && imgData) {
+                uploaded.push({ id: imgData.id, caption });
+            } else if (dbError) {
+                console.error("client_images insert failed:", dbError);
+            }
+        }
+
+        return uploaded;
+    }, [sensor.site_id, userSite?.site?.id, userName]);
+
+    /**
+     * Save an edit of what a row *says*, leaving what it *scores* alone.
+     *
+     * Deliberately not routed through handleModalSubmit: that path RAISES an
+     * alarm_improvement row per selected region, logs work and opens an email
+     * draft, all of which are correct for a status change and wrong for fixing
+     * a caption. Nothing here touches `value` or `value_numeric`, so the
+     * rollup trigger has nothing to recalculate.
+     *
+     * It may, however, CLOSE recommendations already raised — the opposite
+     * operation, and one that has nothing to do with the row's score. Those are
+     * written after the row's own update and reported separately: a stamp that
+     * failed to land does not make the caption fix wrong, and rolling the row
+     * back over it would lose an edit that succeeded.
+     */
+    const handleEditSubmit = useCallback(async ({ notes, appendix, figures, improvementResolutions }, item) => {
+        const oldList = [...dqpList];
+
+        try {
+            // Replacements upload first: a failed upload must leave the row
+            // pointing at the figure it already had, not at nothing.
+            const replacing = figures.filter((f) => f.replacement);
+            const uploaded = await uploadDqpFigures(
+                replacing.map((f) => ({ file: f.replacement, caption: f.caption })),
+                item
+            );
+            if (uploaded.length !== replacing.length) {
+                throw new Error('One of the replacement images could not be uploaded.');
+            }
+
+            const newIdByOldId = new Map(replacing.map((f, i) => [f.id, uploaded[i].id]));
+            const finalImages = figures.map((f) => ({
+                id: newIdByOldId.get(f.id) ?? f.id,
+                caption: f.caption ?? '',
+            }));
+
+            const payload = {
+                notes,
+                appendix,
+                ...buildDqpImagePayload(finalImages),
+            };
+
+            const { error } = await supabase
+                .from('dqp_values')
+                .update(payload)
+                .eq('dqp_record_id', sensor.dqp_record_id)
+                .eq('parameter_id', item.parameter_id);
+            if (error) throw error;
+
+            setIsEditModalOpen(false);
+            setEditingItem(null);
+            await fetchDataQuality();
+
+            let closed = 0;
+            try {
+                closed = await applyImprovementResolutions(improvementResolutions);
+            } catch (err) {
+                console.error('Improvement resolution failed', err);
+                toast.error('Entry updated, but the recommendations could not be closed.');
+                return;
+            }
+            toast.success(closed > 0
+                ? `Entry updated. ${closed} recommendation${closed > 1 ? 's' : ''} closed.`
+                : 'Entry updated.');
+        } catch (error) {
+            console.error('DQP edit failed', error);
+            setDqpList(oldList);
+            toast.error(error?.message || 'Could not save the changes.');
+        }
+    }, [dqpList, sensor.dqp_record_id, uploadDqpFigures, fetchDataQuality, applyImprovementResolutions]);
+
     const handleModalSubmit = async (formData, item, targetStatus) => {
         setIsDQPModalOpen(false); // Close immediately
         const oldList = [...dqpList];
@@ -1224,51 +1360,7 @@ const SensorDetail = ({
             // `uploadedImageId`, so a multi-file upload stored a client_images
             // row per file but pointed dqp_values at only the last one — the
             // rest stayed in Storage with nothing referencing them.
-            const uploadedImages = [];
-            if (formData.files && formData.files.length > 0) {
-                const clientId = sensor.site_id || userSite?.site?.id;
-                const bucket = 'Radar';
-
-                for (const entry of formData.files) {
-                    // The modal now hands over { file, caption }; tolerate a bare
-                    // File so any other caller keeps working.
-                    const file = entry?.file ?? entry;
-                    const caption = entry?.caption ?? '';
-                    const fileName = `${clientId}/${new Date().toISOString().split('T')[0]}_${file.name}`;
-
-                    const { error: uploadError } = await supabase.storage
-                        .from(bucket)
-                        .upload(fileName, file, {
-                            cacheControl: '3600',
-                            upsert: false
-                        });
-
-                    if (uploadError) {
-                        console.error("Upload failed:", uploadError);
-                        continue;
-                    }
-
-                    const { data: imgData, error: dbError } = await supabase
-                        .from('client_images')
-                        .insert({
-                            client_id: clientId,
-                            image_url: fileName,
-                            type: 'radar',
-                            category: 'dqp',
-                            uploaded_at: new Date().toISOString(),
-                            uploadedby: userName,
-                            size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
-                            date: new Date().toISOString().split('T')[0],
-                            subcategory: item.parameter?.name || null,
-                        })
-                        .select('id')
-                        .single();
-
-                    if (!dbError && imgData) {
-                        uploadedImages.push({ id: imgData.id, caption });
-                    }
-                }
-            }
+            const uploadedImages = await uploadDqpFigures(formData.files, item);
 
             // 3. FINAL STEP: Update the DQP table with Status AND Score
             // We reuse the same supabase helper to ensure consistency
@@ -1316,7 +1408,27 @@ const SensorDetail = ({
             const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
             if (logError) console.error("Work Log Insert Failed:", logError);
 
-            toast.success("Success! Improvement record saved and DQP updated.");
+            // Recommendations the analyst answered on the way past. Raised last
+            // and reported on their own: the new improvement and the DQP row are
+            // already written, and a failed stamp is not a reason to roll back a
+            // status change that landed. Nothing is answered unless the analyst
+            // said so, so this is usually a no-op.
+            let closed = 0;
+            let closeError = null;
+            try {
+                closed = await applyImprovementResolutions(formData.improvementResolutions);
+            } catch (err) {
+                console.error('Improvement resolution failed', err);
+                closeError = err;
+            }
+
+            if (closeError) {
+                toast.error("DQP updated, but the open recommendations could not be closed.");
+            } else {
+                toast.success(closed > 0
+                    ? `Success! Improvement record saved, ${closed} closed, and DQP updated.`
+                    : "Success! Improvement record saved and DQP updated.");
+            }
             openOutlookDraft(dqpEmailSubject, dqpEmailBody, siteName, "DTG Engineers");
 
         } catch (error) {
@@ -1810,6 +1922,17 @@ const SensorDetail = ({
                                         onFeedbackCancel={handleFeedbackCancel}
                                         sensor={sensor}
                                         dqpModalDefaultSubject={dqpModalDefaultSubject}
+                                        onEdit={(item) => {
+                                            setEditingItem(item);
+                                            setIsEditModalOpen(true);
+                                        }}
+                                        isEditModalOpen={isEditModalOpen}
+                                        editingItem={editingItem}
+                                        onEditModalClose={() => {
+                                            setIsEditModalOpen(false);
+                                            setEditingItem(null);
+                                        }}
+                                        onEditSubmit={handleEditSubmit}
                                     />
                                 )}
 

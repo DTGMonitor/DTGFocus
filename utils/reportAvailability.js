@@ -254,6 +254,13 @@ export function daysForFrequency(frequency) {
  * `reportDay` is the report's calendar day as 'YYYY-MM-DD' (the form's End Date);
  * `now` is the moment the report is generated (injected for testing).
  *
+ * `reportDay` must be a day on the SITE's calendar — it is compared against today
+ * in `timeZone` to decide open vs closed. A caller that fills it from the VIEWER's
+ * clock hands over the wrong day whenever the site has already rolled over (a
+ * Jakarta browser at 23:10 offering '2026-08-02' for a Perth site on '2026-08-03'),
+ * and the open period silently becomes a closed one ending ~19 h in the past.
+ * ReportTemplateModal's siteToday() is what keeps the two on the same calendar.
+ *
  * The END, and therefore the START:
  *   - report day is TODAY or in the future → the period is still open, so the
  *     window ends at `now` and starts at the same wall-clock time N days earlier.

@@ -33,6 +33,13 @@ const PARAMS = [
   { id: 26, parent_id: 7, level: 2, weight: 0.02 },
   { id: 27, parent_id: 8, level: 2, weight: 0.02 },
   { id: 28, parent_id: 8, level: 2, weight: 0.02 },
+  // The Reutech-only rows, added after this fixture was first written.
+  { id: 31, parent_id: 2, level: 2, weight: 0.05 },
+  { id: 32, parent_id: 3, level: 2, weight: 0.13 },
+  { id: 33, parent_id: 3, level: 2, weight: 0.04 },
+  { id: 34, parent_id: 4, level: 2, weight: 0.04 },
+  { id: 35, parent_id: 7, level: 2, weight: 0.11 },
+  { id: 36, parent_id: 5, level: 2, weight: 0.04 },
 ];
 
 test('classifies real radar numbers', () => {
@@ -50,15 +57,17 @@ const idsFor = (radar) => buildInitialDqpValues(radar, PARAMS, 1).map((v) => v.p
 const numeric = (radar, id) =>
   buildInitialDqpValues(radar, PARAMS, 1).find((v) => v.parameter_id === id)?.value_numeric;
 
-test('FX keeps all 28 and Overall sums to 1.0', () => {
-  expect(idsFor('SSR844FX')).toHaveLength(28);
+test('FX keeps the 28 SSR rows, drops the Reutech ones, and Overall sums to 1.0', () => {
+  const ids = idsFor('SSR844FX');
+  expect(ids).toHaveLength(28);
+  for (const reutechOnly of [31, 32, 33, 34, 35, 36]) expect(ids).not.toContain(reutechOnly);
   expect(numeric('SSR844FX', 1)).toBeCloseTo(1.0, 6);
   expect(numeric('SSR844FX', 2)).toBeCloseTo(0.33, 6); // System Health
   expect(numeric('SSR844FX', 3)).toBeCloseTo(0.31, 6); // Scan Area
   expect(numeric('SSR844FX', 7)).toBeCloseTo(0.11, 6); // Atmospheric Correction
 });
 
-test('Omni falls back to the full set', () => {
+test('Omni falls back to the full SSR set', () => {
   expect(idsFor('SSR530Omni')).toHaveLength(28);
   expect(numeric('SSR530Omni', 1)).toBeCloseTo(1.0, 6);
 });
@@ -79,16 +88,21 @@ test('PS drops Photograph, Masks and the whole Atmospheric group', () => {
   expect(numeric('PS2000', 3)).toBeCloseTo(0.18, 6); // 0.06 + 0.08 + 0.04
 });
 
-test('MSR keeps partial groups 7 and 8', () => {
+test('MSR keeps the Reutech rows and drops the SSR-only ones', () => {
   const ids = idsFor('MSR254');
-  expect(ids).toHaveLength(15);
-  for (const d of [4, 5, 10, 15, 16, 17, 18, 19, 22, 23, 24, 26, 27]) expect(ids).not.toContain(d);
-  expect(ids).toContain(7);
-  expect(ids).toContain(25);
-  expect(ids).toContain(8);
-  expect(ids).toContain(28);
-  expect(numeric('MSR254', 7)).toBeCloseTo(0.02, 6); // only Refractivity survives
-  expect(numeric('MSR254', 8)).toBeCloseTo(0.02, 6); // only 3D-DTM survives
+  expect(ids).toHaveLength(20);
+  // Coherence, Manual/Alarm Masks and Refractivity have no Reutech counterpart.
+  for (const d of [10, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27]) expect(ids).not.toContain(d);
+  for (const kept of [31, 32, 33, 34, 35, 36]) expect(ids).toContain(kept);
+  // Groups 4 and 5 survive on one child each — CCTV Availability and Masks.
+  expect(ids).toContain(4);
+  expect(ids).toContain(5);
+  expect(numeric('MSR254', 4)).toBeCloseTo(0.04, 6); // CCTV Availability only
+  expect(numeric('MSR254', 5)).toBeCloseTo(0.04, 6); // Masks only
+  expect(numeric('MSR254', 7)).toBeCloseTo(0.11, 6); // Atmospheric Correction only
+  expect(numeric('MSR254', 8)).toBeCloseTo(0.02, 6); // 3D-DTM only
+  // Matches the Reutech sheet, whose own weights add up to 92%.
+  expect(numeric('MSR254', 1)).toBeCloseTo(0.92, 6);
 });
 
 test('no parent is left with children that were all excluded', () => {

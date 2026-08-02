@@ -20,6 +20,7 @@
  */
 
 import { loadScript, applyHtml2CanvasBaselineFix } from '@/components/admin/Radar/report/pdfExport';
+import { getAllowedStatuses, canBeNotApplicable } from '@/config/parameterConfig';
 
 const HTML2CANVAS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
 
@@ -40,9 +41,6 @@ const BORDER_STRONG = '#d1d5db';
 const INK = '#111827';
 const INK_SOFT = '#4b5563';
 
-/** Alarm children are the only rows allowed to sit at N/A. */
-const ALARMS_PARENT_ID = 6;
-
 const statusStyle = (value) => STATUS_STYLE[value] || NEUTRAL;
 
 const esc = (v) =>
@@ -52,7 +50,7 @@ const esc = (v) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-const isRowInvalid = (item) => item.parameter?.parent_id !== ALARMS_PARENT_ID && item.value === 'N/A';
+const isRowInvalid = (item) => !canBeNotApplicable(item.parameter) && item.value === 'N/A';
 
 /** A 15px swatch: filled when selected, outlined when available, muted when the parameter cannot take that status. */
 function swatch(state, solid) {
@@ -101,7 +99,7 @@ function legendHtml() {
   );
 }
 
-function tableHtml(groups, parameterConfig) {
+function tableHtml(groups, radarNumber) {
   const th = `padding:8px 10px;font-size:11px;font-weight:700;color:${INK_SOFT};background:#f9fafb;`;
 
   let html =
@@ -141,7 +139,7 @@ function tableHtml(groups, parameterConfig) {
       const invalid = isRowInvalid(item);
       const rowBg = invalid ? '#fef2f2' : '#ffffff';
       const cell = `padding:8px 10px;font-size:12px;line-height:1.4;border-bottom:1px solid ${BORDER};background:${rowBg};`;
-      const allowed = parameterConfig?.[item.parameter?.name];
+      const allowed = getAllowedStatuses(item.parameter?.name, radarNumber);
 
       html +=
         `<tr>` +
@@ -149,7 +147,9 @@ function tableHtml(groups, parameterConfig) {
           `${esc(item.parameter?.name)}</td>`;
 
       STATUSES.forEach((s, i) => {
-        const isAllowed = allowed ? allowed.includes(s) : true;
+        // Matches DqpTable: a status the row already holds is drawn even when
+        // the config no longer offers it, so an exported card never loses a tick.
+        const isAllowed = allowed ? allowed.includes(s) || item.value === s : true;
         const state = !isAllowed ? 'na' : item.value === s ? 'on' : 'off';
         html +=
           `<td style="${cell}text-align:center;${i < 3 ? `border-right:1px solid ${BORDER};` : ''}">` +
@@ -176,12 +176,12 @@ function tableHtml(groups, parameterConfig) {
 }
 
 /** The complete card. Returned as a string so the caller mounts it in one write. */
-export function buildDqpCardHtml({ groups, title, subtitle, generatedAt, parameterConfig }) {
+export function buildDqpCardHtml({ groups, title, subtitle, generatedAt, radarNumber }) {
   return (
     `<div style="width:${CARD_W}px;box-sizing:border-box;padding:28px 32px;background:#ffffff;` +
     `font-family:${FONT};color:${INK}">` +
       headerHtml(title, subtitle, generatedAt) +
-      tableHtml(groups, parameterConfig) +
+      tableHtml(groups, radarNumber) +
       legendHtml() +
     `</div>`
   );
@@ -211,10 +211,10 @@ const slug = (v) =>
  * @param {Array}  groups           Grouped rows, as built by QualityTable.
  * @param {string} title            Card heading.
  * @param {string} subtitle         Sub-heading (radar / site).
- * @param {object} parameterConfig  PARAMETER_CONFIG — which statuses each row can take.
+ * @param {string} radarNumber      Decides which statuses each row can take.
  * @param {string} [filename]       Overrides the derived filename.
  */
-export async function exportDqpTableImage({ groups, title, subtitle, parameterConfig, filename }) {
+export async function exportDqpTableImage({ groups, title, subtitle, radarNumber, filename }) {
   if (!groups || groups.length === 0) throw new Error('There is no data quality data to export.');
 
   const now = new Date();
@@ -227,7 +227,7 @@ export async function exportDqpTableImage({ groups, title, subtitle, parameterCo
   Object.assign(host.style, {
     position: 'fixed', left: '-100000px', top: '0', zIndex: '-1', background: '#ffffff',
   });
-  host.innerHTML = buildDqpCardHtml({ groups, title, subtitle, generatedAt, parameterConfig });
+  host.innerHTML = buildDqpCardHtml({ groups, title, subtitle, generatedAt, radarNumber });
   document.body.appendChild(host);
 
   const undoBaselineFix = applyHtml2CanvasBaselineFix();

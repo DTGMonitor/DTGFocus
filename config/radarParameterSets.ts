@@ -32,15 +32,22 @@ export interface DqpValueRow {
 /**
  * Parameters that do not apply to each radar family. A group is only listed
  * when every one of its children is listed too (e.g. XT drops "Visual Data"
- * (8) along with its children 27 and 28).
+ * (8) along with its children 27 and 28) - and never when a child survives,
+ * which is why MSR keeps groups 4 and 5 for CCTV Availability (34) and the
+ * Reutech Masks row (36).
+ *
+ * 31-36 are the Reutech-only rows and belong to no SSR product; 14 (Coherence),
+ * 21 (Manual/Alarm Masks) and 25 (Refractivity) have no counterpart on a
+ * Reutech, which scores Confidence (32), its own Masks row (36), and folds
+ * refractivity into Atmospheric Correction (35).
  */
 const EXCLUDED_PARAMETER_IDS: Record<RadarFamily, readonly number[]> = {
-  // SSR...FX and anything unrecognised (e.g. SSR530Omni) get the full set.
-  FX: [],
-  ALL: [],
-  XT: [8, 15, 27, 28],
-  PS: [4, 5, 7, 10, 14, 16, 17, 18, 19, 22, 23, 24, 25, 26],
-  MSR: [4, 5, 10, 15, 16, 17, 18, 19, 22, 23, 24, 26, 27],
+  // SSR...FX and anything unrecognised (e.g. SSR530Omni) get the full SSR set.
+  FX: [31, 32, 33, 34, 35, 36],
+  ALL: [31, 32, 33, 34, 35, 36],
+  XT: [8, 15, 27, 28, 31, 32, 33, 34, 35, 36],
+  PS: [4, 5, 7, 10, 14, 16, 17, 18, 19, 22, 23, 24, 25, 26, 31, 32, 33, 34, 35, 36],
+  MSR: [10, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27],
 };
 
 /**

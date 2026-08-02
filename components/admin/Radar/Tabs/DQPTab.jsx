@@ -1,6 +1,7 @@
 import { QualityTable } from '@/components/admin/Radar/Dqp/DqpTable';
 import { ActionRequiredModal } from '@/components/admin/Radar/Dqp/ActionRequiredModal';
 import FeedbackModal from '@/components/admin/Radar/Dqp/FeedbackModal';
+import EditDqpEntryModal from '@/components/admin/Radar/Dqp/EditDqpEntryModal';
 
 /**
  * DQPTab
@@ -21,6 +22,11 @@ import FeedbackModal from '@/components/admin/Radar/Dqp/FeedbackModal';
  *   feedbackModalData  {Array}
  *   onFeedbackSubmit   {function}
  *   onFeedbackCancel   {function}
+ *   onEdit             {function}  - open the edit modal for a row
+ *   isEditModalOpen    {boolean}
+ *   editingItem        {object|null}
+ *   onEditModalClose   {function}
+ *   onEditSubmit       {function}  - handleEditSubmit from SensorDetail
  *   sensor             {object}
  *
  * Requirements: 8.1, 8.2, 8.3
@@ -38,6 +44,11 @@ export default function DQPTab({
   onFeedbackSubmit,
   onFeedbackCancel,
   dqpModalDefaultSubject,
+  onEdit,
+  isEditModalOpen,
+  editingItem,
+  onEditModalClose,
+  onEditSubmit,
   sensor,
 }) {
   const exportSubtitle = [sensor?.radar_number, sensor?.site_name].filter(Boolean).join(' — ');
@@ -51,8 +62,10 @@ export default function DQPTab({
       <QualityTable
         data={dqpList}
         onUpdate={onUpdate}
+        onEdit={onEdit}
         exportTitle="Data Quality"
         exportSubtitle={exportSubtitle}
+        radarNumber={sensor?.radar_number}
       />
 
       <ActionRequiredModal
@@ -63,6 +76,17 @@ export default function DQPTab({
         targetStatus={pendingUpdate?.newValue}
         alarmRegions={sharedRegions}
         defaultSubject={dqpModalDefaultSubject}
+      />
+
+      {/* `regions` scopes the open-recommendation list the edit modal shows for
+          an alarm row — alarm_improvement reaches a wall folder only through
+          alarm_record → alarm_region. */}
+      <EditDqpEntryModal
+        isOpen={isEditModalOpen}
+        onClose={onEditModalClose}
+        onSubmit={onEditSubmit}
+        item={editingItem}
+        regions={sharedRegions}
       />
 
       <FeedbackModal

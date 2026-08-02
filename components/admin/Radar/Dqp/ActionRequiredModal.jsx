@@ -9,6 +9,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { getSubjectOptions } from "@/config/formConfig";
 import { Upload, Loader, AlertCircle, X, FileText, Image as ImageIcon } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import ImprovementResolution from "@/components/admin/Radar/Dqp/ImprovementResolution";
+import { useOpenImprovements } from "@/components/admin/Radar/Dqp/useOpenImprovements";
+import { isResolved } from "@/utils/dqpImprovements";
 
 /**
  * How far back an alarm has to have been raised for its region/cause to be
@@ -66,6 +69,27 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
      * responding to. The alarm gets logged in the Alarm tab first.
      */
     const alarmTargetsUnavailable = isAlarmItem && !alarmOptionsLoading && alarmOptions.length === 0;
+
+    /**
+     * Recommendations already awaiting feedback, answerable in the same submit.
+     *
+     * A status change to another non-optimal value is often exactly the moment
+     * one of them lands: the site actioned one of three raised alarms, so the
+     * radar moves Critical → Sub-Optimal but is not Optimal and the other two are
+     * still open. Before this, the only instrument that could close a
+     * recommendation was the "→ Optimal" gate, which closes ALL of them — so an
+     * analyst either overstated the radar or left the answered one hanging.
+     *
+     * Every row defaults to "leave open", so this raises a new improvement
+     * exactly as it always did unless the analyst says otherwise.
+     */
+    const {
+        improvements: openImprovements,
+        loading: openImprovementsLoading,
+        resolutions: improvementResolutions,
+        setResolution: setImprovementResolution,
+    } = useOpenImprovements(isOpen && isAlarmItem, alarmRegions);
+    const resolvingCount = Object.values(improvementResolutions).filter(isResolved).length;
 
     // Keep ref in sync for cleanup
     useEffect(() => {
@@ -387,6 +411,10 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                 alarmMask: sel.mask?.trim() || null,
             })),
             alarmMask: alarmMaskSummary || formData.alarmMask,
+            // Recommendations the analyst answered on the way past. Raising the
+            // new improvement and closing old ones are independent writes — see
+            // handleModalSubmit, which does not let one fail the other.
+            improvementResolutions,
             // `imagesManaged` tells the caller this submission describes the row's
             // complete figure list — kept plus new — rather than only additions.
             imagesManaged: true,
@@ -546,6 +574,23 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                                     </>
                                 )}
                             </div>
+
+                            {(openImprovementsLoading || openImprovements.length > 0) && (
+                                <div className="space-y-2 border-t border-[var(--dtg-border-medium)] pt-4">
+                                    <label>Close open recommendations (optional)</label>
+                                    <p className="text-xs text-[var(--dtg-gray-500)]">
+                                        Answer any the site has come back on. Anything left open stays awaiting
+                                        feedback — this does not have to be all of them.
+                                    </p>
+                                    <ImprovementResolution
+                                        improvements={openImprovements}
+                                        regions={alarmRegions}
+                                        value={improvementResolutions}
+                                        onChange={setImprovementResolution}
+                                        loading={openImprovementsLoading}
+                                    />
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -726,7 +771,7 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                         disabled={alarmTargetsUnavailable}
                         title={alarmTargetsUnavailable ? 'Record the alarm and its cause in the Alarm tab first' : undefined}
                     >
-                        Submit &amp; Update
+                        Submit &amp; Update{resolvingCount > 0 ? ` (closing ${resolvingCount})` : ''}
                     </Button>
                 </DialogFooter>
             </DialogContent>

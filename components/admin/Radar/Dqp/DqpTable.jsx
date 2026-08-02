@@ -2,15 +2,17 @@
 import { useMemo, Fragment, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getRiskColorSolid } from "@/config/statusConfig";
-import { PARAMETER_CONFIG } from "@/config/parameterConfig";
+import { getAllowedStatuses, canBeNotApplicable } from "@/config/parameterConfig";
 import { supabase } from "@/lib/supabaseClient";
-import { ExternalLink, X, Loader, ImageDown, FilePlus2 } from 'lucide-react';
+import { ExternalLink, X, Loader, ImageDown, FilePlus2, BookOpen, Pencil } from 'lucide-react';
 import { exportDqpTableImage } from "./dqpImageExport";
+import DqpGuidanceModal from "./DqpGuidanceModal";
 import toast from 'react-hot-toast';
 
 const isRowInvalid = (item) => {
-    // If it's NOT Alarms (ID 6) and value is N/A, mark it red
-    return item.parameter?.parent_id !== 6 && item.value === 'N/A';
+    // N/A is a real answer on the rows that may be left blank — the Alarms
+    // group and the Reutech Masks row. Anywhere else it means "not assessed".
+    return !canBeNotApplicable(item.parameter) && item.value === 'N/A';
 };
 
 /**
@@ -20,11 +22,12 @@ const isRowInvalid = (item) => {
  */
 const canAddAction = (item) => item.value !== 'Optimal' && item.value !== 'N/A';
 
-export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exportSubtitle = '' }) => {
+export const QualityTable = ({ data, onUpdate, onEdit, exportTitle = 'Data Quality', exportSubtitle = '', radarNumber = '' }) => {
     const [previewItem, setPreviewItem] = useState(null);
     const [previewImages, setPreviewImages] = useState([]);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [isGuidanceOpen, setIsGuidanceOpen] = useState(false);
 
     // A row carries N figures, each with its own caption. They are signed as a
     // batch so the preview opens in one round trip rather than one per figure.
@@ -109,7 +112,7 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                 groups: processedGroups,
                 title: exportTitle,
                 subtitle: exportSubtitle,
-                parameterConfig: PARAMETER_CONFIG,
+                radarNumber,
             });
             toast.success('Image downloaded');
         } catch (error) {
@@ -122,7 +125,15 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
 
     return (
         <>
-            <div className="flex justify-end mb-2">
+            <div className="flex justify-end gap-2 mb-2">
+                <button
+                    onClick={() => setIsGuidanceOpen(true)}
+                    title="What each status on these rows means, from the Data Quality Parameter document"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border border-[var(--dtg-border-medium)] text-[var(--dtg-text-secondary)] hover:text-[var(--dtg-text-primary)] hover:bg-[var(--dtg-bg-card)] transition-colors"
+                >
+                    <BookOpen size={14} />
+                    Guidance
+                </button>
                 <button
                     onClick={handleExportImage}
                     disabled={isExporting}
@@ -191,9 +202,15 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
 
                                         {/* INTERACTIVE CHECKBOXES */}
                                         {['Optimal', 'Acceptable', 'Sub-Optimal', 'Critical'].map((status) => {
-                                            // Config Check (Your existing config logic)
-                                            const allowedStatuses = PARAMETER_CONFIG[item.parameter?.name];
-                                            const isAllowed = allowedStatuses ? allowedStatuses.includes(status) : true;
+                                            // Config Check (Your existing config logic).
+                                            // A status the row already holds stays visible even when the
+                                            // config no longer offers it — several rows were scored while
+                                            // their name was missing from PARAMETER_CONFIG and every box
+                                            // was open, and hiding those ticks would read as "not assessed".
+                                            const allowedStatuses = getAllowedStatuses(item.parameter?.name, radarNumber);
+                                            const isAllowed = allowedStatuses
+                                                ? allowedStatuses.includes(status) || item.value === status
+                                                : true;
 
                                             return (
                                                 <td key={status} className="px-2 py-3 text-center border-l border-[var(--dtg-border-medium)] bg-opacity-50">
@@ -202,18 +219,15 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                                                             <Checkbox
                                                                 checked={item.value === status}
                                                                 onCheckedChange={(isChecked) => {
-                                                                    const ALARMS_PARENT_ID = 6;
-                                                                    const isAlarmChild = item.parameter?.parent_id === ALARMS_PARENT_ID;
-
-                                                                    if (isAlarmChild) {
-                                                                        // For alarm items, allow unchecking to set status to 'N/A'
+                                                                    if (canBeNotApplicable(item.parameter)) {
+                                                                        // These rows may be left blank; unticking records 'N/A'.
                                                                         if (isChecked) {
                                                                             onUpdate(item, 'value', status);
                                                                         } else {
                                                                             onUpdate(item, 'value', 'N/A');
                                                                         }
                                                                     } else {
-                                                                        // Original behavior for non-alarm items (prevents unchecking)
+                                                                        // Every other row must hold a status (prevents unchecking)
                                                                         onUpdate(item, 'value', status);
                                                                     }
                                                                 }}
@@ -243,6 +257,20 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                                                     alarm child that gesture means "clear to N/A" — so
                                                     logging a second improvement against an unchanged
                                                     status needs its own affordance. */}
+                                                {/* Correcting the wording or the figures, with the status
+                                                    left where it is — on an alarm row this is the only way
+                                                    to do that without filing a second improvement, and the
+                                                    only way to close a recommendation the site answered
+                                                    without declaring the whole row Optimal. */}
+                                                {onEdit && (
+                                                    <button
+                                                        onClick={() => onEdit(item)}
+                                                        className="flex-shrink-0 text-[var(--dtg-gray-400)] hover:text-[var(--dtg-text-primary)] transition-colors"
+                                                        title="Edit the notes, captions and appendix, and close any answered recommendations (no status change, no new improvement)"
+                                                    >
+                                                        <Pencil size={14} />
+                                                    </button>
+                                                )}
                                                 {canAddAction(item) && (
                                                     <button
                                                         onClick={() => onUpdate(item, 'value', item.value)}
@@ -277,6 +305,12 @@ export const QualityTable = ({ data, onUpdate, exportTitle = 'Data Quality', exp
                 </tbody>
             </table>
         </div>
+        <DqpGuidanceModal
+                isOpen={isGuidanceOpen}
+                onClose={() => setIsGuidanceOpen(false)}
+                groups={processedGroups}
+                radarNumber={radarNumber}
+            />
         {previewItem && (
                 <div
                     className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
