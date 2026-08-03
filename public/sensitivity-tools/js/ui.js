@@ -157,7 +157,34 @@
     files.forEach(function (f) {
       var fr = new FileReader();
       fr.onload = function () {
-        var txt = fr.result;
+        /* Work from bytes. A JS string caps near 512 M characters and splitting
+           one into a line array costs several times the file again, so a large
+           DXF must never be decoded whole — it is walked straight off the buffer. */
+        var buf = fr.result;
+        var head = Parsers.decodeText(buf.slice(0, 8192));
+        var isDxf = Parsers.isBinaryDXF(buf) ||
+          /\.dxf$/i.test(f.name) ||
+          /^\s*0\s*[\r\n]+\s*SECTION/i.test(head);
+        if (isDxf) {
+          var brec = { name: f.name, text: '', type: 'dxf', dataset: null, note: '', size: f.size };
+          try {
+            brec.dataset = Parsers.parseDXFBuffer(buf, f.name);
+            brec.note = brec.dataset.note;
+          } catch (e) { brec.note = 'error: ' + e.message; }
+          S.files.push(brec);
+          if (--pending === 0) afterRead();
+          return;
+        }
+        /* every other reader needs text, which the engine cannot hold past ~512 MB */
+        if (buf.byteLength > 400 * 1024 * 1024) {
+          S.files.push({
+            name: f.name, text: '', type: 'toobig', dataset: null, size: f.size, tooBig: true,
+            note: (buf.byteLength / 1048576).toFixed(0) + ' MB — too large to read as text'
+          });
+          if (--pending === 0) afterRead();
+          return;
+        }
+        var txt = Parsers.decodeText(buf);
         var type = Parsers.sniff(txt, f.name);
         var rec = { name: f.name, text: txt, type: type, dataset: null, note: '', size: f.size };
         try {
@@ -173,13 +200,24 @@
         if (--pending === 0) afterRead();
       };
       fr.onerror = function () { if (--pending === 0) afterRead(); };
-      fr.readAsText(f);
+      fr.readAsArrayBuffer(f);
     });
     status('Reading ' + files.length + ' file(s)…');
   }
 
   function afterRead() {
     renderFileList();
+    var big = S.files.filter(function (f) { return f.tooBig; });
+    if (big.length) {
+      $('gridInfo').innerHTML = '<span class="w"><b>' + big[0].name + ' is ' +
+        (big[0].size / 1048576).toFixed(0) + ' MB.</b> Only DXF is read straight from the ' +
+        'file bytes; every other reader needs the file as text, and a browser cannot hold ' +
+        'a string beyond about 512 MB. Export a smaller area, decimate the surface, or ' +
+        'convert it to DXF.</span>';
+      status(big[0].name + ' is too large for a text reader — use DXF, or export a smaller area.');
+      badge('file too large', 'busy');
+      return;
+    }
     var pend = S.files.filter(function (f) { return f.pending; });
     if (pend.length) {
       showPreview(pend[0]);
@@ -196,7 +234,8 @@
       var d = document.createElement('div');
       d.className = 'fileItem';
       var tag = f.type === 'dxf' ? 'DXF' : f.type === 'esri' ? 'ASC' :
-        f.type === 'surpac-dtm' ? 'DTM' : f.type === 'demo' ? 'DEMO' : 'XYZ';
+        f.type === 'surpac-dtm' ? 'DTM' : f.type === 'demo' ? 'DEMO' :
+        f.type === 'toobig' ? '!' : 'XYZ';
       d.innerHTML = '<span class="tag">' + tag + '</span><span>' + f.name + '</span>' +
         '<span class="dim">' + (f.note || '') + '</span><span class="x" title="remove">✕</span>';
       d.querySelector('.x').onclick = function (e) {
