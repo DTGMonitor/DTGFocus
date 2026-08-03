@@ -167,13 +167,19 @@
           <label class="mode" title="Movement straight out of the face along the local surface normal — recomputed per cell. Suits bulging, buckling and rockfall off a steep wall. Sensitivity then equals the amplitude proxy."><input type="radio" name="smode" value="normal">
             <span class="sw" style="background:#ff9800"></span>
             <b>Normal</b><i>perpendicular to each surface</i></label>
-          <label class="mode" title="Your own trend and plunge, applied globally — use it when the failure mechanism is known (a wedge, a planar slide on a mapped joint set)."><input type="radio" name="smode" value="custom">
+          <label class="mode" title="Your own trend and plunge, applied globally — use it when the failure mechanism is known (a wedge, a planar slide on a mapped joint set). Tick “flatter than the steepest line” to take the trend from each cell instead of typing one."><input type="radio" name="smode" value="custom">
             <span class="sw" style="background:#8B5CF6"></span>
             <b>Custom vector</b><i>user defined failure mechanism</i></label>
         </div>
-        <div class="grid2" id="customVec">
-          <label title="Direction the mass is expected to move, in degrees from grid north, clockwise. 180 = due south.">Trend az °<input type="number" id="inpCustAz" value="180" min="0" max="360" step="5"></label>
-          <label title="Angle below the horizontal, in degrees. 0 = horizontal, 90 = straight down (identical to Vertical mode).">Plunge °<input type="number" id="inpCustPl" value="45" min="-90" max="90" step="5"></label>
+        <div id="customVec">
+          <label class="chk" title="Keeps each cell's own dip direction and only shifts the plunge, so no azimuth has to be typed — the vector follows the wall wherever it faces. Use it for a failure that daylights a fixed angle flatter than the face, typically 10–15°."><input type="checkbox" id="chkCustRel"> Flatter than the steepest line (per cell)</label>
+          <div class="grid2" id="customAbs">
+            <label title="Direction the mass is expected to move, in degrees from grid north, clockwise. 180 = due south.">Trend az °<input type="number" id="inpCustAz" value="180" min="0" max="360" step="5"></label>
+            <label title="Angle below the horizontal, in degrees. 0 = horizontal, 90 = straight down (identical to Vertical mode).">Plunge °<input type="number" id="inpCustPl" value="45" min="-90" max="90" step="5"></label>
+          </div>
+          <div class="grid2 hidden" id="customOff">
+            <label title="Degrees shallower than the steepest line, applied per cell. 0 reproduces Steepest; an offset as large as the local slope angle reproduces Horizontal. Cells flatter than the offset are clamped to horizontal rather than tipped uphill.">Flatter by °<input type="number" id="inpCustOff" value="12" min="0" max="90" step="1"></label>
+          </div>
         </div>
 
         <div class="subpanel">
@@ -414,7 +420,7 @@
     <ol>
       <li><b>Load terrain</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
       <li><b>Place the sensor</b> — type coordinates or use <b>Pick position on model</b>. Antenna height is added to the terrain level when snapping.</li>
-      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism.</li>
+      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
       <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar.</li>
       <li><b>Plan</b> — add several sensor positions and read the ranking table to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
     </ol>
@@ -448,6 +454,7 @@
     <table class="helpTable">
       <tr><td>Movement vector</td><td><b>Steepest</b>/<b>Horizontal</b>/<b>Normal</b> are recomputed per cell from the local surface; <b>Vertical</b>/<b>Custom</b> apply one global direction to the whole model. <b>Normal</b> assumes each facet moves straight out of itself (bulging, buckling, rockfall), so its sensitivity map is identical to the amplitude proxy.</td></tr>
       <tr><td>Trend az / Plunge</td><td>Custom vector only: azimuth from north clockwise, plunge below horizontal. Plunge 90 = straight down.</td></tr>
+      <tr><td>Flatter by</td><td>Custom vector only, and the alternative to typing a trend: the vector keeps each cell's dip direction and plunges this many degrees less than the local steepest line — the common case of a failure daylighting 10–15° flatter than the face. 0° is identical to <b>Steepest</b>, and an offset that reaches the local slope angle is identical to <b>Horizontal</b>; nothing tips above the horizontal. Being per cell, it is the one custom vector that is not a single global direction.</td></tr>
       <tr><td>Occlusion test</td><td>Marches the sight line over the terrain and flags hidden cells as <i>shadowed</i>. A finer grid finds <b>more</b> shadow — resolved bench crests really do block the beam.</td></tr>
       <tr><td>Accuracy / Tolerance</td><td>Sampling step along the ray (in cells), and how far terrain must rise above the ray to count as blocking. Raise the tolerance if noise causes speckled shadows.</td></tr>
       <tr><td>Grazing rejection</td><td>Drops cells the beam only skims. 90° incidence = line of sight parallel to the surface: fine geometry, no usable return.</td></tr>

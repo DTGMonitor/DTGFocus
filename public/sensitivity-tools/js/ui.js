@@ -151,22 +151,32 @@
     $('btnBuild').onclick = function () { buildModel(); };
   }
 
+  /** first bytes as printable text + hex — the last-resort “what IS this file” */
+  function signature(buf) {
+    var b = new Uint8Array(buf, 0, Math.min(buf.byteLength, 48));
+    var asc = '', hex = [];
+    for (var i = 0; i < b.length; i++) {
+      asc += (b[i] >= 32 && b[i] < 127) ? String.fromCharCode(b[i]) : '·';
+      hex.push(('0' + b[i].toString(16)).slice(-2));
+    }
+    return { ascii: asc, hex: hex.join(' ') };
+  }
+
   function readFiles(list) {
     var files = Array.prototype.slice.call(list);
     var pending = files.length;
     files.forEach(function (f) {
       var fr = new FileReader();
       fr.onload = function () {
-        /* Work from bytes. A JS string caps near 512 M characters and splitting
-           one into a line array costs several times the file again, so a large
-           DXF must never be decoded whole — it is walked straight off the buffer. */
+        /* Work from bytes. A JS string caps near 512 M characters, so a large
+           DXF must never be decoded whole — it is streamed from the buffer. */
         var buf = fr.result;
         var head = Parsers.decodeText(buf.slice(0, 8192));
         var isDxf = Parsers.isBinaryDXF(buf) ||
           /\.dxf$/i.test(f.name) ||
           /^\s*0\s*[\r\n]+\s*SECTION/i.test(head);
         if (isDxf) {
-          var brec = { name: f.name, text: '', type: 'dxf', dataset: null, note: '', size: f.size };
+          var brec = { name: f.name, text: '', type: 'dxf', dataset: null, note: '', size: f.size, head: signature(buf) };
           try {
             brec.dataset = Parsers.parseDXFBuffer(buf, f.name);
             brec.note = brec.dataset.note;
@@ -178,7 +188,8 @@
         /* every other reader needs text, which the engine cannot hold past ~512 MB */
         if (buf.byteLength > 400 * 1024 * 1024) {
           S.files.push({
-            name: f.name, text: '', type: 'toobig', dataset: null, size: f.size, tooBig: true,
+            name: f.name, text: '', type: 'toobig', dataset: null, size: f.size,
+            tooBig: true, head: signature(buf),
             note: (buf.byteLength / 1048576).toFixed(0) + ' MB — too large to read as text'
           });
           if (--pending === 0) afterRead();
@@ -186,9 +197,13 @@
         }
         var txt = Parsers.decodeText(buf);
         var type = Parsers.sniff(txt, f.name);
-        var rec = { name: f.name, text: txt, type: type, dataset: null, note: '', size: f.size };
+        var rec = { name: f.name, text: txt, type: type, dataset: null, note: '', size: f.size, head: signature(buf) };
         try {
-          if (type === 'dxf') { rec.dataset = Parsers.parseDXF(txt, f.name); }
+          if (type === 'binary') {
+            rec.note = 'binary file — not readable as text';
+            rec.binary = true;
+          }
+          else if (type === 'dxf') { rec.dataset = Parsers.parseDXF(txt, f.name); }
           else if (type === 'esri') { rec.dataset = Parsers.parseESRI(txt, f.name); }
           else if (type === 'surpac-dtm') { rec.dataset = Parsers.parseSurpacDTM(txt, f.name); }
           else { rec.pending = true; }
@@ -210,12 +225,23 @@
     var big = S.files.filter(function (f) { return f.tooBig; });
     if (big.length) {
       $('gridInfo').innerHTML = '<span class="w"><b>' + big[0].name + ' is ' +
-        (big[0].size / 1048576).toFixed(0) + ' MB.</b> Only DXF is read straight from the ' +
-        'file bytes; every other reader needs the file as text, and a browser cannot hold ' +
-        'a string beyond about 512 MB. Export a smaller area, decimate the surface, or ' +
-        'convert it to DXF.</span>';
+        (big[0].size / 1048576).toFixed(0) + ' MB.</b> Only DXF is streamed from disk; every ' +
+        'other reader needs the file as text, and a browser cannot hold a string beyond about ' +
+        '512 MB. Export a smaller area, decimate the surface, or convert it to DXF.</span>';
       status(big[0].name + ' is too large for a text reader — use DXF, or export a smaller area.');
       badge('file too large', 'busy');
+      return;
+    }
+    var bin = S.files.filter(function (f) { return f.binary; });
+    if (bin.length) {
+      var msg = '<span class="w"><b>' + bin[0].name + ' is a binary file.</b> SensiMap reads ' +
+        'text formats only: DXF, Surpac .str/.dtm, ASCII XYZ/CSV and ESRI ASCII grid. ' +
+        'Binary triangulations (Vulcan .00t, Datamine .dm, Micromine .tridb, binary DXF, ' +
+        'GLB/PLY) have to be exported to one of those first — Gem4D, Surpac and Vulcan can ' +
+        'all write DXF.</span>';
+      $('gridInfo').innerHTML = msg;
+      status(bin[0].name + ' is binary — export it as DXF or ASCII first.');
+      badge('unsupported file', 'busy');
       return;
     }
     var pend = S.files.filter(function (f) { return f.pending; });
@@ -234,8 +260,7 @@
       var d = document.createElement('div');
       d.className = 'fileItem';
       var tag = f.type === 'dxf' ? 'DXF' : f.type === 'esri' ? 'ASC' :
-        f.type === 'surpac-dtm' ? 'DTM' : f.type === 'demo' ? 'DEMO' :
-        f.type === 'toobig' ? '!' : 'XYZ';
+        f.type === 'surpac-dtm' ? 'DTM' : f.type === 'demo' ? 'DEMO' : 'XYZ';
       d.innerHTML = '<span class="tag">' + tag + '</span><span>' + f.name + '</span>' +
         '<span class="dim">' + (f.note || '') + '</span><span class="x" title="remove">✕</span>';
       d.querySelector('.x').onclick = function (e) {
@@ -365,6 +390,24 @@
       var hasPts = S.files.some(function (f) {
         return f.dataset && (f.dataset.pts || []).length;
       });
+      /* say WHY a text file yielded nothing, instead of only that it did */
+      if (!hasPts && !triFile) {
+        S.files.forEach(function (f) {
+          if (!f.dataset || (f.dataset.pts || []).length) return;
+          if (f.dataset.diag) {
+            html += '\n<span class="w">' + f.name + ': ' +
+              Parsers.explainEmpty(f.dataset.diag, { skip: parseInt($('inpSkip').value, 10) || 0 }) +
+              '</span>';
+          } else if (f.dataset.counts) {
+            html += '\n<span class="w">' + f.name + ': ' + Parsers.explainDXF(f.dataset) + '</span>';
+          }
+          /* nothing recognised at all — show what the file actually starts with */
+          if (f.head && (!f.dataset.counts || !Object.keys(f.dataset.counts).length)) {
+            html += '\n<span class="dim">first bytes: <code>' +
+              f.head.ascii.replace(/</g, '&lt;') + '</code>\n' + f.head.hex + '</span>';
+          }
+        });
+      }
       $('gridInfo').innerHTML = html;
       if (triFile && !hasPts) {
         var b = document.createElement('button');
@@ -600,7 +643,9 @@
       };
     });
     $('customVec').style.display = 'none';
-    ['inpCustAz', 'inpCustPl', 'chkOcclusion', 'selOccAcc', 'inpOccTol', 'chkGrazing', 'inpGraz'].forEach(function (id) {
+    syncCustomForm();
+    $('chkCustRel').onchange = function () { syncCustomForm(); invalidate(); };
+    ['inpCustAz', 'inpCustPl', 'inpCustOff', 'chkOcclusion', 'selOccAcc', 'inpOccTol', 'chkGrazing', 'inpGraz'].forEach(function (id) {
       $(id).onchange = invalidate;
     });
     $('inpThresh').onchange = function () { if (S.res) { restat(); colorize(); updateLegend(); } };
@@ -614,6 +659,12 @@
   function mode() {
     var el = document.querySelector('input[name=smode]:checked');
     return el ? el.value : 'steepest';
+  }
+  /** typed trend+plunge, or the per-cell offset from the steepest line */
+  function custRel() { return $('chkCustRel').checked; }
+  function syncCustomForm() {
+    $('customAbs').classList.toggle('hidden', custRel());
+    $('customOff').classList.toggle('hidden', !custRel());
   }
   function invalidate() {
     if (!S.res) return;
@@ -629,6 +680,8 @@
       mode: mode(),
       custAz: parseFloat($('inpCustAz').value) || 0,
       custPl: parseFloat($('inpCustPl').value) || 0,
+      custRel: custRel(),
+      custOff: numOr('inpCustOff', 0),
       occlusion: $('chkOcclusion').checked,
       occStep: parseFloat($('selOccAcc').value) || 1,
       occTol: parseFloat($('inpOccTol').value) || 0,
@@ -1096,7 +1149,9 @@
           arrow(0, 0, -1, [0.2, 0.6, 1, 1]);                             // vertical
           arrow(S.der.nx[id], S.der.ny[id], S.der.nz[id], [1, 0.6, 0.1, 1]); // normal
           if (mode() === 'custom') {
-            var cv = Sens.customVec(parseFloat($('inpCustAz').value) || 0, parseFloat($('inpCustPl').value) || 0);
+            var cv = custRel()
+              ? Sens.slopeRelVec(fx, fy, numOr('inpCustOff', 0))
+              : Sens.customVec(parseFloat($('inpCustAz').value) || 0, parseFloat($('inpCustPl').value) || 0);
             arrow(cv[0], cv[1], cv[2], [0.88, 0.25, 0.98, 1]);
           }
         }
@@ -1621,6 +1676,7 @@
       radars: S.radars, sel: S.sel,
       sens: {
         mode: mode(), custAz: +$('inpCustAz').value, custPl: +$('inpCustPl').value,
+        custRel: custRel(), custOff: +$('inpCustOff').value,
         occlusion: $('chkOcclusion').checked, occAcc: $('selOccAcc').value,
         occTol: +$('inpOccTol').value, grazing: $('chkGrazing').checked, graz: +$('inpGraz').value,
         threshold: +$('inpThresh').value, trueDispl: +$('inpTrue').value,
@@ -1643,6 +1699,10 @@
       if (rb) rb.checked = true;
       $('customVec').style.display = q.mode === 'custom' ? '' : 'none';
       $('inpCustAz').value = q.custAz; $('inpCustPl').value = q.custPl;
+      /* projects saved before the per-cell offset existed carry neither key */
+      $('chkCustRel').checked = !!q.custRel;
+      if (q.custOff != null) $('inpCustOff').value = q.custOff;
+      syncCustomForm();
       $('chkOcclusion').checked = !!q.occlusion; $('selOccAcc').value = q.occAcc;
       $('inpOccTol').value = q.occTol; $('chkGrazing').checked = !!q.grazing; $('inpGraz').value = q.graz;
       $('inpThresh').value = q.threshold; $('inpTrue').value = q.trueDispl;

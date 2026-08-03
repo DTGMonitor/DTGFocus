@@ -38,6 +38,21 @@ var Sens = (function () {
     return [Math.sin(a) * Math.cos(p), Math.cos(a) * Math.cos(p), -Math.sin(p)];
   }
 
+  /** movement that keeps the cell's own dip direction but plunges `offDeg`
+      shallower than the steepest line — the usual case where a failure
+      daylights 10–15° flatter than the face it sits in. The trend follows the
+      wall, so no azimuth has to be typed. off = 0 is Steepest, off = the local
+      slope angle is Horizontal; it never tips above the horizontal, so a cell
+      flatter than the offset is clamped there. */
+  function slopeRelVec(fx, fy, offDeg) {
+    var mag = Math.sqrt(fx * fx + fy * fy);
+    if (mag < 1e-9) return [0, 0, -1];          /* flat: no dip direction */
+    var p = Math.atan(mag) - offDeg * DEG;
+    if (p < 0) p = 0;
+    var c = Math.cos(p);
+    return [-fx / mag * c, -fy / mag * c, -Math.sin(p)];
+  }
+
   /* -------------------------------------------------- AOI mask */
   function aoiMask(g, der, aoi) {
     var n = g.nx * g.ny, mask = new Uint8Array(n);
@@ -63,7 +78,7 @@ var Sens = (function () {
   /* ------------------------------------------------- main compute */
   /**
    * radars: [{x,y,z, az, apAz, apEl, rmin, rmax, on, name, color}]
-   * opts  : {mode, custAz, custPl, occlusion, occStep, occTol,
+   * opts  : {mode, custAz, custPl, custRel, custOff, occlusion, occStep, occTol,
    *          grazing, grazMax, threshold, combine, mask}
    */
   async function compute(g, der, radars, opts, onProgress) {
@@ -73,6 +88,8 @@ var Sens = (function () {
 
     var mode = opts.mode || 'steepest';
     var cust = customVec(opts.custAz || 0, opts.custPl || 45);
+    /* custom vector taken from the slope instead of typed: plunge offset only */
+    var custRel = !!opts.custRel, custOff = (+opts.custOff || 0) * DEG;
     var occ = !!opts.occlusion, occStep = +opts.occStep || 1, occTol = +opts.occTol || 0.5;
     var grazOn = !!opts.grazing, grazCos = Math.cos((opts.grazMax == null ? 85 : opts.grazMax) * DEG);
     var perRadar = [], total = active.length * n, done = 0;
@@ -112,7 +129,17 @@ var Sens = (function () {
           var fx = der.fx[id], fy = der.fy[id];
           var mx, my, mz, mag2 = fx * fx + fy * fy, mag = Math.sqrt(mag2);
           if (mode === 'vertical') { mx = 0; my = 0; mz = -1; }
-          else if (mode === 'custom') { mx = cust[0]; my = cust[1]; mz = cust[2]; }
+          else if (mode === 'custom') {
+            if (!custRel) { mx = cust[0]; my = cust[1]; mz = cust[2]; }
+            else if (mag < 1e-9) { mx = 0; my = 0; mz = -1; }
+            else {
+              /* slopeRelVec inlined — the innermost loop allocates nothing */
+              var pl = Math.atan(mag) - custOff;
+              if (pl < 0) pl = 0;
+              var cpl = Math.cos(pl);
+              mx = -fx / mag * cpl; my = -fy / mag * cpl; mz = -Math.sin(pl);
+            }
+          }
           else if (mode === 'normal') {
             /* straight out of the face — the outward surface normal, per cell.
                S then equals the amplitude proxy by construction: the geometry
@@ -309,6 +336,6 @@ var Sens = (function () {
 
   return {
     VIS: VIS, compute: compute, aoiMask: aoiMask, layer: layer,
-    customVec: customVec, range: range, summarise: summarise
+    customVec: customVec, slopeRelVec: slopeRelVec, range: range, summarise: summarise
   };
 })();
