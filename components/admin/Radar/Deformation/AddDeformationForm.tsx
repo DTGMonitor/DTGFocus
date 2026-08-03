@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
 import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
+import { resolveEmailLocale } from '../../../../config/emailLocale';
 import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
 import { composeDeformationSubject } from '../../../../config/emailSubject';
 import { useTarpDocument } from '../Tarp/useTarpDocument';
@@ -727,6 +728,11 @@ const AddDeformationForm = ({
 
     const transition = resolveTarpTransition(priorTypes, formData.Type, tarpDocument);
 
+    // The language the client reads. Indonesian sites are emailed in Bahasa
+    // Indonesia, with times on the SITE clock — see config/emailLocale.ts.
+    const emailLocale = resolveEmailLocale(sensor, clientTimezone);
+    const draftOptions = { locale: emailLocale, timeZone: clientTimezone };
+
     // Both the bracket and the trigger wording are the site's, not ours — see
     // config/emailSubject.ts.
     const composed = composeDeformationSubject({
@@ -734,12 +740,17 @@ const AddDeformationForm = ({
         sensor: cleanSensor,
         alarmRegions: selectedRegions,
         policy: tarpPolicy,
-        notificationTime: formData.NotificationTime
+        notificationTime: formData.NotificationTime,
+        locale: emailLocale
     });
     const emailSubject = composed.subject;
 
+    // `composed.bracket` is the English key in every locale; the body reads it to
+    // pick its tone and translates on the way out.
     const emailFormData = { ...formData, alarmRegions: selectedRegions };
-    const emailBody = generateEmailBody(emailFormData, cleanSensor, composed.bracket, userName, crosscheckerName);
+    const emailBody = generateEmailBody(
+        emailFormData, cleanSensor, composed.bracket, userName, crosscheckerName, draftOptions
+    );
     const visibleDynamicFields = currentConfig.fields;
 
     return (

@@ -15,6 +15,7 @@
 // engineer reviews on the chart is exactly what the client receives.
 
 import { generateEmailSubject, getWorkLogDetails } from './formConfig';
+import type { EmailLocale } from './emailLocale';
 import {
     DEFAULT_TARP_POLICY,
     resolveAlarmPrefixStyle,
@@ -35,6 +36,8 @@ export interface DeformationSubjectInput {
     policy?: TarpPolicy | null;
     /** A notification time downgrades the risk bracket, as it always has. */
     notificationTime?: string | null;
+    /** Language of the subject line. Defaults to English. */
+    locale?: EmailLocale;
 }
 
 export interface DeformationSubject {
@@ -44,6 +47,10 @@ export interface DeformationSubject {
      * CRITICAL / MODERATE RISK / … as derived from the TARP level, which is the
      * tone the body is written in. The subject may instead show the row's
      * `severity_bracket` override; the body deliberately follows the risk.
+     *
+     * Always the ENGLISH wording, in every locale: it is a key, read by the body
+     * generator to decide the tone and by the work log to pick its row. Only the
+     * subject line carries the translated form.
      */
     bracket: string;
     /** "TARP Trigger 4:", "Red Alarm:", or "" when the site quotes nothing. */
@@ -59,7 +66,8 @@ export const composeDeformationSubject = ({
     sensor,
     alarmRegions = [],
     policy,
-    notificationTime = null
+    notificationTime = null,
+    locale = 'en'
 }: DeformationSubjectInput): DeformationSubject => {
     const activePolicy = policy || DEFAULT_TARP_POLICY;
     const hasAlarm = alarmRegions.length > 0;
@@ -74,7 +82,8 @@ export const composeDeformationSubject = ({
 
     const subject = generateEmailSubject(bracket, tarpLevel, type, sensor, alarmRegions, {
         triggerLabel,
-        alarmPrefixStyle: resolveAlarmPrefixStyle(activePolicy)
+        alarmPrefixStyle: resolveAlarmPrefixStyle(activePolicy),
+        locale
     });
 
     return {

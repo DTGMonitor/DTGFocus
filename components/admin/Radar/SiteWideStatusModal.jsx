@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { toUTC, fromUTC } from '@/utils/timezoneUtils';
 import { getStatusColor } from '@/config/statusConfig';
-import { getWorkLogDetails, generateEmailBodyOthers, generateEmailBodyScheduledOffline } from '@/config/formConfig';
+import {
+    getWorkLogDetails,
+    generateEmailBodyOthers,
+    generateEmailBodyScheduledOffline,
+    generateStatusSubject
+} from '@/config/formConfig';
+import { resolveEmailLocale } from '@/config/emailLocale';
 import { openOutlookDraft } from '@/utils/openOutlookDraft';
 import {
     ALL_SELECTED_LABEL,
@@ -187,15 +193,20 @@ export default function SiteWideStatusModal({
     };
 
     // ── The draft ───────────────────────────────────────────────────────────────
+    // Indonesian sites are emailed in Bahasa Indonesia — config/emailLocale.ts.
+    const emailLocale = resolveEmailLocale(sensor, timezone);
+    const draftOptions = { locale: emailLocale, timeZone: timezone };
+
     const label = useMemo(
         () =>
             sensorSelectionLabel(
                 siteSensors,
                 selectedIds,
                 sensor?.site_name || 'Unknown Site',
-                ALL_SELECTED_LABEL[status] || 'All Sensors'
+                ALL_SELECTED_LABEL[status] || 'All Sensors',
+                emailLocale
             ),
-        [siteSensors, selectedIds, sensor?.site_name, status]
+        [siteSensors, selectedIds, sensor?.site_name, status, emailLocale]
     );
 
     const crosscheckerName = useMemo(() => {
@@ -204,7 +215,7 @@ export default function SiteWideStatusModal({
     }, [crosscheckers, selectedCrosschecker]);
 
     const logDetails = getWorkLogDetails(status, form.notificationTime);
-    const emailSubject = `[${logDetails.subject}] ${status} on ${label.withSite}`;
+    const emailSubject = generateStatusSubject(logDetails.subject, status, label.withSite, emailLocale);
     const emailBody = isScheduled
         ? generateEmailBodyScheduledOffline(
             label.bare,
@@ -212,9 +223,10 @@ export default function SiteWideStatusModal({
             window_.to,
             window_.reason,
             userName,
-            crosscheckerName
+            crosscheckerName,
+            draftOptions
         )
-        : generateEmailBodyOthers(form, status, label.withSite, userName, crosscheckerName);
+        : generateEmailBodyOthers(form, status, label.withSite, userName, crosscheckerName, draftOptions);
 
     const draft = () =>
         openOutlookDraft(emailSubject, emailBody, `"${sensor?.site_name} [All]"`, 'DTG Engineers');

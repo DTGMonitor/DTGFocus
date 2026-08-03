@@ -652,6 +652,10 @@ export default function PatternRecognitionPopup({
   const reportMeta = {
     company: clientInfo?.company ?? userSite?.site?.company ?? '',
     siteName: clientInfo?.site_name ?? sensor?.site_name ?? userSite?.site?.site_name ?? '',
+    // Both carried so the emailed draft can resolve the site's language —
+    // `site_name` is the key SITE_EMAIL_LOCALE_OVERRIDES is written against.
+    site_name: clientInfo?.site_name ?? sensor?.site_name ?? userSite?.site?.site_name ?? '',
+    timezone,
     location: clientInfo?.location ?? '',
     radarNumber: sensor?.radar_number ?? '',
     author: userSite?.displayname ?? '',

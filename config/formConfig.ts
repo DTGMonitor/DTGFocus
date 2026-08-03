@@ -1,5 +1,30 @@
 // formConfig.ts
 
+import {
+    emailStrings,
+    formatEmailTimestamp,
+    intlLocale,
+    translateAlarmColour,
+    translateBracket,
+    translateDqpPhrase,
+    translateFinding,
+    translateReason,
+    translateStatus,
+    translateUnit,
+    type EmailLocale
+} from './emailLocale';
+
+/**
+ * Language (and, for Indonesian, the site clock) a draft is written in.
+ * Omitted everywhere means English formatted in the browser's clock — exactly
+ * what these generators did before the Indonesian sites were added.
+ */
+export interface EmailDraftOptions {
+    locale?: EmailLocale;
+    /** The SITE's IANA timezone. Only consulted on the Indonesian path. */
+    timeZone?: string | null;
+}
+
 // 1. Define all possible fields and their data types (Input types)
 
 interface FieldDefinition {
@@ -144,7 +169,7 @@ export const getWorkLogDetails = (tarp: string, notificationTime: string | null)
     return { id: 1, subject: "NOTIFICATION ONLY" };
 };
 
-const getCleanFindings = (type: string) => {
+const getCleanFindingsEn = (type: string) => {
     switch (type) {
         case "Progressive": case "Linear": case "Linear Accelerating": return `${type} Deformation Trend`
         case "Failure": return `${type} Pattern Indication`
@@ -153,6 +178,14 @@ const getCleanFindings = (type: string) => {
         default: return type
     }
 }
+
+/**
+ * How the subject and the FINDINGS/TEMUAN line name this deformation type.
+ * The English wording is the canonical one; Indonesian falls back to it for any
+ * type the dictionary has not been taught.
+ */
+const getCleanFindings = (type: string, locale: EmailLocale = 'en') =>
+    translateFinding(type, getCleanFindingsEn(type), locale);
 
 export interface EmailSubjectOptions {
     /**
@@ -166,6 +199,12 @@ export interface EmailSubjectOptions {
      * whose own token already names the alarm.
      */
     alarmPrefixStyle?: 'regions' | 'none';
+    /**
+     * Language of the bracket, the finding and the "on"/"pada" connector. The
+     * trigger token itself is NOT translated — "TARP Trigger 4:" is how the
+     * client's own TARP document names it, in either language.
+     */
+    locale?: EmailLocale;
 }
 
 export const generateEmailSubject = (
@@ -176,51 +215,91 @@ export const generateEmailSubject = (
     alarmRegions: any[] = [],
     options: EmailSubjectOptions = {}
 ) => {
-    const cleanType = getCleanFindings(type);
+    const locale = options.locale ?? 'en';
+    const t = emailStrings(locale);
+    const cleanType = getCleanFindings(type, locale);
     const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
     const tarpTrigger = options.triggerLabel ?? (match ? `TARP Trigger ${match[1]}:` : "");
 
     let alarmPrefix = "";
     if (options.alarmPrefixStyle !== 'none' && alarmRegions && alarmRegions.length > 0) {
         // 1. Get unique types
-        const types = Array.from(new Set(alarmRegions.map(r => r.type).filter(Boolean)));
+        const types = Array.from(new Set(alarmRegions.map(r => r.type).filter(Boolean)))
+            .map(colour => translateAlarmColour(colour, locale));
 
         if (types.length > 0) {
             // 2. Create a formatter for Australian English (or 'en-US', 'en-GB' etc.)
-            const formatter = new Intl.ListFormat('en-AU', { style: 'short', type: 'conjunction' });
+            const formatter = new Intl.ListFormat(intlLocale(locale), { style: 'short', type: 'conjunction' });
 
             // 3. Format the list and append "Alarms"
             // This turns ["Red", "Orange"] into "Red and Orange"
-            alarmPrefix = `${formatter.format(types)} Alarms - `;
+            alarmPrefix = t.alarms(formatter.format(types));
         }
     }
 
-    // Note: I added a dash separator before cleanType based on typical subject line patterns, 
+    // Note: I added a dash separator before cleanType based on typical subject line patterns,
     // but you can remove the space/dash if you prefer your strict original spacing.
-    return `[${subject}] ${alarmPrefix} ${tarpTrigger} ${cleanType} on ${sensor}`.replace(/\s+/g, ' ').trim();
+    return `[${translateBracket(subject, locale)}] ${alarmPrefix} ${tarpTrigger} ${cleanType} ${t.on} ${sensor}`
+        .replace(/\s+/g, ' ')
+        .trim();
 };
+
+/**
+ * Subject for the downtime notifications — Link Down, Lost Connection,
+ * Scheduled Offline and the Live restoration.
+ *
+ * Lived inline in two components until Bahasa Indonesia gave it three things to
+ * translate. Coming back online is announced without a bracket in Indonesian
+ * ("KONEKSI KEMBALI NORMAL pada …"), which is how those sites write it; the
+ * English form is unchanged, brackets and all.
+ */
+export const generateStatusSubject = (
+    bracket: string,
+    status: string,
+    sensor: string,
+    locale: EmailLocale = 'en'
+) => {
+    const t = emailStrings(locale);
+    const isRestored = status === 'Live';
+
+    if (locale === 'id' && isRestored) {
+        return `${translateBracket(bracket, locale)} ${t.on} ${sensor}`.replace(/\s+/g, ' ').trim();
+    }
+
+    const statusText = isRestored ? '' : translateStatus(status, locale);
+    return `[${translateBracket(bracket, locale)}] ${statusText} ${t.on} ${sensor}`;
+};
+
+/** Subject for a DQP / Action Required draft. */
+export const generateDqpSubject = (
+    bracket: string,
+    dqpSubject: string,
+    sensor: string,
+    locale: EmailLocale = 'en'
+) =>
+    `[${translateBracket(bracket, locale)}] ${translateDqpPhrase(dqpSubject, locale)} ${emailStrings(locale).on} ${sensor}`;
 
 export const generateEmailBody = (
     formData: any,
     sensor: string,
     subjectPrefix: string,
     userFullName: string,
-    crossChecker: string
+    crossChecker: string,
+    { locale = 'en', timeZone }: EmailDraftOptions = {}
 ) => {
+    const t = emailStrings(locale);
+
     // 1. HELPER: Format Dates
-    const fmt = (dateStr: string) => dateStr ? new Date(dateStr).toLocaleString('en-AU', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false
-    }) : "N/A";
+    const fmt = (dateStr: string) => formatEmailTimestamp(dateStr, { locale, timeZone });
 
     const getVelocityUnit = (vcp: number) => {
-        if (vcp < 1440) return 'mm/h';
-        return 'mm/d'
+        if (vcp < 1440) return translateUnit('mm/h', locale);
+        return translateUnit('mm/d', locale)
     };
 
     const getInverseUnit = (vcp: number) => {
-        if (vcp < 1440) return 'h/mm';
-        return 'd/mm'
+        if (vcp < 1440) return translateUnit('h/mm', locale);
+        return translateUnit('d/mm', locale)
     };
 
     // 2. DYNAMIC METRICS BLOCK
@@ -230,16 +309,16 @@ export const generateEmailBody = (
     if (formData.Type === "Failure") {
         metricsBlock = `
 
-> SHORT VCP
+> ${t.shortVcp}
   - Max Velocity (1): ${formData.Vmax1 || "-"} ${getVelocityUnit(formData.VCP1) || "-"}
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
-  
-> LONG VCP
+
+> ${t.longVcp}
   - Max Velocity (2): ${formData.Vmax2 || "-"} ${getVelocityUnit(formData.VCP2) || "-"}
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
-       
+
   `.trim();
     }
     // Case B: Progressive / Linear Acc (Has Min & Max)
@@ -265,15 +344,15 @@ export const generateEmailBody = (
     else if (["Forecast"].includes(formData.Type)) {
         metricsBlock = `
 
-> SHORT VCP
+> ${t.shortVcp}
   - Inv. Velocity (1): ${formData.InverseVelocity1 || "-"} ${getInverseUnit(formData.VCP1)}
   - VCP (1): ${formData.VCP1 || "-"}
-  - Forecast Result (1): ${fmt(formData.ForecastResult1) || "-"}
+  - ${t.forecastResult} (1): ${fmt(formData.ForecastResult1) || "-"}
 
-> LONG VCP
+> ${t.longVcp}
   - Inv. Velocity (2): ${formData.InverseVelocity2 || "-"} ${getInverseUnit(formData.VCP2)}
   - VCP (2): ${formData.VCP2 || "-"}
-  - Forecast Result (2): ${fmt(formData.ForecastResult2) || "-"}
+  - ${t.forecastResult} (2): ${fmt(formData.ForecastResult2) || "-"}
 
   `.trim();
     }
@@ -286,58 +365,61 @@ export const generateEmailBody = (
 
     let actionBlock = "";
     if (formData.NotificationTime) {
-        actionBlock = `✅ ACTION TAKEN: Notification was made via ${formData.NotificationBy} at ${fmt(formData.NotificationTime)}.`;
+        actionBlock = t.notificationMade(formData.NotificationBy, fmt(formData.NotificationTime));
     } else {
         // If critical but no notification, add a warning label
         actionBlock = isCritical
-            ? '⚠️ ATTENTION: Multiple phone calls have been attempted, however it was unreachable.'
+            ? t.unreachable
             : isFallofGround
-                ? `ℹ️ REGISTER: This information has been recorded in the DTG client fall of ground register.`
+                ? t.fallOfGroundRegister
                 : isBlast
-                    ? '⚠️ ATTENTION: Constant close attention to velocity for the next 24hrs.'
+                    ? t.blastWatch
                     : '';
     }
 
     // Standing caveat appended to every failure forecast notification.
-    const forecastNote = formData.Type === "Forecast"
-        ? 'ℹ️ NOTE: Slope failure may occur prior to the predicted timeframe, particularly if accelerated by external triggers such as heavy rainfall, blasting activities, or intense machinery operation near the deforming wall. Consequently, the failure forecast will be updated as new data or changing site conditions require.'
-        : '';
+    const forecastNote = formData.Type === "Forecast" ? t.forecastCaveat : '';
 
     let alarmRegionLine = "";
 
     if (formData.alarmRegions && formData.alarmRegions.length > 0) {
-        const formatter = new Intl.ListFormat('en-AU', { style: 'short', type: 'conjunction' });
+        const formatter = new Intl.ListFormat(intlLocale(locale), { style: 'short', type: 'conjunction' });
         const names = Array.from(new Set(formData.alarmRegions.map((r: any) => r.name).filter(Boolean))) as string[];
-        alarmRegionLine = `ALARM REGION(s): ${formatter.format(names)}`;
+        alarmRegionLine = `${t.alarmRegions}: ${formatter.format(names)}`;
     }
 
     let timeEventLine = "";
     timeEventLine = isBlast || isFallofGround
-        ? `TIME: ${fmt(formData.Start)}`
+        ? `${t.time}: ${fmt(formData.Start)}`
         : '';
+
+    // The label column is padded to the widest label so the values line up in a
+    // monospaced mail client — the widest label differs per language.
+    const pad = (label: string, width: number) => `${label}:`.padEnd(width + 2);
+    const width = Math.max(t.sensor.length, t.findings.length, t.location.length, t.surfaceArea.length);
 
     // 4. ASSEMBLE THE FINAL EMAIL
     return `
-SENSOR:       ${sensor}
-FINDINGS:     ${getCleanFindings(formData.Type)}
-LOCATION:     ${formData.Location}
-SURFACE AREA: ${formData.SurfaceArea || "-"} m2
+${pad(t.sensor, width)}${sensor}
+${pad(t.findings, width)}${getCleanFindings(formData.Type, locale)}
+${pad(t.location, width)}${formData.Location}
+${pad(t.surfaceArea, width)}${formData.SurfaceArea || "-"} m2
 ${timeEventLine}
 ${alarmRegionLine}
 ${metricsBlock}
 
-CONTEXT & NOTES
+${t.contextAndNotes}
 --------------------------------------------------
-${formData.Notes ? formData.Notes : "No additional notes provided."}
+${formData.Notes ? formData.Notes : t.noNotes}
 ${forecastNote ? `\n${forecastNote}\n` : ""}
 ${actionBlock}
 
-DETAILS
+${t.details}
 --------------------------------------------------
 
-Figure 1. Location & Analysis
+${t.figureLocationAnalysis}
 
-Kind regards,
+${t.kindRegards}
 ${userFullName} ${crossChecker}
     `.trim();
 };
@@ -347,35 +429,46 @@ export const generateEmailBodyDQP = (
     sensor: string,
     userFullName: string,
     crossChecker: string,
-    allAlarmRegions: { id: any; name: string }[] = []
+    allAlarmRegions: { id: any; name: string }[] = [],
+    { locale = 'en' }: EmailDraftOptions = {}
 ) => {
+    const t = emailStrings(locale);
+    const noRegions = locale === 'id' ? 'Tidak ada' : 'N/A';
+
     const getRegionNames = (regionIds: any[]) => {
-        if (!regionIds || regionIds.length === 0) return 'N/A';
+        if (!regionIds || regionIds.length === 0) return noRegions;
         return regionIds
             .map(id => allAlarmRegions.find(r => String(r.id) === String(id))?.name)
             .filter(Boolean)
             .join(', ');
     };
 
+    // Region/mask labels share a column, as do sensor/issue/action above them.
+    const mainWidth = Math.max(t.alarmRegion.length, t.alarmMask.length);
+    const headWidth = Math.max(t.sensor.length, t.issue.length, t.action.length);
+    const pad = (label: string, width: number) => `${label}:`.padEnd(width + 2);
+
     let mainBlock = "";
     let imageBlock = "";
 
+    // The subject is matched on its ENGLISH key: it is the stored value, and the
+    // translation happens on the way out, not on the way in.
     if (formData.subject === "Additional Alarm Mask Recommendation") {
         mainBlock =
             `
-ALARM REGION: ${getRegionNames(formData.alarmRegions)}
-ALARM MASK:   ${formData.alarmMask || 'N/A'}`
+${pad(t.alarmRegion, mainWidth)}${getRegionNames(formData.alarmRegions)}
+${pad(t.alarmMask, mainWidth)}${formData.alarmMask || noRegions}`
         imageBlock = `
 
-Figure 1. Alarm Mask Recommendation.`
+${t.figureAlarmMask}`
     }
     else if (formData.subject === "Alarm Since Time Adjustment" || formData.subject === "Alarm Configuration") {
         mainBlock =
             `
-ALARM REGION: ${getRegionNames(formData.alarmRegions)}`
+${pad(t.alarmRegion, mainWidth)}${getRegionNames(formData.alarmRegions)}`
         imageBlock = `
 
-Figure 1. Alarm Tab.`
+${t.figureAlarmTab}`
     }
     else {
         mainBlock = ''
@@ -383,19 +476,19 @@ Figure 1. Alarm Tab.`
     }
 
     return `
-SENSOR: ${sensor}
-ISSUE:  ${formData.issue}
-ACTION: ${formData.action}
+${pad(t.sensor, headWidth)}${sensor}
+${pad(t.issue, headWidth)}${translateDqpPhrase(formData.issue, locale)}
+${pad(t.action, headWidth)}${translateDqpPhrase(formData.action, locale)}
 ${mainBlock}
 
-CONTEXT & NOTES
+${t.contextAndNotes}
 --------------------------------------------------
-${formData.notes ? formData.notes : "No additional notes provided."}
-${formData.tempnotes ? formData.tempnotes : ""}
+${formData.notes ? translateDqpPhrase(formData.notes, locale) : t.noNotes}
+${formData.tempnotes ? translateDqpPhrase(formData.tempnotes, locale) : ""}
 
 ${imageBlock}
 
-Kind regards,
+${t.kindRegards}
             ${userFullName} ${crossChecker}
         `.trim();
 };
@@ -406,39 +499,42 @@ export const generateEmailBodyOthers = (
     status: string,
     sensor: string,
     userFullName: string,
-    crossChecker: string
+    crossChecker: string,
+    { locale = 'en', timeZone }: EmailDraftOptions = {}
 ) => {
+    const t = emailStrings(locale);
+
     // 1. HELPER: Format Dates
-    const fmt = (dateStr: string) => dateStr ? new Date(dateStr).toLocaleString('en-AU', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false
-    }) : "N/A";
+    const fmt = (dateStr: string) => formatEmailTimestamp(dateStr, { locale, timeZone });
+
+    const width = Math.max(t.sensor.length, t.issue.length, t.time.length, t.reason.length, t.action.length);
+    const pad = (label: string) => `${label}:`.padEnd(width + 2);
 
     let mainBlock = "";
 
     if (status === "Live") {
         mainBlock =
-            `Dear All
+            `${t.dearAll}
 
-This email is to inform you that the ${sensor} is back online and monitoring has resumed.`
+${t.backOnline(sensor)}`
     } else {
         mainBlock =
             `
-SENSOR: ${sensor}
-ISSUE:  ${status}
-TIME:   ${fmt(formData.from)}
-REASON: ${formData.reason}
-ACTION: ${formData.action}
+${pad(t.sensor)}${sensor}
+${pad(t.issue)}${translateStatus(status, locale)}
+${pad(t.time)}${fmt(formData.from)}
+${pad(t.reason)}${translateReason(formData.reason, locale)}
+${pad(t.action)}${formData.action}
 
-CONTEXT & NOTES
+${t.contextAndNotes}
 --------------------------------------------------
-${formData.notes ? formData.notes : "No additional notes provided."}`
+${formData.notes ? formData.notes : t.noNotes}`
     }
 
     return `
 ${mainBlock}
 
-Kind regards,
+${t.kindRegards}
             ${userFullName} ${crossChecker}
         `.trim();
 };
@@ -461,17 +557,19 @@ export const generateEmailBodyScheduledOffline = (
     to: string,
     reason: string,
     userFullName: string,
-    crossChecker: string
+    crossChecker: string,
+    { locale = 'en' }: EmailDraftOptions = {}
 ) => {
+    const t = emailStrings(locale);
     return `
-SENSOR: ${sensorLabel}
-TIME: ${from}-${to} (site local time)
+${t.sensor}: ${sensorLabel}
+${t.time}: ${from}-${to} ${t.siteLocalTime}
 
-REASON: ${reason}
+${t.reasonLong}: ${translateReason(reason, locale)}
 
-DTG engineers will advise when the system is back online.
+${t.willAdviseWhenOnline}
 
-Kind regards,
+${t.kindRegards}
 ${userFullName} ${crossChecker}
     `.trim();
 };

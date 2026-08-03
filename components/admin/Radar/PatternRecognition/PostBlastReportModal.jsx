@@ -17,8 +17,9 @@
  *   7. Footer        — grey DTG Focus mark + branding + per-page number
  */
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { displayPhase, shortVcpLabel } from '@/utils/stageBoundaries';
+import { emailStrings, resolveEmailLocale, translatePhase } from '@/config/emailLocale';
 import { supabase } from '@/lib/supabaseClient';
 import {
   PAGE_W,
@@ -384,48 +385,71 @@ export default function PostBlastReportModal({
     };
   }, [windows, blastEvents]);
 
-  const failureTakeaway = useMemo(() => {
-    const forecastIso =
-      summaryVcp?.fukuzono?.predictedFailureTime ?? summaryVcp?.slo?.predictedFailureTime ?? null;
-    const method = summaryVcp?.fukuzono?.predictedFailureTime
-      ? 'Inverse Velocity (Fukuzono)'
-      : summaryVcp?.slo?.predictedFailureTime
-        ? 'Spline (SLO)'
-        : null;
-    const vcp = summaryVcp?.smoothingWindow != null ? `VCP ${summaryVcp.smoothingWindow}` : '';
-    const phase = latestRawPhase;
+  /**
+   * The Outlook sentence, in `locale`. The printed report always asks for
+   * English; only the emailed draft follows the site's language, so the wording
+   * lives in config/emailLocale.ts and the branching stays here — one source of
+   * truth for WHICH sentence applies, two for how it reads.
+   */
+  const takeawayFor = useCallback(
+    (locale) => {
+      const t = emailStrings(locale);
+      const forecastIso =
+        summaryVcp?.fukuzono?.predictedFailureTime ?? summaryVcp?.slo?.predictedFailureTime ?? null;
+      const method = summaryVcp?.fukuzono?.predictedFailureTime
+        ? 'Inverse Velocity (Fukuzono)'
+        : summaryVcp?.slo?.predictedFailureTime
+          ? 'Spline (SLO)'
+          : null;
+      const vcp = summaryVcp?.smoothingWindow != null ? `VCP ${summaryVcp.smoothingWindow}` : '';
+      const phase = latestRawPhase;
+      // The phase reads as a lower-cased clause in English ("slope is regressive");
+      // Indonesian keeps its label capitalised, so translate before casing.
+      const phaseText =
+        locale === 'id'
+          ? translatePhase(displayPhase(phase, pfConfirmed), locale)
+          : displayPhase(phase, pfConfirmed).toLowerCase();
 
-    if (actualFailureTime) {
-      const err = forecastIso
-        ? (new Date(forecastIso).getTime() - new Date(actualFailureTime).getTime()) / 3_600_000
-        : null;
-      return `Actual failure occurred at ${fmtDateTime(actualFailureTime)}.${
-        forecastIso
-          ? ` Predicted failure (${method}, ${vcp}) was ${fmtDateTime(forecastIso)} — forecast error ${
-              err >= 0 ? '+' : ''
-            }${err.toFixed(1)} h.`
-          : ''
-      }`;
-    }
-    if (phase === 'Progressive Failure') {
-      return forecastIso
-        ? `Estimated failure time: ${fmtDateTime(forecastIso)} (method: ${method}, ${vcp}).`
-        : `Slope is in progressive failure; no forecast time could be computed for the selected VCP.`;
-    }
-    if (phase === 'Regressive' || phase === 'No Significant Movement') {
-      // Settling measured from the blast to the start of the No Significant
-      // trend, when a preceding blast exists (issue 2).
-      if (settlingInfo) {
-        return `Slope is ${displayPhase(phase, pfConfirmed).toLowerCase()}; settled ${settlingInfo.duration} after the blast (${fmtDateTime(
-          settlingInfo.blastTimeStr
-        )} → ${fmtDateTime(settlingInfo.settledTimeStr)}). No failure time is projected.`;
+      if (actualFailureTime) {
+        const err = forecastIso
+          ? (new Date(forecastIso).getTime() - new Date(actualFailureTime).getTime()) / 3_600_000
+          : null;
+        return (
+          t.pbActualFailure(fmtDateTime(actualFailureTime)) +
+          (forecastIso
+            ? t.pbForecastError(
+                method,
+                vcp,
+                fmtDateTime(forecastIso),
+                `${err >= 0 ? '+' : ''}${err.toFixed(1)}`
+              )
+            : '')
+        );
       }
-      const dur = lastWindow?.duration ? ` over the last ${lastWindow.duration}` : '';
-      return `Slope is ${displayPhase(phase, pfConfirmed).toLowerCase()}; estimated to be settling${dur}. No failure time is projected.`;
-    }
-    const dur = lastWindow?.duration ? lastWindow.duration : 'the monitored period';
-    return `Slope remains in a linear deformation stage for the last ${dur}. Continue monitoring for any transition to progressive failure.`;
-  }, [summaryVcp, actualFailureTime, lastWindow, latestRawPhase, pfConfirmed, settlingInfo]);
+      if (phase === 'Progressive Failure') {
+        return forecastIso
+          ? t.pbEstimatedFailure(fmtDateTime(forecastIso), method, vcp)
+          : t.pbNoForecast;
+      }
+      if (phase === 'Regressive' || phase === 'No Significant Movement') {
+        // Settling measured from the blast to the start of the No Significant
+        // trend, when a preceding blast exists (issue 2).
+        if (settlingInfo) {
+          return t.pbSettledAfterBlast(
+            phaseText,
+            settlingInfo.duration,
+            fmtDateTime(settlingInfo.blastTimeStr),
+            fmtDateTime(settlingInfo.settledTimeStr)
+          );
+        }
+        return t.pbSettling(phaseText, lastWindow?.duration ? t.pbSettlingOver(lastWindow.duration) : '');
+      }
+      return t.pbStillLinear(lastWindow?.duration ? lastWindow.duration : t.pbMonitoredPeriod);
+    },
+    [summaryVcp, actualFailureTime, lastWindow, latestRawPhase, pfConfirmed, settlingInfo]
+  );
+
+  const failureTakeaway = useMemo(() => takeawayFor('en'), [takeawayFor]);
 
   // ── PDF export ─────────────────────────────────────────────────────────────
   const fileName = useMemo(() => {
@@ -444,28 +468,42 @@ export default function PostBlastReportModal({
   const effectiveTitle = (reportTitle || fileName).trim() || fileName;
 
   // ── Outlook draft content (subject + body) ─────────────────────────────────
+  // The printed PDF stays English — it is the archived report. Only the DRAFT
+  // the analyst sends follows the site's language (config/emailLocale.ts).
+  const emailLocale = resolveEmailLocale(meta, meta.timezone);
+  const t = emailStrings(emailLocale);
+
   // Plain-text mirror of the on-page Summary section, for the email body.
   const summaryText = useMemo(
-    () =>
-      [
-        `Current risk status: ${tarp} — slope classified as ${latestPhase}.`,
-        `Slope behaviour transition: ${transitions.length ? transitions.join(' -> ') : 'No staged behaviour detected.'}`,
-        `Outlook: ${failureTakeaway}`,
-      ].join('\n'),
-    [tarp, latestPhase, transitions, failureTakeaway]
+    () => {
+      const s = emailStrings(emailLocale);
+      const sequence = transitions.length
+        ? transitions.map((p) => translatePhase(p, emailLocale)).join(' -> ')
+        : s.pbNoStages;
+      return [
+        s.pbRiskStatus(tarp, translatePhase(latestPhase, emailLocale)),
+        s.pbTransition(sequence),
+        s.pbOutlook(takeawayFor(emailLocale)),
+      ].join('\n');
+    },
+    [tarp, latestPhase, transitions, takeawayFor, emailLocale]
   );
 
-  const emailSubject = `${analysisTitle} Report of ${meta.radarNumber || 'Sensor'} period of ${fmtLongDate(new Date())}`;
+  const emailSubject =
+    emailLocale === 'id'
+      ? `Laporan ${analysisTitle} ${meta.radarNumber || 'Sensor'} periode ${fmtLongDate(new Date())}`
+      : `${analysisTitle} Report of ${meta.radarNumber || 'Sensor'} period of ${fmtLongDate(new Date())}`;
+
   const emailBody = [
-    `SENSOR: ${meta.radarNumber || '—'} - ${meta.siteName || '—'}`,
-    ...(meta.blastId ? [`BLAST ID: ${meta.blastId}`] : []),
+    `${t.postBlastSensor}: ${meta.radarNumber || '—'} - ${meta.siteName || '—'}`,
+    ...(meta.blastId ? [`${t.postBlastBlastId}: ${meta.blastId}`] : []),
     '',
-    'SUMMARY:',
+    t.postBlastSummary,
     summaryText,
     '',
-    `The report can also be accessed from this link (${DASHBOARD_URL})`,
+    t.postBlastLink(DASHBOARD_URL),
     '',
-    'Kind regards,',
+    t.kindRegards,
     meta.author || '',
   ].join('\n');
 

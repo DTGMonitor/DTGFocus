@@ -23,7 +23,14 @@ import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
 import { canBeNotApplicable } from "@/config/parameterConfig";
 import { resolutionUpdates } from "@/utils/dqpImprovements";
-import { generateEmailBodyOthers, getWorkLogDetails, generateEmailBodyDQP } from '../../../config/formConfig';
+import {
+    generateEmailBodyOthers,
+    getWorkLogDetails,
+    generateEmailBodyDQP,
+    generateStatusSubject,
+    generateDqpSubject
+} from '../../../config/formConfig';
+import { resolveEmailLocale, emailStrings } from '../../../config/emailLocale';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 import SiteWideStatusModal from "@/components/admin/Radar/SiteWideStatusModal";
@@ -75,6 +82,11 @@ const SensorDetail = ({
     const userID = userSite?.user_id;
     const userName = userSite?.displayname;
     const [activeView, setActiveView] = useState('default');
+
+    // The language every draft this panel opens is written in — Indonesian sites
+    // are emailed in Bahasa Indonesia. See config/emailLocale.ts.
+    const emailLocale = resolveEmailLocale(sensor, timezone);
+    const draftOptions = { locale: emailLocale, timeZone: timezone };
 
     // --- Tabbed navigation (Requirement 1) ---
     const [activeTab, setActiveTab] = useState('deformation');
@@ -1079,8 +1091,9 @@ const SensorDetail = ({
                 const cleanSensorName = `${sensor.radar_number} - ${sensor.site_name}`;
                 const emailSiteName = `"${sensor.site_name} [All]"` || "Unknown Site";
 
-                const subject = `Service Operating Normally on ${cleanSensorName}`;
-                const body = `Dear All,\n\nPlease be advised that the data quality on ${cleanSensorName} is now reliable for monitoring.\n\nWe will continue to monitor the system and will notify you if any new risks are detected.\n\n\nKind regards,\n${userName}`;
+                const t = emailStrings(emailLocale);
+                const subject = t.serviceNormalSubject(cleanSensorName);
+                const body = `${t.dearAll}\n\n${t.serviceNormalBody(cleanSensorName)}\n\n\n${t.kindRegards}\n${userName}`;
 
                 openOutlookDraft(subject, body, emailSiteName, "DTG Engineers");
             }
@@ -1392,8 +1405,10 @@ const SensorDetail = ({
             const logSubject = isRelocation ? 1 : 2;
             const logAction = logSubject === 2 ? formData.action : null;
             const dqpEmailPrefix = isRelocation ? "NOTIFICATION ONLY" : "ACTION REQUIRED";
-            const dqpEmailSubject = `[${dqpEmailPrefix}] ${formData.subject} on ${cleanSensor}`;
-            const dqpEmailBody = generateEmailBodyDQP(formData, cleanSensor, userName, crosscheckerName, sharedRegions);
+            const dqpEmailSubject = generateDqpSubject(dqpEmailPrefix, formData.subject, cleanSensor, emailLocale);
+            const dqpEmailBody = generateEmailBodyDQP(
+                formData, cleanSensor, userName, crosscheckerName, sharedRegions, draftOptions
+            );
 
             const workLogPayload = {
                 created_at: new Date().toISOString(),
@@ -1514,8 +1529,10 @@ const SensorDetail = ({
     const cleanSensor = `${sensor.radar_number} - ${sensor.site_name}`;
     const crosscheckerName = selectedCrosschecker ? `& ${selectedCrosschecker.full_name}` : "";
     const logDetails = getWorkLogDetails(targetStatus, formData.notificationTime);
-    const emailSubject = `[${logDetails.subject}] ${targetStatus !== "Live" ? targetStatus : ""} on ${cleanSensor}`;
-    const emailBody = generateEmailBodyOthers(formData, targetStatus, cleanSensor, userName, crosscheckerName);
+    const emailSubject = generateStatusSubject(logDetails.subject, targetStatus, cleanSensor, emailLocale);
+    const emailBody = generateEmailBodyOthers(
+        formData, targetStatus, cleanSensor, userName, crosscheckerName, draftOptions
+    );
 
 
     return (

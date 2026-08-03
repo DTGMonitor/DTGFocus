@@ -10,6 +10,7 @@
 // browser or a Supabase client.
 
 import { fromUTC, toUTC } from './timezoneUtils';
+import { intlLocale, translateSelectionLabel, type EmailLocale } from '../config/emailLocale';
 
 /** Statuses that open the multi-sensor flow instead of the single-sensor modal. */
 export const SITE_WIDE_STATUSES = ['Lost Connection', 'Scheduled Offline'] as const;
@@ -51,12 +52,12 @@ export interface SensorSelectionLabel {
     withSite: string;
 }
 
-const joinNames = (names: string[]): string => {
+const joinNames = (names: string[], locale: EmailLocale = 'en'): string => {
     if (names.length === 0) return '';
     if (names.length === 1) return names[0];
     // Intl.ListFormat is how the deformation subjects join alarm types — keep the
     // "A, B and C" wording identical across every email the dashboard drafts.
-    return new Intl.ListFormat('en-AU', { style: 'short', type: 'conjunction' }).format(names);
+    return new Intl.ListFormat(intlLocale(locale), { style: 'short', type: 'conjunction' }).format(names);
 };
 
 /**
@@ -65,12 +66,16 @@ const joinNames = (names: string[]): string => {
  * `allLabel` is used when every sensor on the site is ticked; a partial
  * selection is quoted by its distinct radar numbers, so two wall folders of the
  * same radar read as one name rather than a repeated pair.
+ *
+ * `locale` translates the all-selected label and the conjunction — radar numbers
+ * are identifiers and are never translated.
  */
 export const sensorSelectionLabel = (
     sensors: SelectableSensor[],
     selectedIds: Array<number | string>,
     siteName: string,
-    allLabel: string
+    allLabel: string,
+    locale: EmailLocale = 'en'
 ): SensorSelectionLabel => {
     const selectedKeys = new Set(selectedIds.map(String));
     const selected = sensors.filter((s) => selectedKeys.has(String(s.wallfolder_id)));
@@ -78,7 +83,9 @@ export const sensorSelectionLabel = (
     const isAll = sensors.length > 0 && selected.length === sensors.length;
     const names = Array.from(new Set(selected.map((s) => s.radar_number).filter(Boolean))) as string[];
 
-    const bare = isAll || names.length === 0 ? allLabel : joinNames(names);
+    const bare = isAll || names.length === 0
+        ? translateSelectionLabel(allLabel, locale)
+        : joinNames(names, locale);
     return { bare, withSite: `${bare} - ${siteName}` };
 };
 
