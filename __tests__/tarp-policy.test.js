@@ -22,6 +22,8 @@ import {
     inferResponseMethod,
     resolveResponseRequirement,
     responseRequirementForType,
+    namesInternalAudience,
+    resolveDraftAudience,
     nominalTarpLevel,
     resolveTarpTransition
 } from '../config/tarpDocument';
@@ -340,6 +342,92 @@ describe('response method when an alarm fired', () => {
         });
         expect(req.method).toBe('email');
         expect(req.alarmOverride).toBe(false);
+    });
+});
+
+describe('who the draft is addressed to', () => {
+    // Blast and rainfall rows are DTG watching its own back analysis. Telfer
+    // promises the mine an email for them; Hidden Valley does not. The row's own
+    // wording is the only thing that decides.
+    const row = (dayShift, nightShift = dayShift) => normalizeTarpDocument({
+        ...genesisRow,
+        triggers: [{
+            id: 1, sort_order: 1, trigger_label: 'Blast event', comments: [],
+            def_type: 'Blast Event', tarp_level: 2, requires_alarm: false,
+            day_shift: dayShift, night_shift: nightShift
+        }]
+    }).triggers[0];
+
+    const SITE = '"Hidden Valley [All]"';
+
+    it('sends an "Email DTG Internal" row to DTG with no CC', () => {
+        const audience = resolveDraftAudience(row('Email DTG Internal'), SITE);
+        expect(audience).toEqual({ to: 'DTG Engineers', cc: '', internal: true });
+    });
+
+    it('keeps a client-facing row on the site with DTG copied in', () => {
+        const audience = resolveDraftAudience(row('Email Geotech'), SITE);
+        expect(audience).toEqual({ to: SITE, cc: 'DTG Engineers', internal: false });
+    });
+
+    it('reads the audience, not the sender', () => {
+        expect(namesInternalAudience('Site Geotech to email DTG monitoring engineers'))
+            .toBe(true);
+        expect(namesInternalAudience('DTG engineer escalates internally by email'))
+            .toBe(true);
+    });
+
+    it('never treats a call as internal, however it is phrased', () => {
+        expect(namesInternalAudience('Call DTG')).toBe(false);
+        expect(namesInternalAudience('Call Geotech then email DTG internal')).toBe(false);
+    });
+
+    it('tolerates a shift that has nothing to do', () => {
+        const audience = resolveDraftAudience(row('Email DTG Internal', 'NA'), SITE);
+        expect(audience.internal).toBe(true);
+    });
+
+    it('stays client-facing when the two shifts disagree', () => {
+        // Withholding an email the chart promised the site is the worse mistake.
+        const audience = resolveDraftAudience(row('Email DTG Internal', 'Call Geotech'), SITE);
+        expect(audience.internal).toBe(false);
+        expect(audience.to).toBe(SITE);
+    });
+
+    it('falls back to the site when no row matched at all', () => {
+        expect(resolveDraftAudience(null, SITE))
+            .toEqual({ to: SITE, cc: 'DTG Engineers', internal: false });
+    });
+
+    it('returns the site once an alarm makes the response client-facing', () => {
+        // A blast that also raised a red alarm resolves to the alarm row, and an
+        // alarm is a trigger the mine is owed regardless of the blast wording.
+        const doc = normalizeTarpDocument({
+            ...genesisRow,
+            triggers: [
+                {
+                    id: 1, sort_order: 1, trigger_label: 'Blast event', comments: [],
+                    colour: 'yellow', def_type: 'Blast Event', tarp_level: 2,
+                    requires_alarm: false, day_shift: 'Email DTG Internal',
+                    night_shift: 'Email DTG Internal'
+                },
+                {
+                    id: 2, sort_order: 2, trigger_label: 'Red Alarm', comments: [],
+                    colour: 'red', def_type: null, tarp_level: 4, requires_alarm: true,
+                    day_shift: 'Call Geotech', night_shift: 'Call Geotech'
+                }
+            ]
+        });
+
+        const quiet = responseRequirementForType(doc, 'Blast Event', { hasAlarm: false });
+        expect(resolveDraftAudience(quiet.trigger, SITE).internal).toBe(true);
+
+        const alarmed = responseRequirementForType(doc, 'Blast Event', {
+            hasAlarm: true, alarmColours: ['Red']
+        });
+        expect(resolveDraftAudience(alarmed.trigger, SITE)).toEqual({
+            to: SITE, cc: 'DTG Engineers', internal: false
+        });
     });
 });
 

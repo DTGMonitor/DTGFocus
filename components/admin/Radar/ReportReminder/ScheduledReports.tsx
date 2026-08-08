@@ -9,11 +9,15 @@ import {
   Settings,
   Loader,
   Satellite,
+  Send,
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 import {
   useReportSchedules,
   SiteReportStatus,
 } from './useReportSchedules';
+import { useDailyReportDraft } from './useDailyReportDraft';
+import { useUserSite } from '@/components/Reusable/useUserSite';
 import { defaultReminderFor, Cadence, SiteSchedule } from './scheduleUtils';
 import { RADAR_TYPE } from './reportTypes';
 
@@ -21,6 +25,19 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const INPUT_CLASS =
   'mt-1 bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded px-2 py-1 text-[var(--dtg-text-primary)] text-sm';
+
+/**
+ * Does this site owe anything at all?
+ *
+ * A site with every obligation switched off is not on the schedule, so it is
+ * not listed — the panel is a list of what is DUE, and a dozen dormant sites
+ * pushed the ones that matter off the screen. Manage mode still shows every
+ * site, because that is where an obligation gets switched back on.
+ */
+export function hasEnabledObligation(site: SiteReportStatus): boolean {
+  if (site.hasRadar && site.schedule.enabled) return true;
+  return site.bulletins.some((b) => b.schedule.enabled);
+}
 
 function periodWord(cadence: Cadence): string {
   if (cadence === 'weekly') return 'this week';
@@ -117,8 +134,38 @@ export default function ScheduledReports() {
   const { sites, loading, saveSchedule } = useReportSchedules();
   const [editing, setEditing] = useState(false);
 
+  // useUserSite is untyped JS whose state initialises to null, so TS infers
+  // `never` for both — the signature the rest of the app relies on is asserted
+  // here rather than reshaping that hook.
+  const { user, userSite } = useUserSite() as {
+    user: { email?: string } | null;
+    userSite: { displayname?: string } | null;
+  };
+  const senderName = userSite?.displayname || user?.email || '';
+  const { sendFor, sendingSiteId } = useDailyReportDraft(senderName);
+
+  const visibleSites = editing ? sites : sites.filter(hasEnabledObligation);
+
+  const handleSend = async (site: SiteReportStatus) => {
+    const outcome = await sendFor(site.id, site.name);
+    if (!outcome.ok) {
+      toast.error(outcome.message);
+      return;
+    }
+    if (outcome.failed.length) {
+      toast.error(
+        `Draft opened, but ${outcome.failed.length} attachment(s) could not be downloaded.`
+      );
+      return;
+    }
+    toast.success(
+      `${outcome.downloaded.length} report(s) downloaded — attach them to the draft.`
+    );
+  };
+
   return (
     <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-6">
+      <Toaster position="top-center" reverseOrder={false} />
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg text-[var(--dtg-text-primary)]">Scheduled Reports</h3>
@@ -144,14 +191,20 @@ export default function ScheduledReports() {
         <div className="p-8 text-center text-[var(--dtg-gray-500)] text-sm">
           No sites available.
         </div>
+      ) : visibleSites.length === 0 ? (
+        <div className="p-8 text-center text-[var(--dtg-gray-500)] text-sm">
+          No sites have a report scheduled. Use Manage Schedule to enable one.
+        </div>
       ) : (
         <div className="space-y-3">
-          {sites.map((site) => (
+          {visibleSites.map((site) => (
             <SiteCard
               key={site.id}
               site={site}
               editing={editing}
               saveSchedule={saveSchedule}
+              onSend={() => handleSend(site)}
+              sending={sendingSiteId === site.id}
             />
           ))}
         </div>
@@ -164,12 +217,17 @@ function SiteCard({
   site,
   editing,
   saveSchedule,
+  onSend,
+  sending,
 }: {
   site: SiteReportStatus;
   editing: boolean;
   saveSchedule: (siteId: string, patch: Partial<SiteSchedule>, reportType?: string) => void;
+  onSend: () => void;
+  sending: boolean;
 }) {
   const generated = site.generatedToday;
+  const reportedCount = site.sensorCount - site.pendingSensors.length;
   const visibleBulletins = editing
     ? site.bulletins
     : site.bulletins.filter((b) => b.schedule.enabled);
@@ -210,7 +268,7 @@ function SiteCard({
               <div className="flex items-center gap-3 text-[var(--dtg-gray-500)] text-sm">
                 <span className="flex items-center gap-1">
                   <Radio className="w-3 h-3" />
-                  {site.sensorCount - site.pendingSensors.length}/{site.sensorCount} reported
+                  {reportedCount}/{site.sensorCount} reported
                 </span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
@@ -260,6 +318,29 @@ function SiteCard({
                   {site.schedule.enabled ? site.schedule.reminder : 'Off'}
                 </div>
               </div>
+
+              {/* Only an enabled obligation can be reported on — a site that is
+                  not on the schedule shows no send affordance at all. */}
+              {site.schedule.enabled && (
+                <button
+                  onClick={onSend}
+                  disabled={sending || reportedCount === 0}
+                  title={
+                    reportedCount === 0
+                      ? 'No radar report generated for this site today'
+                      : 'Download today\'s reports and open the notification draft'
+                  }
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm border border-[#14b8a6]/40 text-[#14b8a6] hover:bg-[#14b8a6]/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  {sending ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  Send Report
+                </button>
+              )}
+
               {generated ? (
                 <span className="flex items-center gap-1 text-green-500 text-sm">
                   <CheckCircle className="w-4 h-4" />

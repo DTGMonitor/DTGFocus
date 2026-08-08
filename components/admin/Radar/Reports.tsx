@@ -15,64 +15,6 @@ import ReportList from "@/components/admin/Reports/ReportList";
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 import ScheduledReports from "@/components/admin/Radar/ReportReminder/ScheduledReports";
 
-interface Report {
-  id: string;
-  title: string;
-  type: 'alarm' | 'data-quality' | 'availability' | 'safety';
-  date: string;
-  generatedBy: string;
-  status: 'completed' | 'pending' | 'draft';
-  size: string;
-}
-
-const recentReports: Report[] = [
-  {
-    id: '1',
-    title: 'Monthly Alarm Summary - October 2024',
-    type: 'alarm',
-    date: 'Oct 31, 2024',
-    generatedBy: 'Telfer Operator',
-    status: 'completed',
-    size: '2.4 MB'
-  },
-  {
-    id: '2',
-    title: 'Data Quality Report - Week 43',
-    type: 'data-quality',
-    date: 'Oct 27, 2024',
-    generatedBy: 'System Auto',
-    status: 'completed',
-    size: '1.8 MB'
-  },
-  {
-    id: '3',
-    title: 'System Availability Analysis - Q3 2024',
-    type: 'availability',
-    date: 'Oct 25, 2024',
-    generatedBy: 'Telfer Engineer',
-    status: 'completed',
-    size: '3.1 MB'
-  },
-  {
-    id: '4',
-    title: 'Safety Inspection Summary - October',
-    type: 'safety',
-    date: 'Oct 20, 2024',
-    generatedBy: 'Telfer Operator',
-    status: 'completed',
-    size: '1.2 MB'
-  },
-  {
-    id: '5',
-    title: 'Weekly Data Quality Report',
-    type: 'data-quality',
-    date: 'In Progress',
-    generatedBy: 'Telfer Operator',
-    status: 'draft',
-    size: '-'
-  },
-];
-
 function Reports() {
   const [showReportUpload, setReportUpload] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -213,7 +155,7 @@ function Reports() {
 
       {showReportModal &&
         <ReportTemplateModal onClose={() => setShowReportModal(false)} radarData={null} sensor={null}/>}
-      {/* Quick Actions */}
+      {/* Quick Actions
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <button
           onClick={() => setViewingReport('alarm')}
@@ -278,14 +220,13 @@ function Reports() {
           <h3 className="text-white mb-1">View Safety Report</h3>
           <p className="text-sm text-[var(--dtg-gray-400)]">Safety inspection data</p>
         </button>
-      </div>
-
-      <ReportList refreshTrigger={refreshTrigger} />
+      </div> */}
 
       {/* Scheduled Reports — per-site deadline & reminder */}
       <ScheduledReports />
+      <ReportList refreshTrigger={refreshTrigger} />
 
-      {/* Report Preview Modals */}
+      {/* Report Preview Modals
       {viewingReport === 'alarm' && (
         <ReportTemplate type="alarm" onClose={() => setViewingReport(null)}>
           <AlarmReportPreview />
@@ -305,7 +246,7 @@ function Reports() {
         <ReportTemplate type="safety" onClose={() => setViewingReport(null)}>
           <SafetyReportPreview />
         </ReportTemplate>
-      )}
+      )} */}
     </div>
   );
 }

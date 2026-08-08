@@ -489,6 +489,90 @@ export const responseRequirementForType = (
 };
 
 // ---------------------------------------------------------------------------
+// Who the draft is addressed to
+//
+// Most TARP rows are a promise to the client: the engineer emails the site. A
+// few are not. Blast and rainfall rows exist so DTG can watch a slope respond to
+// something it already knows happened, and the charts that carry them say so —
+// "Email DTG Internal". Those must never open a draft addressed to the mine:
+// the site did not ask to be told that we are looking, and a blast notification
+// landing in the pit's inbox reads as a hazard call that nobody made.
+//
+// The row's own wording decides. Anything else — a per-site flag, a hard-coded
+// list of deformation types — would drift the moment a client signs a revision,
+// which is the whole reason the chart is data.
+// ---------------------------------------------------------------------------
+
+/** The Outlook group every DTG workstation resolves for internal notices. */
+export const DTG_INTERNAL_GROUP = 'DTG Engineers';
+
+/**
+ * True when a shift cell says the email goes to DTG rather than to the client.
+ *
+ * Matched on the recipient, not the sender: "Site Geotech to email DTG
+ * monitoring engineers" is still an email whose audience is DTG. Rows that name
+ * a call are excluded — a call is a client-facing response by definition, and a
+ * row that says "Call Geotech" has not de-escalated to an internal note however
+ * it goes on to phrase the follow-up.
+ */
+const DTG_AUDIENCE_RE = /\bdtg\b|\binternal(ly)?\b/i;
+
+export const namesInternalAudience = (
+    text: string | null | undefined
+): boolean => {
+    const value = String(text ?? '').trim();
+    if (!value) return false;
+    if (CALL_RE.test(value)) return false;
+    return EMAIL_RE.test(value) && DTG_AUDIENCE_RE.test(value);
+};
+
+/** True when a shift cell asks for anything the client is meant to receive. */
+const namesClientAudience = (text: string | null | undefined): boolean => {
+    const value = String(text ?? '').trim();
+    if (!value || NO_ACTION_RE.test(value)) return false;
+    if (CALL_RE.test(value)) return true;
+    return EMAIL_RE.test(value) && !DTG_AUDIENCE_RE.test(value);
+};
+
+export interface DraftAudience {
+    /** mailto "To". */
+    to: string;
+    /** mailto "Cc". Empty string means send no CC at all. */
+    cc: string;
+    /** True when the row addressed DTG itself rather than the client. */
+    internal: boolean;
+}
+
+/**
+ * Recipients for the draft a trigger produces.
+ *
+ * `siteGroup` is the client's own Outlook group, used for every normal row with
+ * DTG copied in. An internal row inverts that: DTG is the only recipient and
+ * there is no CC, because the one party who must not receive it is the party
+ * the CC would otherwise reach.
+ *
+ * Pass the trigger `responseRequirementForType` resolved, not the deformation
+ * row directly — when an alarm fires that answer is the alarm row, and an alarm
+ * is a client-facing trigger in its own right. A blast that also raised a red
+ * alarm is a phone call to the mine, not an internal note.
+ *
+ * A row whose two shifts disagree stays client-facing. Withholding an email the
+ * chart promised the site is the worse of the two mistakes.
+ */
+export const resolveDraftAudience = (
+    trigger: TarpTrigger | null,
+    siteGroup: string
+): DraftAudience => {
+    const shifts = [trigger?.dayShift, trigger?.nightShift];
+    const internal = shifts.some(namesInternalAudience)
+        && !shifts.some(namesClientAudience);
+
+    return internal
+        ? { to: DTG_INTERNAL_GROUP, cc: '', internal: true }
+        : { to: siteGroup, cc: DTG_INTERNAL_GROUP, internal: false };
+};
+
+// ---------------------------------------------------------------------------
 // Escalation / de-escalation
 //
 // A de-escalation is a movement DOWN the TARP levels — the trend reported as

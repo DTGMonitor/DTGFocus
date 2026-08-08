@@ -10,7 +10,7 @@ import { resolveEmailLocale } from '../../../../config/emailLocale';
 import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
 import { composeDeformationSubject } from '../../../../config/emailSubject';
 import { useTarpDocument } from '../Tarp/useTarpDocument';
-import { responseRequirementForType, resolveTarpTransition } from '../../../../config/tarpDocument';
+import { responseRequirementForType, resolveDraftAudience, resolveTarpTransition } from '../../../../config/tarpDocument';
 import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
 import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
@@ -669,7 +669,16 @@ const AddDeformationForm = ({
 
             if (onSuccess) onSuccess();
 
-            // Rainfall Event: skip normal email draft; trigger Refractivity modal instead.
+            // The TARP draft. Who it is addressed to is the matched row's own
+            // answer — a row that says "Email DTG Internal" goes to DTG with no
+            // CC, so the site is not told about a blast it fired itself.
+            openOutlookDraft(emailSubject, emailBody, draftAudience.to, draftAudience.cc);
+
+            // A rainfall event owes the site a SECOND draft, and a different one:
+            // the TARP note above says what the slope did, while the DQP route
+            // says the weather degraded the service. Both are true and neither
+            // substitutes for the other, so the Refractivity modal still opens —
+            // its draft is raised when the engineer submits it.
             if (formData.Type === 'Rainfall Event') {
                 console.log('[Rainfall→Refractivity] Rainfall Event saved. onRainfallSaved present:', typeof onRainfallSaved === 'function');
                 if (onRainfallSaved) {
@@ -678,8 +687,6 @@ const AddDeformationForm = ({
                     console.warn('[Rainfall→Refractivity] onRainfallSaved callback missing — check prop wiring.');
                     toast.error('Rainfall saved, but the DQP action could not be triggered (missing handler).');
                 }
-            } else {
-                openOutlookDraft(emailSubject, emailBody, siteName, "DTG Engineers");
             }
         } catch (err: any) {
             console.error(err);
@@ -714,6 +721,13 @@ const AddDeformationForm = ({
         hasAlarm: withAlarm || selectedRegions.length > 0,
         alarmColours: selectedRegions.map((r: any) => r.type),
     });
+
+    // Blast and rainfall rows are DTG watching its own back analysis, and the
+    // charts that carry them say "Email DTG Internal". Reading the row the
+    // response was resolved FROM keeps the alarm case honest: a blast that also
+    // raised an alarm resolves to the alarm row, which is client-facing, so the
+    // draft goes back to the site with DTG copied in.
+    const draftAudience = resolveDraftAudience(responseRequirement?.trigger ?? null, siteName);
 
     // Is this record standing a TARP level DOWN? The prior state is the record
     // being updated plus any precursors the engineer ticked.
@@ -837,6 +851,20 @@ const AddDeformationForm = ({
                                 </p>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* The draft is about to open addressed somewhere other than the
+                    site. Say so here rather than letting the engineer discover it
+                    in the Outlook To: line — or fail to. */}
+                {draftAudience.internal && (
+                    <div className="flex items-start gap-2 rounded-md border border-[var(--dtg-border-medium)] px-3 py-2">
+                        <FileQuestion size={14} className="mt-0.5 shrink-0 text-[var(--dtg-text-muted)]" />
+                        <p className="text-xs text-[var(--dtg-text-muted)]">
+                            Internal notice — the draft goes to {draftAudience.to} only, with no CC to
+                            {' '}{sensor.site_name}. Per the{' '}
+                            {responseRequirement?.trigger?.triggerLabel || formData.Type} row.
+                        </p>
                     </div>
                 )}
 

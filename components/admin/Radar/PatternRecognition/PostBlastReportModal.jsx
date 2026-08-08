@@ -20,6 +20,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { displayPhase, shortVcpLabel } from '@/utils/stageBoundaries';
 import { emailStrings, resolveEmailLocale, translatePhase } from '@/config/emailLocale';
+import { DTG_INTERNAL_GROUP } from '@/config/tarpDocument';
 import { supabase } from '@/lib/supabaseClient';
 import {
   PAGE_W,
@@ -602,8 +603,12 @@ export default function PostBlastReportModal({
         console.error('Saving report to Supabase failed:', err);
       }
 
-      // Pre-filled Outlook draft.
-      openOutlookDraft(emailSubject, emailBody);
+      // Pre-filled Outlook draft. Post-blast and failure back-analysis reports are
+      // internal work product — the reasoning is DTG's, and a forecast error the
+      // engineer has not reviewed yet is not something to put in front of a mine.
+      // Addressed to DTG with no CC rather than left blank, which relied on the
+      // sender remembering to type a recipient at all.
+      openOutlookDraft(emailSubject, emailBody, DTG_INTERNAL_GROUP, '');
 
       // Local high-quality download.
       await printLocal();
