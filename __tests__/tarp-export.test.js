@@ -164,4 +164,61 @@ describe('buildTarpWorkbook', () => {
     const wb = await buildTarpWorkbook(doc, { siteName: 'Pit A/B [North]' });
     expect(wb.worksheets[0].name).toBe('Pit A B  North');
   });
+
+  it('omits the parameter column for a chart that has no parameter axis', () => {
+    // Every column above is asserted at its historic index; a leading column
+    // appearing here would silently reshape every existing client's workbook.
+    const sheet = workbook.getWorksheet('Leonora');
+    expect(sheet.getRow(4).getCell(1).value).toBe('RISK RATING');
+    expect(sheet.getRow(4).getCell(8).value).toBe('Note');
+  });
+});
+
+/**
+ * Charts imported from the parameter x risk-band layout carry an axis the
+ * row-layout sites do not have, and it has to come back out again — a client
+ * whose TARP is drawn by parameter should not be handed one that has dropped it.
+ */
+describe('buildTarpWorkbook — a chart with a parameter axis', () => {
+  let sheet;
+
+  beforeAll(async () => {
+    const matrixDoc = normalizeTarpDocument({
+      id: 3,
+      site_id: 9,
+      heading: 'PT. IBP',
+      default_response_method: 'call',
+      triggers: [
+        {
+          id: 1, sort_order: 1, parameter: 'Pola Deformasi', risk_rating: 'Extreme',
+          band_label: 'TARP Trigger 4 (Red)', trigger_label: 'Pola Deformasi Progresif',
+          colour: 'red', description: 'Terindikasi pergerakan lereng progresif',
+          comments: [], def_type: 'Progressive', tarp_level: 4, requires_alarm: false,
+        },
+        {
+          id: 2, sort_order: 2, parameter: 'Koneksi Data', risk_rating: null,
+          trigger_label: 'Offline Scheduled', colour: 'grey', comments: [],
+          def_type: null, tarp_level: null, requires_alarm: false,
+        },
+      ],
+      contacts: [],
+      revisions: [],
+    });
+
+    const wb = await buildTarpWorkbook(matrixDoc, { siteName: 'IBP Mahakam' });
+    sheet = wb.getWorksheet('IBP Mahakam');
+  });
+
+  it('leads with the parameter, pushing every other column one to the right', () => {
+    expect(sheet.getRow(4).getCell(1).value).toBe('Parameter');
+    expect(sheet.getRow(4).getCell(2).value).toBe('RISK RATING');
+    expect(sheet.getRow(4).getCell(9).value).toBe('Note');
+    expect(sheet.getRow(5).getCell(1).value).toBe('Pola Deformasi');
+    expect(sheet.getRow(6).getCell(1).value).toBe('Koneksi Data');
+  });
+
+  it('keeps the band fill on the risk column it moved', () => {
+    expect(sheet.getRow(5).getCell(2).fill.fgColor.argb).toBe('FFFF0000');
+    expect(sheet.getRow(5).getCell(4).value).toBe('Pola Deformasi Progresif');
+  });
 });

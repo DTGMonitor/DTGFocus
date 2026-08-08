@@ -71,14 +71,18 @@ export const composeDeformationSubject = ({
 }: DeformationSubjectInput): DeformationSubject => {
     const activePolicy = policy || DEFAULT_TARP_POLICY;
     const hasAlarm = alarmRegions.length > 0;
+    // Which alarm fired, not merely that one did: a site whose bands are
+    // velocity thresholds reads its level off the colour, so an orange alarm on
+    // a progressive trend is TARP 3. See TarpLevelSource.
+    const alarmColours = alarmRegions.map(region => region?.type);
+    const facts = { hasAlarm, alarmColours, policy: activePolicy };
 
-    const tarpLevel = resolveTarpLevel(type, { hasAlarm, policy: activePolicy });
-    const severityTarp = resolveSeverityTarpLevel(type, { hasAlarm, policy: activePolicy });
+    const tarpLevel = resolveTarpLevel(type, facts);
+    const severityTarp = resolveSeverityTarpLevel(type, facts);
 
     const logDetails = getWorkLogDetails(severityTarp, notificationTime);
-    const bracket =
-        resolveSeverityBracket(type, { hasAlarm, policy: activePolicy }) || logDetails.subject;
-    const triggerLabel = resolveSubjectLabel(type, { hasAlarm, policy: activePolicy });
+    const bracket = resolveSeverityBracket(type, facts) || logDetails.subject;
+    const triggerLabel = resolveSubjectLabel(type, facts);
 
     const subject = generateEmailSubject(bracket, tarpLevel, type, sensor, alarmRegions, {
         triggerLabel,

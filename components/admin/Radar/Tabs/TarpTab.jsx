@@ -4,15 +4,18 @@ import { Spinner } from '@/components/Reusable/Spinner';
 import EditModal from '@/components/admin/Radar/shared/EditModal';
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import TarpChart from '@/components/admin/Radar/Tarp/TarpChart';
+import TarpImportModal from '@/components/admin/Radar/Tarp/TarpImportModal';
 import { useTarpDocument } from '@/components/admin/Radar/Tarp/useTarpDocument';
 import { downloadTarpXlsx } from '@/utils/tarpXlsx';
+import { toContactImportPayload, toImportPayload } from '@/utils/tarpImport';
 import { TYPE_MATRIX } from '@/config/formConfig';
 import { RESPONSE_METHOD_LABEL, buildPolicyFromDocument } from '@/config/tarpDocument';
 import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from '@/config/tarpPolicy';
 import { composeDeformationSubject } from '@/config/emailSubject';
+import { resolveTarpLocale, tarpStrings, translateDocumentText } from '@/config/tarpLocale';
 import toast from 'react-hot-toast';
 import {
-  Copy, Download, FileText, History, Plus, Save, Trash2, Pencil, Undo2,
+  Copy, Download, FileText, History, Plus, Save, Trash2, Pencil, Undo2, Upload,
 } from 'lucide-react';
 
 /**
@@ -26,10 +29,16 @@ import {
  * committed by `tarp_save_revision`, which writes a complete new version plus
  * its DOCUMENT CONTROL entry in one transaction.
  *
+ * An Indonesian site's chart and workbook are rendered in Bahasa Indonesia
+ * (config/tarpLocale.ts). The document itself is not translated: the editing
+ * surface, the subject preview and the email engine all keep reading the English
+ * rows, so what an engineer amends here is what the inbox will quote.
+ *
  * Props:
  *   sensor    {object} - needs `site_id` and `site_name`
  *   userSite  {object} - supplies the DTG engineer name for the revision row
  *   activeTab {string} - re-fetches when this becomes 'tarp'
+ *   timezone  {string} - the SITE's IANA zone; decides the chart's language
  */
 
 const DEF_TYPE_OPTIONS = [
@@ -56,6 +65,11 @@ const ALARM_PREFIX_OPTIONS = [
 
 const TRIGGER_FIELDS = [
   { key: 'triggerLabel', label: 'Trigger', type: 'text', required: true },
+  {
+    key: 'parameter',
+    label: 'Parameter (matrix-layout charts only — blank on the rest)',
+    type: 'text',
+  },
   { key: 'bandLabel', label: 'TARP Band Label', type: 'text' },
   { key: 'riskRating', label: 'Risk Rating', type: 'text' },
   { key: 'colour', label: 'Colour', type: 'select', options: COLOUR_OPTIONS },
@@ -95,7 +109,25 @@ const TRIGGER_FIELDS = [
   },
 ];
 
+const LEVEL_SOURCE_OPTIONS = [
+  {
+    value: 'trigger',
+    label: 'The deformation row — a progressive trend is always its own level',
+  },
+  {
+    value: 'alarm',
+    label: 'The alarm that fired — its colour decides the level, and no alarm means no trigger',
+  },
+];
+
 const SITE_RULE_FIELDS = [
+  {
+    key: 'tarp_level_source',
+    label: 'What decides the TARP level in an email',
+    type: 'select',
+    options: LEVEL_SOURCE_OPTIONS,
+    required: true,
+  },
   {
     key: 'default_response_method',
     label: 'Normal response to a trigger',
@@ -161,6 +193,7 @@ const REVISION_FIELDS = [
 /** Domain trigger -> flat values the generic EditModal understands. */
 const toTriggerValues = (trigger) => ({
   triggerLabel: trigger.triggerLabel || '',
+  parameter: trigger.parameter || '',
   bandLabel: trigger.bandLabel || '',
   riskRating: trigger.riskRating || '',
   colour: trigger.colour || '',
@@ -182,6 +215,7 @@ const toTriggerValues = (trigger) => ({
 const fromTriggerValues = (trigger, values) => ({
   ...trigger,
   triggerLabel: values.triggerLabel?.trim() || trigger.triggerLabel,
+  parameter: values.parameter?.trim() || null,
   bandLabel: values.bandLabel?.trim() || null,
   riskRating: values.riskRating?.trim() || null,
   colour: values.colour || null,
@@ -209,6 +243,7 @@ const fromTriggerValues = (trigger, values) => ({
 /** Domain trigger -> the snake_case payload tarp_save_revision expects. */
 const toTriggerPayload = (trigger, index) => ({
   sort_order: index + 1,
+  parameter: trigger.parameter,
   risk_rating: trigger.riskRating,
   band_label: trigger.bandLabel,
   trigger_label: trigger.triggerLabel,
@@ -240,9 +275,13 @@ const toContactPayload = (contact, index) => ({
 let tempIdCounter = 0;
 const nextTempId = () => `new-${(tempIdCounter += 1)}`;
 
-export default function TarpTab({ sensor, userSite, activeTab }) {
+export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
   const siteId = sensor?.site_id;
   const { document: doc, loading, error, refresh } = useTarpDocument(siteId);
+  // The document's own prose follows the site's language; the editing controls
+  // around it stay English, because they act on the English rows.
+  const locale = resolveTarpLocale(sensor, timezone);
+  const t = tarpStrings(locale);
 
   const [draft, setDraft] = useState(null); // null = not editing
   const [editTarget, setEditTarget] = useState(null);
@@ -257,6 +296,11 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
   const [cloneSourceId, setCloneSourceId] = useState('');
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [company, setCompany] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  // Where the draft's rows came from, so the revision row says so rather than
+  // recording a wholesale replacement as an ordinary amendment.
+  const [importSource, setImportSource] = useState(null);
 
   useEffect(() => {
     if (activeTab === 'tarp') refresh();
@@ -301,6 +345,7 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
     subject_label_template: doc?.subjectLabelTemplate ?? DEFAULT_SUBJECT_LABEL_TEMPLATE,
     subject_label_template_alarm: doc?.subjectLabelTemplateAlarm ?? '',
     alarm_prefix_style: doc?.alarmPrefixStyle ?? 'regions',
+    tarp_level_source: doc?.tarpLevelSource ?? 'trigger',
   }), [isEditing, draft, doc]);
 
   // What this chart actually sends. Built from the rows on screen — including
@@ -315,6 +360,7 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       subjectLabelTemplate: rules.subject_label_template || DEFAULT_SUBJECT_LABEL_TEMPLATE,
       subjectLabelTemplateAlarm: rules.subject_label_template_alarm || null,
       alarmPrefixStyle: rules.alarm_prefix_style || 'regions',
+      tarpLevelSource: rules.tarp_level_source || 'trigger',
     });
 
     const exampleSensor = `R01 - ${sensor?.site_name || 'Site'}`;
@@ -344,7 +390,8 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       || (draft.rules.distribution_raw || '') !== (doc.distributionRaw || '')
       || (draft.rules.subject_label_template || '') !== (doc.subjectLabelTemplate || '')
       || (draft.rules.subject_label_template_alarm || '') !== (doc.subjectLabelTemplateAlarm || '')
-      || draft.rules.alarm_prefix_style !== doc.alarmPrefixStyle;
+      || draft.rules.alarm_prefix_style !== doc.alarmPrefixStyle
+      || draft.rules.tarp_level_source !== doc.tarpLevelSource;
   }, [isEditing, draft, doc]);
 
   const beginEditing = useCallback(() => {
@@ -360,6 +407,7 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         subject_label_template: doc.subjectLabelTemplate || DEFAULT_SUBJECT_LABEL_TEMPLATE,
         subject_label_template_alarm: doc.subjectLabelTemplateAlarm || '',
         alarm_prefix_style: doc.alarmPrefixStyle || 'regions',
+        tarp_level_source: doc.tarpLevelSource || 'trigger',
       },
     });
   }, [doc]);
@@ -446,6 +494,7 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       toast.success(`Published version ${(doc.version ?? 0) + 1}`);
       setShowPublish(false);
       setDraft(null);
+      setImportSource(null);
       await refresh();
     } catch (err) {
       console.error('[TarpTab] publish failed', err);
@@ -506,6 +555,75 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
     }
   }, [cloneSourceId, siteId, userSite, refresh]);
 
+  // ── Importing a client's own workbook ──────────────────────────────────────
+  //
+  // Two destinations, one parser (utils/tarpImport.js):
+  //
+  //   * a site WITH a document imports into the draft, so the rows go out
+  //     through tarp_save_revision like any other amendment — the version in
+  //     force keeps driving emails until an engineer publishes, and the
+  //     replacement is recorded in DOCUMENT CONTROL.
+  //   * a site WITHOUT one calls tarp_create_from_import, which refuses to run
+  //     if a document appeared in the meantime.
+  const handleImport = useCallback(async (importedTriggers, meta) => {
+    const provenance = [meta.fileName, meta.sheetName && `sheet "${meta.sheetName}"`]
+      .filter(Boolean).join(', ');
+
+    if (doc) {
+      setDraft((prev) => ({
+        triggers: importedTriggers,
+        contacts: (prev ?? doc).contacts.map((c) => ({ ...c })),
+        rules: prev?.rules ?? {
+          default_response_method: doc.defaultResponseMethod,
+          deescalation_response_method: doc.deescalationResponseMethod,
+          deescalation_notice: doc.deescalationNotice || '',
+          distribution_raw: doc.distributionRaw || '',
+          subject_label_template: doc.subjectLabelTemplate || DEFAULT_SUBJECT_LABEL_TEMPLATE,
+          subject_label_template_alarm: doc.subjectLabelTemplateAlarm || '',
+          alarm_prefix_style: doc.alarmPrefixStyle || 'regions',
+        tarp_level_source: doc.tarpLevelSource || 'trigger',
+        },
+      }));
+      setImportSource(provenance);
+      setShowImport(false);
+      toast.success(
+        `${importedTriggers.length} rows loaded into the draft. `
+        + `Version ${doc.version} stays in force until you publish.`
+      );
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const { error: rpcError } = await supabase.rpc('tarp_create_from_import', {
+        p_site_id: siteId,
+        p_document: {
+          // The workbook's own names beat ours — it is the client's document.
+          heading: meta.heading || sensor?.site_name || company || null,
+          title: meta.title || null,
+          distribution_raw: meta.distributionRaw || null,
+          import_remark:
+            `Imported from ${provenance}. NOT YET AGREED WITH SITE — a spreadsheet `
+            + 'cannot state which rows drive an email, so confirm the deformation '
+            + 'type, TARP level and response on every row before relying on it.',
+        },
+        p_triggers: importedTriggers.map(toImportPayload),
+        p_contacts: (meta.contacts || []).map(toContactImportPayload),
+        p_created_by: userSite?.user_id || null,
+      });
+      if (rpcError) throw rpcError;
+
+      toast.success('TARP created from the file — review it with the site before relying on it.');
+      setShowImport(false);
+      await refresh();
+    } catch (err) {
+      console.error('[TarpTab] import failed', err);
+      toast.error(err.message || 'Could not create the TARP document from that file.');
+    } finally {
+      setIsImporting(false);
+    }
+  }, [doc, siteId, sensor?.site_name, company, userSite, refresh]);
+
   const handleCopyDistribution = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(rules.distribution_raw || '');
@@ -521,13 +639,13 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       // Export what is on screen, including unpublished edits.
       await downloadTarpXlsx(
         { ...doc, triggers, contacts, distributionRaw: rules.distribution_raw },
-        { company, siteName: sensor?.site_name }
+        { company, siteName: sensor?.site_name, locale }
       );
     } catch (err) {
       console.error('[TarpTab] export failed', err);
       toast.error('Could not build the workbook.');
     }
-  }, [doc, triggers, contacts, rules.distribution_raw, company, sensor?.site_name]);
+  }, [doc, triggers, contacts, rules.distribution_raw, company, sensor?.site_name, locale]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -556,11 +674,23 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         </p>
 
         <div className="mt-5 flex flex-col items-stretch gap-2">
+          {/* Offered first: a site that already has an agreed TARP should not
+              have it retyped from the DTG standard. */}
           <button
             type="button"
-            disabled={isBootstrapping}
-            onClick={() => bootstrap('standard')}
+            disabled={isBootstrapping || isImporting}
+            onClick={() => setShowImport(true)}
             className="flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-md bg-[var(--dtg-brand-orange)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            <Upload size={14} />
+            Import the site&apos;s TARP file
+          </button>
+
+          <button
+            type="button"
+            disabled={isBootstrapping || isImporting}
+            onClick={() => bootstrap('standard')}
+            className="flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors disabled:opacity-50"
           >
             <Plus size={14} />
             Start from the DTG standard chart
@@ -594,9 +724,18 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         </div>
 
         <p className="mt-4 text-xs text-[var(--dtg-text-muted)]">
-          Either way the result is a starting point, not an approved TARP. Review every
-          row with the site, then publish an agreed version.
+          However it starts, the result is a starting point, not an approved TARP.
+          Review every row with the site, then publish an agreed version.
         </p>
+
+        <TarpImportModal
+          isOpen={showImport}
+          mode="create"
+          siteName={sensor?.site_name}
+          onCancel={() => setShowImport(false)}
+          onApply={handleImport}
+          isSaving={isImporting}
+        />
       </div>
     );
   }
@@ -669,7 +808,9 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
           <h3 className="text-base font-semibold text-[var(--dtg-text-primary)]">
             {doc.heading || sensor?.site_name}
           </h3>
-          <p className="text-sm text-[var(--dtg-text-secondary)]">{doc.title}</p>
+          <p className="text-sm text-[var(--dtg-text-secondary)]">
+            {translateDocumentText(doc.title, locale)}
+          </p>
           <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">
             Version {doc.version}
             {doc.effectiveFrom && ` · effective ${doc.effectiveFrom}`}
@@ -695,11 +836,22 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
             Export .xlsx
           </button>
 
+          {/* Re-importing is an amendment like any other, so it is offered
+              alongside Amend rather than hidden inside it. */}
+          <button
+            type="button"
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
+          >
+            <Upload size={14} />
+            Import .xlsx
+          </button>
+
           {isEditing ? (
             <>
               <button
                 type="button"
-                onClick={() => setDraft(null)}
+                onClick={() => { setDraft(null); setImportSource(null); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
               >
                 <Undo2 size={14} />
@@ -731,6 +883,12 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         <p className="text-xs px-3 py-2 rounded border border-[var(--dtg-brand-orange)]/40 bg-[var(--dtg-brand-orange)]/10 text-[var(--dtg-text-secondary)]">
           Draft changes. Version {doc.version} stays in force — and keeps driving email
           subjects — until you publish.
+          {importSource && (
+            <>
+              {' '}Every trigger row was replaced from <strong>{importSource}</strong>;
+              contacts and the distribution list were left as they were.
+            </>
+          )}
         </p>
       )}
 
@@ -775,6 +933,17 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
           )}
         </div>
 
+        {/* Which row decides the number in the subject line. Stated here because
+            it changes what every email says, and nothing on a trigger row hints
+            at it. */}
+        {rules.tarp_level_source === 'alarm' && (
+          <p className="mt-2 text-xs text-amber-300">
+            The TARP level follows the alarm that fired, not the deformation type —
+            a progressive trend on an orange alarm is reported as TARP 3. A record
+            with no alarm carries no TARP trigger at all.
+          </p>
+        )}
+
         {rules.deescalation_notice && (
           <p className="mt-2 text-xs text-[var(--dtg-text-secondary)]">
             {rules.deescalation_notice}
@@ -785,6 +954,7 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       <TarpChart
         triggers={triggers}
         defaultResponseMethod={rules.default_response_method}
+        locale={locale}
         editable={isEditing}
         onEdit={setEditTarget}
       />
@@ -844,21 +1014,25 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
       )}
 
       {doc.footerNote && (
-        <p className="text-xs font-semibold text-[var(--dtg-text-secondary)]">{doc.footerNote}</p>
+        <p className="text-xs font-semibold text-[var(--dtg-text-secondary)]">
+          {translateDocumentText(doc.footerNote, locale)}
+        </p>
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
         <div>
-          {renderContactList(escalation, 'escalation', 'Contacts')}
+          {renderContactList(escalation, 'escalation', t.contacts)}
           {doc.escalationNote && (
-            <p className="mt-2 text-xs text-[var(--dtg-text-muted)]">{doc.escalationNote}</p>
+            <p className="mt-2 text-xs text-[var(--dtg-text-muted)]">
+              {translateDocumentText(doc.escalationNote, locale)}
+            </p>
           )}
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-[var(--dtg-text-primary)]">
-              Email Distribution List
+              {t.distributionList}
             </h4>
             {isEditing && (
               <button
@@ -1003,10 +1177,27 @@ export default function TarpTab({ sensor, userSite, activeTab }) {
         initialValues={{
           approved_by_dtg: userSite?.displayname || '',
           dtg_role: 'Geotechnical Engineer',
+          // An import replaces the whole chart, which is the one change a
+          // reader of DOCUMENT CONTROL most needs stated plainly.
+          ...(importSource
+            ? {
+              sections_modified: 'Trigger chart (all rows)',
+              remark: `Trigger rows replaced from ${importSource}.`,
+            }
+            : {}),
         }}
         onSave={handlePublish}
         onCancel={() => setShowPublish(false)}
         isSaving={isPublishing}
+      />
+
+      <TarpImportModal
+        isOpen={showImport}
+        mode="replace"
+        siteName={sensor?.site_name}
+        onCancel={() => setShowImport(false)}
+        onApply={handleImport}
+        isSaving={isImporting}
       />
     </div>
   );

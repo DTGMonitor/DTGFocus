@@ -101,9 +101,10 @@ const Badge = ({ text, color, bg, border }) => (
  * — historical context the reader should not weigh as live.
  */
 function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, riskMode }) {
-  // Coloured by the deformation type, not the TARP level: a record whose site
-  // assigns no level (a rock fall, a Leonora blast) still has a band, and
-  // colouring it by an empty tarp_level printed it as an unreadable neutral.
+  // The more severe of the deformation type's band and the record's own TARP
+  // level. Neither alone is enough: a record whose site assigns no level (a rock
+  // fall, a Leonora blast) still has a band from its type, and a linear trend
+  // reported at TARP 4 must not print in the calmer of the two.
   // The badge follows the site — a TARP level, or the band name where the site
   // quotes no levels — and is absent when there is neither.
   const sev = bandColor(recordColour(node ?? {}));

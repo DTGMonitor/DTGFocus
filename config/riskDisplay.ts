@@ -20,9 +20,11 @@
 //
 // Two things are deliberately kept apart:
 //
-//   colour  always follows the DEFORMATION TYPE — what the ground is doing is
-//           the same fact at every site, so a Linear trend is orange whether or
-//           not the site calls it TARP 3.
+//   colour  the more severe of the deformation type's band and the record's own
+//           TARP level, so it can never under-state what is on screen. At most
+//           sites the two agree, because the level is derived FROM the type. At
+//           a site whose levels are alarm thresholds they diverge — a linear
+//           trend on a red alarm is TARP 4 — and the higher one wins.
 //   label   follows the site's notification logic, above.
 //
 // The TARP badge on an individual record is unaffected: where a record carries a
@@ -98,7 +100,7 @@ export const tarpPriority = (tarpLabel?: string | null): number => {
     return match ? Number(match[1]) : 0;
 };
 
-/** Last-resort colour for a record whose type we cannot read but whose level we can. */
+/** Band colour of a TARP level on its own. */
 const TARP_LEVEL_COLOUR: Record<number, RiskColour> = { 4: 'red', 3: 'orange', 2: 'yellow', 1: 'green' };
 
 /** Severity order used to pick which record speaks for the sensor. */
@@ -111,9 +113,29 @@ export interface RiskRecordLike {
     location?: string | null;
 }
 
-/** The band a single record sits in. */
-export const recordColour = (record: RiskRecordLike): RiskColour =>
-    defTypeColour(record?.def_type) ?? TARP_LEVEL_COLOUR[tarpPriority(record?.tarp_level)] ?? 'grey';
+/**
+ * The band a single record sits in — the more severe of what the ground is
+ * doing and what the site is being notified at.
+ *
+ * The two used to be the same fact, because every site derived its level FROM
+ * the type: Progressive was TARP 4, Linear was TARP 3, and reading the type
+ * alone lost nothing. A site whose levels are alarm thresholds breaks that
+ * (see TarpLevelSource in tarpPolicy.ts) — a linear trend on a red alarm is
+ * TARP 4 — and colouring by the type alone printed that card orange while its
+ * own badge read TARP 4.
+ *
+ * Taking the higher of the two means the colour can never under-state a record:
+ * a red alarm shows red whatever shape the trend is, and a progressive trend
+ * stays red even where the site notifies it at a lower level.
+ */
+export const recordColour = (record: RiskRecordLike): RiskColour => {
+    const fromType = defTypeColour(record?.def_type);
+    const fromLevel = TARP_LEVEL_COLOUR[tarpPriority(record?.tarp_level)] ?? null;
+
+    if (!fromType) return fromLevel ?? 'grey';
+    if (!fromLevel) return fromType;
+    return COLOUR_RANK[fromLevel] > COLOUR_RANK[fromType] ? fromLevel : fromType;
+};
 
 // ---------------------------------------------------------------------------
 // Site notification logic
@@ -183,7 +205,7 @@ const COLOUR_SUBTITLE: Record<RiskColour, string> = {
 export interface RiskPresentation {
     /** What to print: 'TARP 4' | 'Regressive' | 'Red Notification' | 'No Significant'. */
     label: string;
-    /** Band colour, always from the deformation type. Drives every colour on screen and in print. */
+    /** Band colour — see `recordColour`. Drives every colour on screen and in print. */
     colour: RiskColour;
     /** Plain-language severity, for the tile sub-line. */
     subtitle: string;

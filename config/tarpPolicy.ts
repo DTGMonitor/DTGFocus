@@ -16,6 +16,24 @@ import { TYPE_MATRIX } from './formConfig';
 /** Whether the subject keeps the automatic "<colours> Alarms - " prefix. */
 export type AlarmPrefixStyle = 'regions' | 'none';
 
+/**
+ * Which row decides the TARP level a record is reported at.
+ *
+ *   'trigger' (the DTG standard, and every site up to now)
+ *     The deformation row's own level. A progressive trend is TARP 4 because
+ *     the trend is progressive; an alarm is a separate row that can demand a
+ *     phone call but never changes the number.
+ *
+ *   'alarm'
+ *     The alarm row that fired, matched on its colour. Sites whose bands are
+ *     velocity and displacement thresholds work this way round: the alarm says
+ *     how fast the slope is moving and the deformation type says what shape the
+ *     trend is, so a progressive trend on an orange alarm is TARP 3, not TARP 4.
+ *     With no alarm no threshold was breached, so the record carries no TARP
+ *     trigger at all and reports as an observation.
+ */
+export type TarpLevelSource = 'trigger' | 'alarm';
+
 /** DTG standard wording of the subject token. */
 export const DEFAULT_SUBJECT_LABEL_TEMPLATE = 'TARP Trigger {level}:';
 
@@ -81,6 +99,15 @@ export interface TarpPolicy {
      * it twice.
      */
     alarmPrefixStyle?: AlarmPrefixStyle;
+
+    /** Which row decides the level. Undefined -> 'trigger', the DTG standard. */
+    tarpLevelSource?: TarpLevelSource;
+    /**
+     * The document's alarm rows, keyed by lower-cased colour. Only read when
+     * `tarpLevelSource` is 'alarm'; that is the map the fired alarm is looked
+     * up in.
+     */
+    alarmRules?: Record<string, TarpRule>;
 }
 
 /**
@@ -155,8 +182,69 @@ const getRule = (policy: TarpPolicy, type: string): TarpRule | null => {
 
 interface ResolveOptions {
     hasAlarm?: boolean;
+    /** Colours of the alarm regions ticked, e.g. ['Red', 'Orange']. */
+    alarmColours?: (string | null | undefined)[];
     policy?: TarpPolicy;
 }
+
+const normaliseColour = (value: string | null | undefined): string =>
+    String(value ?? '').trim().toLowerCase();
+
+/** Highest level wins, so two alarms at once are answered by the worse of them. */
+const mostSevereRule = (rules: TarpRule[]): TarpRule | null =>
+    rules.reduce<TarpRule | null>(
+        (best, rule) =>
+            best === null || (levelOf(rule.tarp) ?? -1) > (levelOf(best.tarp) ?? -1) ? rule : best,
+        null
+    );
+
+/**
+ * The alarm row that fired.
+ *
+ * With no colour to go on — the engineer has ticked Alarm but not yet chosen a
+ * region — the most severe row stands, because erring towards the higher level
+ * is the only safe direction to err in. A colour the document lists no row for
+ * yields null: that alarm is not in this client's TARP. Mirrors
+ * `findAlarmTrigger` in tarpDocument.ts, which answers the same question for
+ * the response method.
+ */
+const matchAlarmRule = (
+    policy: TarpPolicy,
+    alarmColours: (string | null | undefined)[] = []
+): TarpRule | null => {
+    const byColour = policy.alarmRules ?? {};
+    const all = Object.values(byColour);
+    if (all.length === 0) return null;
+
+    const wanted = new Set(alarmColours.map(normaliseColour).filter(Boolean));
+    if (wanted.size === 0) return mostSevereRule(all);
+
+    const matched = Object.entries(byColour)
+        .filter(([colour]) => wanted.has(colour))
+        .map(([, rule]) => rule);
+    return matched.length > 0 ? mostSevereRule(matched) : null;
+};
+
+/**
+ * The row that decides this record's level, subject token and risk bracket.
+ *
+ * Normally the deformation row. Where the site's levels ARE its alarm
+ * thresholds it is the alarm row that fired instead — but the deformation row
+ * still has to exist, because a type absent from the client's TARP has no
+ * trigger however loud the alarm.
+ */
+const governingRule = (
+    policy: TarpPolicy,
+    type: string,
+    { hasAlarm = false, alarmColours = [] }: ResolveOptions
+): TarpRule | null => {
+    const typeRule = getRule(policy, type);
+    if (!typeRule) return null;
+    if (policy.tarpLevelSource !== 'alarm') return typeRule;
+    // No alarm means no threshold was breached, so there is nothing to quote.
+    if (!hasAlarm) return null;
+    return matchAlarmRule(policy, alarmColours);
+};
 
 /**
  * TARP trigger quoted in the email subject and stored on the record.
@@ -164,9 +252,9 @@ interface ResolveOptions {
  */
 export const resolveTarpLevel = (
     type: string,
-    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+    { hasAlarm = false, alarmColours = [], policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
 ): string => {
-    const rule = getRule(policy, type);
+    const rule = governingRule(policy, type, { hasAlarm, alarmColours });
     if (!rule) return '';
     if (rule.requiresAlarm && !hasAlarm) return '';
     return rule.tarp;
@@ -179,9 +267,9 @@ export const resolveTarpLevel = (
  */
 export const resolveSeverityTarpLevel = (
     type: string,
-    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+    { hasAlarm = false, alarmColours = [], policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
 ): string => {
-    const rule = getRule(policy, type);
+    const rule = governingRule(policy, type, { hasAlarm, alarmColours });
     if (!rule) return '';
     if (rule.requiresAlarm && !hasAlarm) {
         return policy.keepSeverityWhenSuppressed ? rule.tarp : '';
@@ -264,9 +352,12 @@ const levelOf = (tarp: string): number | null => {
  */
 export const resolveSubjectLabel = (
     type: string,
-    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+    { hasAlarm = false, alarmColours = [], policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
 ): string => {
-    const rule = getRule(policy, type);
+    // Where the alarm governs, the token is the alarm row's — its level, its
+    // colour, its band label — so the subject names the band the client's own
+    // chart puts that alarm in.
+    const rule = governingRule(policy, type, { hasAlarm, alarmColours });
     if (!rule) return '';
     // A gated row with no alarm is an observation, not a TARP trigger.
     if (rule.requiresAlarm && !hasAlarm) return '';
@@ -290,9 +381,9 @@ export const resolveSubjectLabel = (
  */
 export const resolveSeverityBracket = (
     type: string,
-    { hasAlarm = false, policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
+    { hasAlarm = false, alarmColours = [], policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
 ): string | null => {
-    const rule = getRule(policy, type);
+    const rule = governingRule(policy, type, { hasAlarm, alarmColours });
     if (!rule) return null;
     if (rule.requiresAlarm && !hasAlarm) return null;
     return rule.severityBracket || null;

@@ -9,7 +9,7 @@
 // Keeping both on one row is deliberate: a client's TARP chart and the emails
 // they receive cannot drift apart.
 
-import type { AlarmPrefixStyle, TarpPolicy, TarpRule } from './tarpPolicy';
+import type { AlarmPrefixStyle, TarpLevelSource, TarpPolicy, TarpRule } from './tarpPolicy';
 import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from './tarpPolicy';
 import { TYPE_MATRIX } from './formConfig';
 
@@ -28,6 +28,12 @@ export const RESPONSE_METHOD_LABEL: Record<TarpResponseMethod, string> = {
 export interface TarpTrigger {
     id: number;
     sortOrder: number;
+    /**
+     * The row axis of a matrix-layout chart — "Pola Deformasi", "Koneksi Data".
+     * Null on the one-row-per-trigger charts, which have no such axis. See
+     * utils/tarpImport.js and migration 011.
+     */
+    parameter: string | null;
     riskRating: string | null;      // Extreme | Moderate | Intermediate | null
     bandLabel: string | null;       // "TARP Trigger 4 - Red"
     triggerLabel: string;           // "Progressive (accelerating) trend"
@@ -107,6 +113,12 @@ export interface TarpDocument {
     subjectLabelTemplate: string;
     subjectLabelTemplateAlarm: string | null;
     alarmPrefixStyle: AlarmPrefixStyle;
+    /**
+     * Whether a record's TARP level comes from its deformation row or from the
+     * alarm that fired. See TarpLevelSource — a site whose bands are velocity
+     * thresholds reports a progressive trend on an orange alarm as TARP 3.
+     */
+    tarpLevelSource: TarpLevelSource;
     triggers: TarpTrigger[];
     contacts: TarpContact[];
     revisions: TarpRevision[];
@@ -142,6 +154,7 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
     const triggers: TarpTrigger[] = (row.triggers || row.tarp_triggers || []).map((t: any) => ({
         id: t.id,
         sortOrder: t.sort_order ?? 0,
+        parameter: t.parameter ?? null,
         riskRating: t.risk_rating ?? null,
         bandLabel: t.band_label ?? null,
         triggerLabel: t.trigger_label ?? '',
@@ -205,6 +218,7 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
         subjectLabelTemplate: row.subject_label_template ?? DEFAULT_SUBJECT_LABEL_TEMPLATE,
         subjectLabelTemplateAlarm: row.subject_label_template_alarm ?? null,
         alarmPrefixStyle: (row.alarm_prefix_style ?? 'regions') as AlarmPrefixStyle,
+        tarpLevelSource: (row.tarp_level_source ?? 'trigger') as TarpLevelSource,
         triggers,
         contacts,
         revisions
@@ -222,18 +236,35 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
 export const buildPolicyFromDocument = (doc: TarpDocument): TarpPolicy => {
     const rules: Record<string, TarpRule | null> = {};
 
+    const asRule = (trigger: TarpTrigger): TarpRule => ({
+        tarp: tarpLevelLabel(trigger.tarpLevel),
+        requiresAlarm: trigger.requiresAlarm,
+        // Carried so the subject can quote the row's own band wording.
+        subjectLabel: trigger.subjectLabel,
+        subjectLabelAlarm: trigger.subjectLabelAlarm,
+        colour: trigger.colour,
+        bandLabel: trigger.bandLabel,
+        severityBracket: trigger.severityBracket
+    });
+
     for (const trigger of doc.triggers) {
         if (!trigger.defType) continue;
-        rules[trigger.defType] = {
-            tarp: tarpLevelLabel(trigger.tarpLevel),
-            requiresAlarm: trigger.requiresAlarm,
-            // Carried so the subject can quote the row's own band wording.
-            subjectLabel: trigger.subjectLabel,
-            subjectLabelAlarm: trigger.subjectLabelAlarm,
-            colour: trigger.colour,
-            bandLabel: trigger.bandLabel,
-            severityBracket: trigger.severityBracket
-        };
+        rules[trigger.defType] = asRule(trigger);
+    }
+
+    // The alarm rows, keyed by colour, so a site whose levels are alarm
+    // thresholds can be answered by the alarm that actually fired. Built for
+    // every document — it costs nothing and `tarpLevelSource` decides whether
+    // anything reads it.
+    const alarmRules: Record<string, TarpRule> = {};
+    for (const trigger of doc.triggers) {
+        if (!trigger.requiresAlarm || trigger.defType || !trigger.colour) continue;
+        const colour = trigger.colour.toLowerCase();
+        const existing = alarmRules[colour];
+        // Two rows of one colour: the more severe stands, as findAlarmTrigger does.
+        if (existing && (existing.tarp ? Number(existing.tarp.replace(/\D/g, '')) : -1)
+            >= (trigger.tarpLevel ?? -1)) continue;
+        alarmRules[colour] = asRule(trigger);
     }
 
     return {
@@ -245,7 +276,9 @@ export const buildPolicyFromDocument = (doc: TarpDocument): TarpPolicy => {
         documentVersion: doc.version,
         subjectLabelTemplate: doc.subjectLabelTemplate,
         subjectLabelTemplateAlarm: doc.subjectLabelTemplateAlarm,
-        alarmPrefixStyle: doc.alarmPrefixStyle
+        alarmPrefixStyle: doc.alarmPrefixStyle,
+        tarpLevelSource: doc.tarpLevelSource,
+        alarmRules
     };
 };
 
@@ -285,8 +318,15 @@ const DEVIATION_WORDING: Record<TarpResponseMethod, string> = {
     na: 'No notification required for this trigger.'
 };
 
-const NO_ACTION_RE = /^\s*(na|n\/a|none|no action(\s+required)?)\s*\.?\s*$/i;
-const CALL_RE = /\b(call|calls|called|calling|phone|phoned|ring)\b/i;
+const NO_ACTION_RE = /^\s*(na|n\/a|none|no action(\s+required)?|tidak ada( tindakan)?)\s*\.?\s*$/i;
+/**
+ * Indonesian spellings are matched too, and both spellings of "telephone" that
+ * turn up in the field. A chart that says "Telfon Geotek, WhatsApp, Email semua
+ * kontak" names a phone call FIRST; reading only the English would have seen
+ * nothing but the word "Email" and printed EMAIL ONLY beside a row that requires
+ * a call.
+ */
+const CALL_RE = /\b(call|calls|called|calling|phone|phoned|ring|telfon|telpon|telepon|menelepon|hubungi|menghubungi)\b/i;
 const EMAIL_RE = /\b(e-?mail|e-?mails|e-?mailed|e-?mailing)\b/i;
 
 /**

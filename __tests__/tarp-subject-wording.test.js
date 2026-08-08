@@ -69,10 +69,31 @@ const hiddenValleyRow = {
     contacts: [], revisions: []
 };
 
+/**
+ * PTVI. Its bands are velocity and displacement thresholds, so the ALARM says
+ * how fast the slope is moving and the deformation type says what shape the
+ * trend is. The level therefore follows the alarm, and the LEVEL 1-4 rows are
+ * this site's equivalent of Red / Orange / Yellow Alarm.
+ */
+const ptviRow = {
+    id: 4, site_id: 4, heading: 'PTVI', version: 1, status: 'active',
+    tarp_level_source: 'alarm',
+    triggers: [
+        trigger({ id: 1, sort_order: 1, trigger_label: 'Pola Deformasi Progresif', colour: 'red', def_type: 'Progressive', tarp_level: 4 }),
+        trigger({ id: 2, sort_order: 2, trigger_label: 'LEVEL 4', colour: 'red', tarp_level: 4, requires_alarm: true }),
+        trigger({ id: 3, sort_order: 3, trigger_label: 'Pola Deformasi Linear', colour: 'orange', def_type: 'Linear', tarp_level: 3 }),
+        trigger({ id: 4, sort_order: 4, trigger_label: 'LEVEL 3', colour: 'orange', tarp_level: 3, requires_alarm: true }),
+        trigger({ id: 5, sort_order: 5, trigger_label: 'LEVEL 2', colour: 'yellow', tarp_level: 2, requires_alarm: true }),
+        trigger({ id: 6, sort_order: 6, trigger_label: 'LEVEL 1', colour: 'green', tarp_level: 1, requires_alarm: true })
+    ],
+    contacts: [], revisions: []
+};
+
 const policyFor = (row) => buildPolicyFromDocument(normalizeTarpDocument(row));
 
 const RED = [{ type: 'Red', name: 'AR1' }];
 const ORANGE = [{ type: 'Orange', name: 'AR2' }];
+const YELLOW = [{ type: 'Yellow', name: 'AR3' }];
 
 const subjectFor = (row, type, { alarmRegions = [], sensor, notificationTime = null } = {}) =>
     composeDeformationSubject({
@@ -193,6 +214,69 @@ describe('Leonora — quotes the TARP number only when an alarm fired', () => {
         expect(composeDeformationSubject({
             type: 'Rainfall Event', sensor, alarmRegions: ORANGE, policy: policyFor(leonoraRow)
         }).tarpLevel).toBe('');
+    });
+});
+
+describe('PTVI — the alarm that fired decides the level, not the trend', () => {
+    const sensor = 'R01 - PTVI';
+    const subject = (type, alarmRegions) => subjectFor(ptviRow, type, { alarmRegions, sensor });
+    const level = (type, alarmRegions = []) => composeDeformationSubject({
+        type, sensor, alarmRegions, policy: policyFor(ptviRow)
+    }).tarpLevel;
+
+    it('reports a progressive trend on an ORANGE alarm as TARP 3', () => {
+        // The headline case. Everywhere else this is TARP 4 because the trend is
+        // progressive; here the orange alarm says the slope has only crossed the
+        // LEVEL 3 threshold, and the threshold is what the band means.
+        expect(subject('Progressive', ORANGE))
+            .toBe('[MODERATE RISK] Orange Alarms - TARP Trigger 3: Progressive Deformation Trend on R01 - PTVI');
+    });
+
+    it('reports the same trend on a RED alarm as TARP 4', () => {
+        expect(subject('Progressive', RED))
+            .toBe('[CRITICAL] Red Alarms - TARP Trigger 4: Progressive Deformation Trend on R01 - PTVI');
+    });
+
+    it('raises as readily as it lowers — a linear trend on a red alarm is TARP 4', () => {
+        expect(level('Linear', RED)).toBe('TARP 4');
+        expect(level('Linear', ORANGE)).toBe('TARP 3');
+        expect(level('Linear', YELLOW)).toBe('TARP 2');
+    });
+
+    it('quotes no trigger at all without an alarm', () => {
+        // No alarm means no threshold was breached, so the record is an
+        // observation — and the risk bracket follows it down.
+        expect(subject('Progressive', []))
+            .toBe('[NOTIFICATION ONLY] Progressive Deformation Trend on R01 - PTVI');
+        expect(level('Progressive', [])).toBe('');
+    });
+
+    it('answers two alarms at once with the more severe of them', () => {
+        expect(level('Linear', [...ORANGE, ...RED])).toBe('TARP 4');
+    });
+
+    it('errs upwards when an alarm fired but no region has been named yet', () => {
+        // findAlarmTrigger takes the same view: the engineer has ticked Alarm
+        // and not yet chosen a region, and over-stating is the safe direction.
+        expect(composeDeformationSubject({
+            type: 'Progressive', sensor, alarmRegions: [{ name: 'AR1' }], policy: policyFor(ptviRow)
+        }).tarpLevel).toBe('TARP 4');
+    });
+
+    it('still quotes nothing for a type the document does not list', () => {
+        // The alarm cannot conjure a trigger for a trend this site does not
+        // treat as one.
+        expect(level('Regressive', RED)).toBe('');
+    });
+
+    it('leaves every other site alone', () => {
+        // The same record at Telfer and Leonora keeps the trend's own level.
+        expect(composeDeformationSubject({
+            type: 'Progressive', sensor: 'R01 - Telfer', alarmRegions: ORANGE, policy: policyFor(telferRow)
+        }).tarpLevel).toBe('TARP 4');
+        expect(composeDeformationSubject({
+            type: 'Progressive', sensor: 'R01 - Leonora', alarmRegions: ORANGE, policy: policyFor(leonoraRow)
+        }).tarpLevel).toBe('TARP 4');
     });
 });
 

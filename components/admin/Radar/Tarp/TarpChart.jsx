@@ -1,5 +1,12 @@
 import { Pencil, AlertTriangle, Phone, Mail, PhoneOff } from 'lucide-react';
 import { resolveResponseRequirement } from '@/config/tarpDocument';
+import {
+  tarpStrings,
+  translateNotice,
+  translateResponseLabel,
+  translateRiskRating,
+  translateTriggerRow,
+} from '@/config/tarpLocale';
 
 /**
  * TarpChart
@@ -7,9 +14,14 @@ import { resolveResponseRequirement } from '@/config/tarpDocument';
  * Renders a TARP document's trigger rows as the client's chart reads: grouped
  * by risk band, colour-coded, with the numbered comment list intact.
  *
+ * On an Indonesian site the rows are translated for DISPLAY only (see
+ * config/tarpLocale.ts) — `onEdit` still hands back the untranslated row, so an
+ * engineer amends the English the email engine reads.
+ *
  * Props:
  *   triggers              {TarpTrigger[]} - normalised rows, in display order
  *   defaultResponseMethod {string}        - the document's normal response
+ *   locale                {'en'|'id'}     - language the chart is read in
  *   editable              {boolean}       - show the per-row edit affordance
  *   onEdit                {function}      - (trigger) => void
  */
@@ -48,13 +60,16 @@ export const groupByRiskBand = (triggers = []) => {
 export default function TarpChart({
   triggers = [],
   defaultResponseMethod = 'call',
+  locale = 'en',
   editable = false,
   onEdit,
 }) {
+  const t = tarpStrings(locale);
+
   if (!triggers.length) {
     return (
       <p className="text-sm text-[var(--dtg-text-muted)] italic px-4 py-6">
-        This document has no trigger rows yet.
+        {t.emptyDocument}
       </p>
     );
   }
@@ -64,21 +79,25 @@ export default function TarpChart({
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-left text-[var(--dtg-text-muted)] border-b border-[var(--dtg-border-medium)]">
-            <th className="px-3 py-2 font-medium w-28">Risk Rating</th>
-            <th className="px-3 py-2 font-medium w-56">Trigger</th>
-            <th className="px-3 py-2 font-medium">Description</th>
-            <th className="px-3 py-2 font-medium w-48">Day Shift</th>
-            <th className="px-3 py-2 font-medium w-48">Night Shift</th>
-            <th className="px-3 py-2 font-medium w-72">Comment</th>
+            <th className="px-3 py-2 font-medium w-28">{t.riskRating}</th>
+            <th className="px-3 py-2 font-medium w-56">{t.trigger}</th>
+            <th className="px-3 py-2 font-medium">{t.description}</th>
+            <th className="px-3 py-2 font-medium w-48">{t.dayShift}</th>
+            <th className="px-3 py-2 font-medium w-48">{t.nightShift}</th>
+            <th className="px-3 py-2 font-medium w-72">{t.comment}</th>
             {editable && <th className="px-3 py-2 font-medium w-12" />}
           </tr>
         </thead>
 
         {groupByRiskBand(triggers).map((band, bandIndex) => (
           <tbody key={`${band.riskRating}-${bandIndex}`}>
-            {band.triggers.map((trigger, rowIndex) => {
+            {band.triggers.map((source, rowIndex) => {
+              // The response is resolved from the ENGLISH row: `inferResponseMethod`
+              // reads the day-shift cell for the words "call" / "email", which a
+              // translated cell no longer contains.
+              const response = resolveResponseRequirement(source, { defaultResponseMethod });
+              const trigger = translateTriggerRow(source, locale);
               const colour = styleFor(trigger.colour);
-              const response = resolveResponseRequirement(trigger, { defaultResponseMethod });
               const MethodIcon = METHOD_ICON[response?.method] || Phone;
               return (
                 <tr
@@ -90,11 +109,22 @@ export default function TarpChart({
                       rowSpan={band.triggers.length}
                       className="px-3 py-3 font-semibold border-r border-[var(--dtg-border-light)]"
                     >
-                      {band.riskRating || <span className="text-[var(--dtg-text-muted)]">—</span>}
+                      {translateRiskRating(band.riskRating, locale)
+                        || <span className="text-[var(--dtg-text-muted)]">—</span>}
                     </td>
                   )}
 
                   <td className="px-3 py-3">
+                    {/* Matrix-layout charts group their triggers by parameter.
+                        It rides with the trigger rather than taking a column of
+                        its own, because the band merge down the left is what
+                        makes this chart readable and a second merged axis would
+                        cut across it. */}
+                    {trigger.parameter && (
+                      <div className="mb-1 text-[11px] uppercase tracking-wide text-[var(--dtg-text-muted)]">
+                        {trigger.parameter}
+                      </div>
+                    )}
                     <span
                       className="inline-block px-2 py-1 rounded text-xs font-semibold border"
                       style={{
@@ -112,9 +142,9 @@ export default function TarpChart({
                     )}
                     {trigger.defType && (
                       <div className="mt-1 text-[11px] text-[var(--dtg-text-muted)]">
-                        drives <code>{trigger.defType}</code>
+                        {t.drives} <code>{trigger.defType}</code>
                         {trigger.tarpLevel !== null && ` → TARP ${trigger.tarpLevel}`}
-                        {trigger.requiresAlarm && ' (alarm only)'}
+                        {trigger.requiresAlarm && ` (${t.alarmOnly})`}
                       </div>
                     )}
                   </td>
@@ -132,7 +162,7 @@ export default function TarpChart({
                         }`}
                       >
                         <MethodIcon size={11} />
-                        {response.label.toUpperCase()}
+                        {translateResponseLabel(response.label, locale).toUpperCase()}
                       </div>
                     )}
                     <div>{trigger.dayShift || '—'}</div>
@@ -153,7 +183,7 @@ export default function TarpChart({
                     {response?.deviates && (
                       <div className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-300">
                         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                        <span>{response.notice}</span>
+                        <span>{translateNotice(response.notice, locale)}</span>
                       </div>
                     )}
 
@@ -169,7 +199,7 @@ export default function TarpChart({
                     <td className="px-3 py-3">
                       <button
                         type="button"
-                        onClick={() => onEdit?.(trigger)}
+                        onClick={() => onEdit?.(source)}
                         className="p-1.5 rounded hover:bg-[var(--dtg-bg-secondary)] text-[var(--dtg-text-muted)] hover:text-[var(--dtg-brand-orange)] transition-colors"
                         aria-label={`Edit ${trigger.triggerLabel}`}
                       >

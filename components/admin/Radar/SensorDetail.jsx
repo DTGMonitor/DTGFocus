@@ -1967,6 +1967,7 @@ const SensorDetail = ({
                                         sensor={sensor}
                                         userSite={userSite}
                                         activeTab={activeTab}
+                                        timezone={timezone}
                                     />
                                 )}
                             </div>

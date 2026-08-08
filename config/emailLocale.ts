@@ -188,7 +188,7 @@ const FINDINGS_ID: Record<string, string> = {
 const STATUSES_ID: Record<string, string> = {
     'Lost Connection': 'Koneksi Terputus',
     'Link Down': 'Pembaruan Data Terputus',
-    'Scheduled Offline': 'Pemeliharaan Terjadwal',
+    'Scheduled Offline': 'Offline Terjadwal',
     'Live': 'Kembali Online'
 };
 

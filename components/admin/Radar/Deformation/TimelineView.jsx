@@ -92,9 +92,10 @@ const TimelineView = ({ chain = [], isLoading, error, timezone, crosscheckers = 
             : "—";
 
           const detectedByName = resolveDetectedBy(record.detected_by, crosscheckers);
-          // Band colour from the deformation type; the badge follows the site —
-          // a TARP level, or the band name where the site quotes no levels —
-          // and hides when there is neither.
+          // Band colour is the more severe of the trend and the record's TARP
+          // level, so a card badged TARP 4 is never painted the calmer of the
+          // two. The badge follows the site — a TARP level, or the band name
+          // where the site quotes no levels — and hides when there is neither.
           const tarpDotClass = getBandDotColor(recordColour(record));
           const tarpCardClass = getBandColor(recordColour(record));
           const badge = recordBadgeLabel(record, riskMode);

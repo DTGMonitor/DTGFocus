@@ -61,15 +61,31 @@ describe('band colour follows the deformation type', () => {
         expect(defTypeColour(type)).toBe(colour);
     });
 
-    it('does not let a TARP level override the type', () => {
-        // Telfer's blast rows are TARP 2; a TARP 2 badge is yellow either way,
-        // but the colour must come from the type so a levelless record still has one.
+    it('keeps the type\'s own band where the level agrees or is absent', () => {
+        // Telfer's blast rows are TARP 2, which is yellow either way; and a
+        // record carrying no level at all still has a band from its type.
         expect(recordColour(rec('Rock Fall', ''))).toBe('grey');
         expect(recordColour(rec('Blast Event', 'TARP 2'))).toBe('yellow');
         expect(recordColour(rec('Linear', ''))).toBe('orange');
     });
 
-    it('falls back to the TARP level only when the type is unreadable', () => {
+    it('takes the TARP level when it is the more severe of the two', () => {
+        // A site whose levels are alarm thresholds: a linear trend on a red
+        // alarm is TARP 4, and a card badged TARP 4 must not print orange.
+        expect(recordColour(rec('Linear', 'TARP 4'))).toBe('red');
+        expect(recordColour(rec('Regressive', 'TARP 3'))).toBe('orange');
+        expect(recordColour(rec('Failure', 'TARP 4'))).toBe('red');
+    });
+
+    it('keeps the type when IT is the more severe', () => {
+        // The same site notifies a progressive trend at TARP 3 when only an
+        // orange alarm fired. What the ground is doing has not become calmer.
+        expect(recordColour(rec('Progressive', 'TARP 3'))).toBe('red');
+        expect(recordColour(rec('Linear', 'TARP 2'))).toBe('orange');
+        expect(recordColour(rec('Rock Fall', 'TARP 1'))).toBe('grey');
+    });
+
+    it('falls back to the TARP level when the type is unreadable', () => {
         expect(recordColour(rec('', 'TARP 4'))).toBe('red');
         expect(recordColour(rec(null, ''))).toBe('grey');
     });
@@ -156,15 +172,18 @@ describe('Leonora — a TARP level only when one must be responded to', () => {
 });
 
 describe('Hidden Valley — names the band, never the level', () => {
+    // Each type carries the level Hidden Valley's own chart puts it at. The
+    // colour is the more severe of the two (see `recordColour`), so pairing a
+    // yellow type with TARP 3 would be asserting a band this site never issues.
     it.each([
-        ['Progressive', 'Red'],
-        ['Linear Accelerating', 'Red'],
-        ['Linear', 'Orange'],
-        ['Regressive', 'Yellow'],
-        ['Blast Event', 'Yellow'],
-        ['Rainfall Event', 'Yellow'],
-    ])('%s reads "%s"', (type, label) => {
-        expect(resolveRiskPresentation([rec(type, 'TARP 3')], hiddenValley).label).toBe(label);
+        ['Progressive', 'TARP 4', 'Red'],
+        ['Linear Accelerating', 'TARP 4', 'Red'],
+        ['Linear', 'TARP 3', 'Orange'],
+        ['Regressive', 'TARP 2', 'Yellow'],
+        ['Blast Event', 'TARP 2', 'Yellow'],
+        ['Rainfall Event', 'TARP 2', 'Yellow'],
+    ])('%s at %s reads "%s"', (type, level, label) => {
+        expect(resolveRiskPresentation([rec(type, level)], hiddenValley).label).toBe(label);
     });
 
     it('names the event itself for a grey type, which has no notification band', () => {

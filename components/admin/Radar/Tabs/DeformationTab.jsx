@@ -229,8 +229,14 @@ export default function DeformationTab({
 
       // An alarm-gated row keeps its trigger only where an alarm accompanied the
       // record, exactly as it did when it was submitted.
-      const hasAlarm = Array.isArray(editTarget.alarm) && editTarget.alarm.length > 0;
-      const resolvedTarp = resolveTarpLevel(formValues.def_type, { hasAlarm, policy: tarpPolicy });
+      // Which alarm, not just whether: a site that reads its level off the alarm
+      // colour would otherwise have the level recomputed from the trend alone.
+      const alarms = Array.isArray(editTarget.alarm) ? editTarget.alarm : [];
+      const resolvedTarp = resolveTarpLevel(formValues.def_type, {
+        hasAlarm: alarms.length > 0,
+        alarmColours: alarms.map((a) => a?.type),
+        policy: tarpPolicy,
+      });
 
       const payload = {
         def_type: formValues.def_type,

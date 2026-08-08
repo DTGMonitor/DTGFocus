@@ -223,9 +223,12 @@ const DefCard = ({ def }) => {
     grey: "rgba(136,136,136,0.2)",
   };
 
-  // The type first; the level only where the type cannot answer. The empty-list
-  // placeholder carries "No Significant" and resolves green through the label.
-  const band = defTypeColour(def.def_type) ?? labelColour(def.tarp_level || def.def_type);
+  // The same rule the timeline cards use — the more severe of the trend and its
+  // TARP level, so the colour never under-states. The empty-list placeholder
+  // carries "No Significant" in place of a type, which only `labelColour` can
+  // read, so it answers where the record itself cannot.
+  const hasBand = Boolean(defTypeColour(def.def_type)) || tarpPriority(def.tarp_level) > 0;
+  const band = hasBand ? recordColour(def) : labelColour(def.tarp_level || def.def_type);
 
   return (
     <div

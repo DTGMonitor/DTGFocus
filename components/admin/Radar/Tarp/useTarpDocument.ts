@@ -21,8 +21,9 @@ const SELECT = `
   footer_note, escalation_note, distribution_raw,
   default_response_method, deescalation_response_method, deescalation_notice,
   subject_label_template, subject_label_template_alarm, alarm_prefix_style,
+  tarp_level_source,
   triggers:tarp_triggers (
-    id, sort_order, risk_rating, band_label, trigger_label, colour, description,
+    id, sort_order, parameter, risk_rating, band_label, trigger_label, colour, description,
     day_shift, night_shift, comments, extra_note,
     def_type, tarp_level, requires_alarm, severity_bracket,
     subject_label, subject_label_alarm,
