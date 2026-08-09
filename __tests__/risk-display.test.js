@@ -30,6 +30,8 @@ import {
     labelColour,
     riskSentence,
     tarpPriority,
+    COLOUR_RANK,
+    RISK_ORDER,
     NO_SIGNIFICANT,
 } from '@/config/riskDisplay';
 import { ALARM_GATED_TARP_POLICY, DEFAULT_TARP_POLICY, resolveTarpLevel } from '@/config/tarpPolicy';
@@ -47,6 +49,7 @@ const hiddenValley = { site_name: 'Hidden Valley' };
 
 describe('band colour follows the deformation type', () => {
     it.each([
+        ['Rapid Movement', 'darkred'],
         ['Progressive', 'red'],
         ['Linear Accelerating', 'red'],
         ['Linear', 'orange'],
@@ -56,7 +59,6 @@ describe('band colour follows the deformation type', () => {
         ['Rock Fall', 'grey'],
         ['Failure', 'grey'],
         ['Material Detachment', 'grey'],
-        ['Rapid Movement', 'grey'],
     ])('%s is %s', (type, colour) => {
         expect(defTypeColour(type)).toBe(colour);
     });
@@ -88,6 +90,77 @@ describe('band colour follows the deformation type', () => {
     it('falls back to the TARP level when the type is unreadable', () => {
         expect(recordColour(rec('', 'TARP 4'))).toBe('red');
         expect(recordColour(rec(null, ''))).toBe('grey');
+    });
+});
+
+describe('the ranking', () => {
+    it('is rapid movement, then the TARP bands, then fall of ground, then green', () => {
+        expect(RISK_ORDER).toEqual(['darkred', 'red', 'orange', 'yellow', 'grey', 'green']);
+        expect(RISK_ORDER.map((c) => COLOUR_RANK[c])).toEqual([5, 4, 3, 2, 1, 0]);
+    });
+
+    it('puts a rapid movement above a TARP 4', () => {
+        expect(COLOUR_RANK[recordColour(rec('Rapid Movement', ''))])
+            .toBeGreaterThan(COLOUR_RANK[recordColour(rec('Progressive', 'TARP 4'))]);
+    });
+
+    it('keeps darkred even when the record also carries a TARP level', () => {
+        // A level can only ever reach red, and the type outranks it.
+        expect(recordColour(rec('Rapid Movement', 'TARP 4'))).toBe('darkred');
+    });
+
+    it('puts fall of ground above nothing, and below every live trend', () => {
+        const fallOfGround = ['Rock Fall', 'Failure', 'Material Detachment'];
+        for (const type of fallOfGround) {
+            expect(COLOUR_RANK[defTypeColour(type)]).toBeGreaterThan(COLOUR_RANK.green);
+            expect(COLOUR_RANK[defTypeColour(type)]).toBeLessThan(COLOUR_RANK[defTypeColour('Regressive')]);
+        }
+    });
+
+    it('reads a rapid movement out of a free-typed value', () => {
+        expect(defTypeColour('Rapid movement observed on the north wall')).toBe('darkred');
+        expect(labelColour('Rapid Movement')).toBe('darkred');
+    });
+});
+
+describe('a rapid movement outranks the TARP scale it has no level on', () => {
+    const rapid = rec('Rapid Movement', '');
+
+    it('colours the sensor darkred even when a TARP 4 is the one carrying a level', () => {
+        // The bug the floor exists to stop: the driver is picked by TARP level,
+        // and a rapid movement carries none, so the tile took the TARP 4's red.
+        const p = resolveRiskPresentation([rapid, rec('Progressive', 'TARP 4')], telfer);
+        expect(p.colour).toBe('darkred');
+    });
+
+    it('names the event rather than quoting a level that cannot express it', () => {
+        expect(resolveRiskPresentation([rapid], telfer).label).toBe('Rapid Movement');
+        expect(resolveRiskPresentation([rapid, rec('Progressive', 'TARP 4')], telfer).label)
+            .toBe('Rapid Movement');
+        expect(resolveRiskPresentation([rapid, rec('Linear', 'TARP 3')], leonora).label)
+            .toBe('Rapid Movement');
+        expect(resolveRiskPresentation([rapid], hiddenValley).label).toBe('Rapid Movement');
+    });
+
+    it('never prints TARP 1 for it, which is the other end of the same scale', () => {
+        expect(resolveRiskPresentation([rapid], telfer).label).not.toMatch(/TARP/i);
+    });
+
+    it('badges nothing on the record itself, which already names it', () => {
+        expect(recordBadgeLabel(rapid, telfer)).toBe('');
+        expect(recordBadgeLabel(rapid, hiddenValley)).toBe('');
+    });
+});
+
+describe('the tile can never under-state the board', () => {
+    it('takes the worst band on the sensor, not just the driving record\'s', () => {
+        // Telfer quotes TARP 3 here, but the progressive trend beside it is red.
+        const p = resolveRiskPresentation(
+            [rec('Regressive', 'TARP 3'), rec('Progressive', 'TARP 2')],
+            telfer
+        );
+        expect(p.label).toBe('TARP 3');
+        expect(p.colour).toBe('red');
     });
 });
 

@@ -91,11 +91,12 @@ export const getCardColors = (val = "") => {
   if (lower.includes("linear accelerating")) return "bg-red-500/20";
   if (lower.includes("linear")) return "bg-orange-500/20";
   if (lower.includes("progressive")) return "bg-red-500/20";
-  if (lower.includes("rapid movement")) return "bg-red-700/20";
-  if (lower.includes("detachment")) return "bg-red-700/20";
-  if (lower.includes("failure")) return "bg-red-700/20";
-  if (lower.includes("forecast")) return "bg-red-700/20";
-  if (lower.includes("rock fall")) return "bg-red-700/20";
+  if (lower.includes("rapid movement")) return "bg-red-900/40";
+  // Fall of Ground — grey, per the ranking in config/riskDisplay.ts.
+  if (lower.includes("detachment")) return "bg-gray-500/20";
+  if (lower.includes("failure")) return "bg-gray-500/20";
+  if (lower.includes("forecast")) return "bg-gray-500/20";
+  if (lower.includes("rock fall")) return "bg-gray-500/20";
   if (lower.includes("blast")) return "bg-yellow-500/20";
     if (lower.includes("rainfall")) return "bg-yellow-500/20";
   return "bg-green-500/20";
@@ -111,10 +112,15 @@ export const getCardColors = (val = "") => {
 //
 // Written as switches over literal class strings because Tailwind cannot see
 // interpolated class names and would purge them from the build.
+//
+// 'darkred' is Rapid Movement, the one band above red (see COLOUR_RANK). It is
+// the red-800/900 end of the same ramp rather than a new hue, so the scale still
+// reads as one gradient and the extra step is unmistakable next to a TARP 4.
 // ---------------------------------------------------------------------------
 
 export const getBandColor = (colour: RiskColour | null | undefined) => {
   switch (colour) {
+    case 'darkred': return 'bg-red-900/40 text-red-300 border-red-800/50';
     case 'red': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'orange': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'yellow': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
@@ -125,6 +131,7 @@ export const getBandColor = (colour: RiskColour | null | undefined) => {
 
 export const getBandDotColor = (colour: RiskColour | null | undefined) => {
   switch (colour) {
+    case 'darkred': return 'bg-red-800';
     case 'red': return 'bg-red-500';
     case 'orange': return 'bg-orange-500';
     case 'yellow': return 'bg-yellow-500';
@@ -135,6 +142,7 @@ export const getBandDotColor = (colour: RiskColour | null | undefined) => {
 
 export const getBandCardColor = (colour: RiskColour | null | undefined) => {
   switch (colour) {
+    case 'darkred': return 'bg-red-900/40';
     case 'red': return 'bg-red-500/20';
     case 'orange': return 'bg-orange-500/20';
     case 'yellow': return 'bg-yellow-500/20';
@@ -145,6 +153,7 @@ export const getBandCardColor = (colour: RiskColour | null | undefined) => {
 
 export const getBandBorderColor = (colour: RiskColour | null | undefined) => {
   switch (colour) {
+    case 'darkred': return 'border-red-800/50';
     case 'red': return 'border-red-500/30';
     case 'orange': return 'border-orange-500/30';
     case 'yellow': return 'border-yellow-500/30';
@@ -249,6 +258,16 @@ export const getOverallColor = (status: string, quality: string, risk: string, r
     return {
       bg: 'gray-500',
       bgGradient: 'from-gray-500/10 to-gray-100/10'
+    }
+  }
+
+  // Rapid Movement outranks a TARP 4, so it is tested before the critical tier
+  // — otherwise a rapid movement on a radar whose quality is merely critical
+  // would tint the header the same red as an ordinary TARP 4.
+  if (riskColour === 'darkred') {
+    return {
+      bg: 'red-800',
+      bgGradient: 'from-red-800/10 to-red-900/10'
     }
   }
 

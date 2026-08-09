@@ -28,6 +28,10 @@ const C = {
     dtgLight: '#4AD0C4',
     // Severity Colors (Safe Hex)
     redBg: '#fee2e2', redText: '#991b1b', redBorder: '#fca5a5',
+    // Rapid Movement — the risk band above red (config/riskDisplay.ts). Solid
+    // rather than a tint: the tinted badges all read as pastel and the top band
+    // has to be findable by eye in a table of forty sensors.
+    darkRedBg: '#7f1d1d', darkRedText: '#ffffff', darkRedBorder: '#450a0a',
     orangeBg: '#ffedd5', orangeText: '#9a3412', orangeBorder: '#fdba74',
     yellowBg: '#feffd5', yellowText: '#919a12', yellowBorder: '#fdf474',
     greenBg: '#dcfce7', greenText: '#166534', greenBorder: '#86efac',
@@ -112,6 +116,7 @@ const getSafeBadgeStyle = (statusOrRisk) => {
  */
 const getRiskBadgeStyle = (colour) => {
     switch (colour) {
+        case 'darkred': return { backgroundColor: C.darkRedBg, color: C.darkRedText, borderColor: C.darkRedBorder };
         case 'red': return { backgroundColor: C.redBg, color: C.redText, borderColor: C.redBorder };
         case 'orange': return { backgroundColor: C.orangeBg, color: C.orangeText, borderColor: C.orangeBorder };
         case 'yellow': return { backgroundColor: C.yellowBg, color: C.yellowText, borderColor: C.yellowBorder };

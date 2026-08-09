@@ -33,28 +33,43 @@
 
 import type { TarpColour } from './tarpDocument';
 
-/** The four bands a deformation can be reported in, plus green for "nothing". */
-export type RiskColour = TarpColour;
+/**
+ * The bands a deformation can be reported in.
+ *
+ * 'darkred' is NOT a TARP-document band — no chart has a row for it. It is the
+ * one deformation the ranking puts ABOVE the red band (Rapid Movement), so it
+ * needs a rank and an ink of its own; see RISK_ORDER below.
+ */
+export type RiskColour = TarpColour | 'darkred';
 
 /**
  * Deformation type → band colour.
  *
- * Red and orange are trends that are still developing and demand a response.
- * Yellow is a trend or event that is understood and bounded (a regressive trend
- * is decelerating; a blast or rainfall event has a known cause). Grey is past
- * tense — the ground has already moved, so there is no trend left to escalate.
+ * The ranking, worst first (RISK_ORDER):
+ *
+ *   darkred  Rapid Movement — the ground is moving now, faster than a trend.
+ *            Outranks everything, including a TARP 4.
+ *   red      trends that demand an immediate response
+ *   orange   trends that are developing
+ *   yellow   a trend or event that is understood and bounded (a regressive
+ *            trend is decelerating; a blast or rainfall event has a known cause)
+ *   grey     Fall of Ground — rock fall, failure, material detachment. Past
+ *            tense: the ground has already moved, so there is no trend left to
+ *            escalate. Still ranks above green, because something happened.
+ *   green    TARP 1 — nothing active.
  */
 export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
+    'Rapid Movement': 'darkred',
     Progressive: 'red',
     'Linear Accelerating': 'red',
     Linear: 'orange',
     Regressive: 'yellow',
     'Blast Event': 'yellow',
     'Rainfall Event': 'yellow',
+    // Fall of Ground.
     'Rock Fall': 'grey',
     Failure: 'grey',
     'Material Detachment': 'grey',
-    'Rapid Movement': 'grey',
     // Not in the client wording, but it is a TYPE_MATRIX type and has to land
     // somewhere: a forecast is a prediction about a failure, not a live trend.
     Forecast: 'grey'
@@ -67,6 +82,7 @@ export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
  * would be coloured a band too calm.
  */
 const COLOUR_KEYWORD_RULES: Array<[string, RiskColour]> = [
+    ['rapid movement', 'darkred'],
     ['linear accelerating', 'red'],
     ['progressive', 'red'],
     ['linear', 'orange'],
@@ -75,7 +91,6 @@ const COLOUR_KEYWORD_RULES: Array<[string, RiskColour]> = [
     ['rainfall', 'yellow'],
     ['rock fall', 'grey'],
     ['material detachment', 'grey'],
-    ['rapid movement', 'grey'],
     ['failure', 'grey'],
     ['forecast', 'grey']
 ];
@@ -103,8 +118,44 @@ export const tarpPriority = (tarpLabel?: string | null): number => {
 /** Band colour of a TARP level on its own. */
 const TARP_LEVEL_COLOUR: Record<number, RiskColour> = { 4: 'red', 3: 'orange', 2: 'yellow', 1: 'green' };
 
-/** Severity order used to pick which record speaks for the sensor. */
-export const COLOUR_RANK: Record<RiskColour, number> = { red: 4, orange: 3, yellow: 2, grey: 1, green: 0 };
+/**
+ * Severity order used to pick which record speaks for the sensor, and to sort
+ * any list of records worst-first. One scale, so the board, the timeline, the
+ * checklist and the report cannot disagree about what "worst" means.
+ *
+ * Rapid Movement sits above red rather than inside it: a TARP 4 is a trend that
+ * warrants evacuation, a rapid movement is the ground already going. The two
+ * must not tie, or a sensor with both would headline whichever was newer.
+ */
+export const COLOUR_RANK: Record<RiskColour, number> = {
+    darkred: 5,
+    red: 4,
+    orange: 3,
+    yellow: 2,
+    grey: 1,
+    green: 0
+};
+
+/** The same ranking as an ordered list, worst first — for legends and pickers. */
+export const RISK_ORDER: RiskColour[] = ['darkred', 'red', 'orange', 'yellow', 'grey', 'green'];
+
+/**
+ * Is `colour` at or above `floor` on the ranking?
+ *
+ * Every "does this need attention" test used to read `colour === 'red'`, which
+ * was the whole truth while red was the top band and became a silent omission
+ * the moment one was added above it — a rapid movement would have dropped out of
+ * the attention count. Asking the rank instead means a band added later is
+ * inherited by these gates rather than forgotten by them.
+ */
+export const atLeastBand = (colour: RiskColour | null | undefined, floor: RiskColour): boolean =>
+    (COLOUR_RANK[colour as RiskColour] ?? -1) >= COLOUR_RANK[floor];
+
+/**
+ * Bands that no TARP chart carries a row for, so they can never be printed as a
+ * band NAME — the record names itself instead ("Rapid Movement", "Rock Fall").
+ */
+const UNNAMED_BANDS = new Set<RiskColour>(['darkred', 'grey']);
 
 export interface RiskRecordLike {
     def_type?: string | null;
@@ -193,8 +244,13 @@ export const NO_RISK_TARP = 'TARP 1';
  *
  * Grey is 'Event Recorded' rather than 'No Significant': a rock fall is not a
  * severity the reader should skim past, it just is not an escalating trend.
+ *
+ * Darkred shares red's 'Critical': it outranks red on the scale, but there is no
+ * word above critical that a response plan acts on differently. The colour and
+ * the event's own name carry the distinction.
  */
 const COLOUR_SUBTITLE: Record<RiskColour, string> = {
+    darkred: 'Critical',
     red: 'Critical',
     orange: 'Moderate Risk',
     yellow: 'Intermediate Risk',
@@ -245,12 +301,32 @@ const worstByTarp = (records: RiskRecordLike[]): RiskRecordLike | null =>
         return newer(r, worst) < 0 ? r : worst;
     }, null);
 
+/** The worst band present anywhere in the list. 'green' for an empty list. */
+const worstColour = (records: RiskRecordLike[]): RiskColour =>
+    records.reduce<RiskColour>((worst, r) => {
+        const c = recordColour(r);
+        return COLOUR_RANK[c] > COLOUR_RANK[worst] ? c : worst;
+    }, 'green');
+
+/**
+ * @param floor  The worst band across ALL active records, when the driver was
+ *   chosen by something other than the colour scale.
+ *
+ *   In 'tarp' mode the driver is whichever record carries the highest TARP
+ *   LEVEL, and that need not be the worst record on the board: a rapid movement
+ *   carries no level at all, so a sensor showing both it and a TARP 4 would take
+ *   its colour from the TARP 4 and print red for a darkred situation. Same shape
+ *   of error, one band down, for a Progressive TARP 2 sitting beside a
+ *   Regressive TARP 3. The floor is what stops the tile under-stating the board.
+ */
 const present = (
     label: string,
     driver: RiskRecordLike | null,
-    mode: RiskDisplayMode
+    mode: RiskDisplayMode,
+    floor: RiskColour = 'green'
 ): RiskPresentation => {
-    const colour = driver ? recordColour(driver) : 'green';
+    const own = driver ? recordColour(driver) : 'green';
+    const colour = COLOUR_RANK[floor] > COLOUR_RANK[own] ? floor : own;
     return {
         label,
         colour,
@@ -283,16 +359,22 @@ export function resolveRiskPresentation(
         const colour = recordColour(driver);
         // The band name alone — "Orange", not "Orange Notification". The tile it
         // sits in is already labelled Risk, and the longer form crowded the
-        // checklist column. Grey has no band on the chart, so the event names itself.
-        const label = colour === 'grey' ? String(driver.def_type || NO_SIGNIFICANT) : titleCase(colour);
+        // checklist column. Grey and darkred have no band on the chart, so those
+        // events name themselves ("Rapid Movement", "Rock Fall").
+        const label = UNNAMED_BANDS.has(colour)
+            ? String(driver.def_type || NO_SIGNIFICANT)
+            : titleCase(colour);
         return present(label, driver, mode);
     }
 
+    const floor = worstColour(active);
+
     if (mode === 'tarp-major') {
         const byTarp = worstByTarp(active);
-        // Only a level that demands a response is quoted as one.
-        if (byTarp && tarpPriority(byTarp.tarp_level) >= 3) {
-            return present(String(byTarp.tarp_level), byTarp, mode);
+        // Only a level that demands a response is quoted as one — unless
+        // something outranks the whole TARP scale, which no level can express.
+        if (byTarp && tarpPriority(byTarp.tarp_level) >= 3 && floor !== 'darkred') {
+            return present(String(byTarp.tarp_level), byTarp, mode, floor);
         }
         const driver = worstByColour(active);
         if (!driver) return present(NO_SIGNIFICANT, null, mode);
@@ -300,8 +382,17 @@ export function resolveRiskPresentation(
     }
 
     // 'tarp' — the DTG standard.
+    // A rapid movement sits ABOVE the TARP scale, so there is no level that
+    // states it: quoting the highest one on the sensor would headline "TARP 4"
+    // — or, with nothing else active, "TARP 1" — for the worst thing on the
+    // board. It is the one case where even a tarp-mode site names the event.
+    if (floor === 'darkred') {
+        const driver = worstByColour(active);
+        return present(String(driver?.def_type || NO_SIGNIFICANT), driver, mode, floor);
+    }
+
     const byTarp = worstByTarp(active);
-    if (byTarp) return present(String(byTarp.tarp_level), byTarp, mode);
+    if (byTarp) return present(String(byTarp.tarp_level), byTarp, mode, floor);
     // Active records that carry no level (a rock fall, a suppressed event) still
     // colour the tile, but the level itself is the no-risk baseline.
     const driver = worstByColour(active);
@@ -331,9 +422,10 @@ export const recordBadgeLabel = (
 
     if (mode !== 'notification') return record?.tarp_level ? String(record.tarp_level) : '';
 
-    // Grey carries no band on the chart, and the card already names the event.
+    // Grey and darkred carry no band on the chart, and the card already names
+    // the event.
     const colour = recordColour(record ?? {});
-    return colour === 'grey' || colour === 'green' ? '' : titleCase(colour);
+    return UNNAMED_BANDS.has(colour) || colour === 'green' ? '' : titleCase(colour);
 };
 
 /**
@@ -350,8 +442,10 @@ export const labelColour = (label?: string | null): RiskColour => {
     const level = tarpPriority(text);
     if (level > 0) return TARP_LEVEL_COLOUR[level];
 
+    // RISK_ORDER, not Object.keys: worst-first is the order that makes the
+    // prefix test safe as bands are added.
     const lower = text.toLowerCase();
-    const band = (Object.keys(COLOUR_RANK) as RiskColour[]).find((c) => lower.startsWith(c));
+    const band = RISK_ORDER.find((c) => lower.startsWith(c));
     if (band) return band;
 
     return defTypeColour(text) ?? 'green';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getRiskColor, getStatusColor, getQualityColor, getBandColor } from "@/config/statusConfig";
-import { resolveRiskPresentation, pendingPresentation } from "@/config/riskDisplay";
+import { resolveRiskPresentation, pendingPresentation, atLeastBand } from "@/config/riskDisplay";
 import type { RiskPresentation, RiskRecordLike } from "@/config/riskDisplay";
 import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
@@ -777,10 +777,11 @@ function RadarMonitoring() {
     return acc + shiftChecks.filter(c => !c).length;
   }, 0);
 
-  // Red band rather than 'TARP 4': Hidden Valley's most severe row is a "Red
-  // Notification" and would otherwise never count as needing attention.
+  // Red band or worse, rather than 'TARP 4': Hidden Valley's most severe row is
+  // a "Red Notification" and would otherwise never count as needing attention,
+  // and a rapid movement outranks the TARP scale entirely.
   const attentionRequired = liveViewList.filter(
-    s => s.status !== 'Live' || s.quality === 'Critical' || (s.riskInfo?.colour ?? '') === 'red' || s.risk === 'TARP 4'
+    s => s.status !== 'Live' || s.quality === 'Critical' || atLeastBand(s.riskInfo?.colour, 'red') || s.risk === 'TARP 4'
   ).length;
   const completionRate = liveViewList.length > 0 ? Math.round((completedChecks / (liveViewList.length * 12)) * 100) : 0;
 

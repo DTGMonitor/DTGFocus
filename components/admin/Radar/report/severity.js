@@ -18,6 +18,11 @@ export const SEV = {
   acceptable: '#FFC000',
   optimal: '#008000',
   neutral: '#6b7280',
+  // Not a DQP tier — the risk band ABOVE critical (Rapid Movement). See
+  // COLOUR_RANK in config/riskDisplay.ts and bandColor() below. Kept in SEV so
+  // that a rapid movement prints the same ink wherever it appears, but it is
+  // deliberately absent from SEVERITY_LEGEND: no parameter can be assessed at it.
+  extreme: '#7F0000',
 };
 
 /**
@@ -119,34 +124,39 @@ export function alarmToneColor(tone) {
  * palette that carried no meaning. These bindings are by name, so a cause looks
  * the same in every report and its colour states its severity.
  *
- * The scheme (the two families are the point — warm/dark means the ground moved,
- * cool means it did not):
+ * The scheme follows the risk ranking in config/riskDisplay.ts, so a cause and
+ * the deformation band of the same name print as the same ink:
  *
  *   VALID — ranked by what the movement implies
+ *     Rapid Movement               dark red   (SEV.extreme) — above everything
  *     Progressive trend            red        (the SEV.critical red)
  *     Linear trend                 orange     (SEV.subOptimal)
  *     Regressive trend             yellow     (SEV.acceptable)
  *     Failure / Slip / Material
- *       Detachment / Rock Fall     dark reds  — past a trend; something failed
- *     Rapid Movement               black      — the most severe, and the one
- *                                              colour nothing else can be
+ *       Detachment / Rock Fall     greys      — Fall of Ground: past a trend,
+ *                                              the ground has already moved and
+ *                                              there is nothing left to escalate
  *
  *   FALSE — one cool family, so any false alarm is distinguishable from a valid
  *     one at a glance without reading the legend. The individual hues are only
  *     required to be stable and mutually distinct.
+ *
+ * The Fall of Ground greys are spread across the ramp rather than clustered,
+ * because these four are the causes most often present in the same pie and every
+ * slice still has to be tellable from its neighbour.
  */
 export const ALARM_CAUSE_COLORS = {
+  // Valid — the extreme.
+  'Rapid Movement': SEV.extreme,
   // Valid — deformation trends.
   'Progressive Deformation Trend': SEV.critical,
   'Linear Deformation Trend': SEV.subOptimal,
   'Regressive Deformation Trend': SEV.acceptable,
-  // Valid — failure family, dark red variants.
-  'Failure Pattern Indication': '#6B0000',
-  'Slip Pattern Indication': '#8B1A1A',
-  'Material Detachment Indication': '#A3352B',
-  'Rock Fall': '#7A2E1E',
-  // Valid — the extreme.
-  'Rapid Movement': '#000000',
+  // Valid — Fall of Ground.
+  'Failure Pattern Indication': '#3F3F46',
+  'Slip Pattern Indication': '#57534E',
+  'Material Detachment Indication': '#8A8A93',
+  'Rock Fall': '#A8A29E',
   // False — cool family.
   'Machinery Activity': '#2563eb',
   'Rapid Atmospheric Changes': '#0891b2',
@@ -181,12 +191,13 @@ export const ALARM_CAUSE_COLORS = {
  *     both must precede nothing else — 'Failure Forecast' should read as failure.
  */
 const CAUSE_KEYWORD_RULES = [
-  ['rapid movement', '#000000'],
-  ['rock fall', '#7A2E1E'],
-  ['material detachment', '#A3352B'],
-  ['failure', '#6B0000'],
-  ['forecast', '#8B0000'],
-  ['slip', '#8B1A1A'],
+  ['rapid movement', SEV.extreme],
+  ['rock fall', '#A8A29E'],
+  ['material detachment', '#8A8A93'],
+  ['failure', '#3F3F46'],
+  // A forecast is a prediction about a failure — same family, its own grey.
+  ['forecast', '#4B5563'],
+  ['slip', '#57534E'],
   ['regressive', SEV.acceptable],
   ['progressive', SEV.critical],
   // Accelerating is TARP 4, the same tier as Progressive — printing it the
@@ -263,18 +274,23 @@ export function severityColor(label) {
 }
 
 /**
- * TARP band colour ('red' | 'orange' | 'yellow' | 'grey' | 'green') → print colour.
+ * Risk band ('darkred' | 'red' | 'orange' | 'yellow' | 'grey' | 'green') → print colour.
  *
  * The band a deformation sits in is resolved from its TYPE (config/riskDisplay.ts)
  * and is the same fact at every site, whether or not that site quotes a TARP
  * number for it. Reusing the SEV values keeps a red band, a red alarm and a
  * TARP 4 badge printing as the same ink.
  *
+ * 'darkred' is Rapid Movement, the one band above red. SEV.extreme is a genuinely
+ * darker red rather than a different hue, so on a page printed in greyscale it
+ * still reads as the heavier of the two.
+ *
  * @param {string} colour
  * @returns {{ color: string, onColor: string }} `onColor` is readable text on `color`.
  */
 export function bandColor(colour) {
   const c = String(colour ?? '').toLowerCase();
+  if (c === 'darkred') return { color: SEV.extreme, onColor: '#ffffff' };
   if (c === 'red') return { color: SEV.critical, onColor: '#ffffff' };
   if (c === 'orange') return { color: SEV.subOptimal, onColor: '#1f2937' };
   if (c === 'yellow') return { color: SEV.acceptable, onColor: '#1f2937' };

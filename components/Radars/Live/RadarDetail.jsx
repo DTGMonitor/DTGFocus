@@ -213,6 +213,7 @@ const DefCard = ({ def }) => {
     yellow: "#e7be09ff",
     orange: "#c2550dff",
     red: "#FF0000",
+    darkred: "#8B0000",
     grey: "#888",
   };
   const BAND_CARD = {
@@ -220,6 +221,9 @@ const DefCard = ({ def }) => {
     yellow: "rgba(255,192,0,0.2)",
     orange: "rgba(233,113,50,0.2)",
     red: "rgba(192,0,0,0.2)",
+    // Carried heavier than the other bands: a 0.2 wash of a colour this dark is
+    // indistinguishable from red's at a glance, which is the one thing it must not be.
+    darkred: "rgba(139,0,0,0.45)",
     grey: "rgba(136,136,136,0.2)",
   };
 
@@ -862,6 +866,10 @@ function RadarDetail({ radar, onBack }) {
     yellow: "#b18503ff",
     orange: "#80350E",
     red: "#8b0202ff",
+    // Rapid Movement — the band above red (config/riskDisplay.ts). This palette
+    // is already darkened for the panel background, so the extra step has to go
+    // darker still to stay distinguishable from red.
+    darkred: "#4a0000",
     grey: "#aaa",
     purple: "#D86ECC"
   };
@@ -937,6 +945,7 @@ function RadarDetail({ radar, onBack }) {
       case "yellow": return COLORS.yellow;
       case "orange": return COLORS.orange;
       case "red": return COLORS.red;
+      case "darkred": return COLORS.darkred;
       default: return COLORS.grey;
     }
   };

@@ -5,7 +5,7 @@ import { PiPresentationChartBold } from "react-icons/pi";
 import { supabase } from "@/lib/supabaseClient";
 import { pivotParameterTree } from "@/utils/buildRadarRecord";
 import { DQP_IMAGE_COLUMNS, attachDqpImages } from "@/utils/dqpImages";
-import { resolveRiskPresentation } from "@/config/riskDisplay";
+import { resolveRiskPresentation, atLeastBand } from "@/config/riskDisplay";
 
 function countLevel2StatusesFromParamTree(paramTree) {
   const counts = { Acceptable: 0, "Sub-Optimal": 0, Critical: 0 };
@@ -40,6 +40,8 @@ const COLORS = {
   yellow: "#e7be09ff",
   orange: "#c2550dff",
   red: "#FF0000",
+  // Rapid Movement — the band above red (config/riskDisplay.ts).
+  darkred: "#8B0000",
   grey: "#888888",
   purple: "#D86ECC"
 };
@@ -137,13 +139,21 @@ const riskColor = (colour) => {
       return COLORS.orange;
     case "red":
       return COLORS.red;
+    case "darkred":
+      return COLORS.darkred;
     default:
       return COLORS.grey;
   }
 };
 
-const riskGlow = (colour) =>
-  colour === "red" ? `drop-shadow(0 0 6px ${COLORS.red})` : "none";
+// The wall is read from across the room, so the top two bands glow. Rapid
+// movement glows in its own colour rather than borrowing red's — on a dark wall
+// the halo is the part that carries furthest, and the two must not look alike.
+const riskGlow = (colour) => {
+  if (colour === "red") return `drop-shadow(0 0 6px ${COLORS.red})`;
+  if (colour === "darkred") return `drop-shadow(0 0 8px ${COLORS.darkred})`;
+  return "none";
+};
 
 //comments color
 const commentColor = (val) => {
@@ -211,8 +221,9 @@ const getOverallNotes = (status, quality, riskColour) => {
   const normalisedQuality = quality?.toLowerCase();
 
   if (normalisedStatus === 'archive' || normalisedStatus === 'lost connection') return 'Lost Connection';
-  // Red band rather than 'TARP 4' — the same severity at a site that quotes no level.
-  if (normalisedStatus === 'link down' || riskColour === 'red') return 'Critical';
+  // Red band OR WORSE, rather than 'TARP 4' — the same severity at a site that
+  // quotes no level, and a rapid movement is above red rather than equal to it.
+  if (normalisedStatus === 'link down' || atLeastBand(riskColour, 'red')) return 'Critical';
   if (normalisedQuality !== 'optimal') return `Data Quality ${normalisedQuality}`;
   return 'N/A'
 }
