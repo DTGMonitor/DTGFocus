@@ -36,6 +36,9 @@ import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal"
 import SiteWideStatusModal from "@/components/admin/Radar/SiteWideStatusModal";
 import { isSiteWideStatus } from "@/utils/siteWideStatus";
 import { openOutlookDraft } from "@/utils/openOutlookDraft";
+import { fetchCrosscheckers } from "@/utils/crosscheckers";
+import { usesAreaRoster } from "@/config/movementTableStyle";
+import { resolveCreatedFolderId, copyAreaRoster } from "@/utils/monitoringAreas";
 
 /**
  * Detaching every figure from a DQP row.
@@ -332,10 +335,7 @@ const SensorDetail = ({
     useEffect(() => {
         const fetchUsers = async () => {
             try {
-                const targetNames = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
-                const { data, error } = await supabase.rpc('get_safe_crosscheckers', { target_names: targetNames });
-                if (error) throw error;
-                if (data) setCrosscheckers(data);
+                setCrosscheckers(await fetchCrosscheckers());
             } catch (err) {
                 console.error("Error fetching crosscheckers:", err);
             }
@@ -437,6 +437,25 @@ const SensorDetail = ({
 
         if (!error) {
             toast.success(`Folder "${newFolderInput}" created successfully!`);
+
+            // A radar that reports per monitoring point takes its board with it.
+            // Rotating the folder is nearly always the same wall re-scanned, and
+            // without this the next morning's report would list nothing at all.
+            // Failure is reported and swallowed: the folder exists either way,
+            // and the roster can be filled in by hand.
+            if (usesAreaRoster(sensor)) {
+                try {
+                    const newFolderId = await resolveCreatedFolderId(
+                        supabase, data, sensor.id, newFolderInput
+                    );
+                    const copied = await copyAreaRoster(supabase, sensor.wallfolder_id, newFolderId);
+                    if (copied > 0) toast.success(`${copied} monitoring points carried over.`);
+                } catch (rosterError) {
+                    console.error(rosterError);
+                    toast.error("Folder created, but its monitoring points did not carry over. Add them on the new folder.");
+                }
+            }
+
             setNewFolderInput("");
             setNewAreaInput("");
             setSameLocation(false);

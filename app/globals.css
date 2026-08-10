@@ -1554,3 +1554,47 @@ html {
     opacity: 1;
   }
 }
+
+/* ------------------------------------------------------------- */
+/* --- FOG MONITOR: data-visualisation tokens ------------------- */
+/*                                                               */
+/* Series colours are NOT the generic --chart-* tokens. Those were */
+/* validated against neither surface: --chart-1 (#e67e22) sits    */
+/* outside the dark lightness band (OKLCH L 0.696 > 0.67) and     */
+/* falls below 3:1 on white. The steps below are the same hue     */
+/* families, snapped per mode, and pass every check on the actual */
+/* card surfaces (#ffffff light, #2a2a2a dark):                   */
+/*   light  #d2691e / #3498db  CVD dE 25.0, normal 28.9, >=3:1    */
+/*   dark   #d95926 / #3987e5  CVD dE 26.8, normal 31.8, >=3:1    */
+/*                                                               */
+/* Status steps are the reserved good/warning/serious/critical    */
+/* scale and are mode-invariant by design. On the light surface   */
+/* warning and serious sit below 3:1 — every use pairs them with  */
+/* an icon AND a label, which is the mitigation.                  */
+/* ------------------------------------------------------------- */
+:root {
+  --fog-temp: #d2691e;      /* temperature line */
+  --fog-dew: #3498db;       /* dew point line */
+  --fog-rain: #3498db;      /* rainfall bars, single series */
+  --fog-sat-band: #3498db;  /* saturation window shading */
+  --fog-missing: #898781;   /* hours nobody watched */
+  --fog-grid: #e1e0d9;
+  --fog-axis: #c3c2b7;
+  --fog-ink-muted: #898781;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+}
+
+html.dark {
+  --fog-temp: #d95926;
+  --fog-dew: #3987e5;
+  --fog-rain: #3987e5;
+  --fog-sat-band: #3987e5;
+  --fog-missing: #898781;
+  --fog-grid: #2c2c2a;
+  --fog-axis: #383835;
+  --fog-ink-muted: #898781;
+}

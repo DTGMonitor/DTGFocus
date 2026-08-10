@@ -11,12 +11,15 @@
  *
  * All queries mirror the live surfaces they come from (SensorDetail, AlarmTab,
  * RadarDetail) — there is no API route layer for radar data; it is all direct
- * Supabase from the browser.
+ * Supabase from the browser. The one exception is the crosschecker roster,
+ * which every surface now reads through /api/crosscheckers: user_sites is not
+ * listable from a session.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { resolveTimelineChain, normalizePrecursorss, resolveDetectedBy } from '@/utils/tabHelpers';
+import { fetchCrosscheckers } from '@/utils/crosscheckers';
 import { trimChain, isTrimmedHeadTrueRoot } from '@/utils/reportTimeline';
 import { computeAvailability, windowForFrequency } from '@/utils/reportAvailability';
 import { fromUTC } from '@/utils/timezoneUtils';
@@ -33,16 +36,6 @@ const TIMELINE_SELECT =
   'id, created_at, location, precursors, def_type, tarp_level, isactive, start, detected_by, alarm, crosschecked_by, notification_time, site_engineer, properties, wallfolder_id';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
-
-/**
- * The names `get_safe_crosscheckers` will return.
- *
- * The RPC filters on this list — passing [] matches nobody and returns zero
- * rows, which is why the report printed a raw UUID in the timeline's "By:" line
- * instead of a display name (resolveDetectedBy falls back to the UUID when the
- * lookup misses). Same list SensorDetail and HandoverTemplates already pass.
- */
-const CROSSCHECKER_NAMES = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
 
 /** TARP label → priority. Re-exported from riskDisplay, which owns the scale. */
 export const getRiskPriority = tarpPriority;
@@ -187,10 +180,10 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         dqpRes,
         tarpRes,
       ] = await Promise.all([
-        supabase
-          .rpc('get_safe_crosscheckers', { target_names: CROSSCHECKER_NAMES })
-          .then((r) => r.data)
-          .catch(warn('crosscheckers')),
+        // The roster resolves `detected_by` in the timeline's "By:" line. It
+        // spans every admin on shift, so a newly added engineer's records print
+        // a name rather than the raw UUID resolveDetectedBy falls back to.
+        fetchCrosscheckers().catch(warn('crosscheckers')),
 
         // Every wall folder for this RADAR (current + archived), so records logged
         // under a now-archived folder within the window are not lost. `sensor.id`

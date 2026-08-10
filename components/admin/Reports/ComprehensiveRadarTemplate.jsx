@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
 import { ReportPages } from '@/components/admin/Radar/report/pageFrame';
 import { HeaderBlock } from '@/components/admin/Radar/report/HeaderBlock';
-import { useReportPagination, resolvePages } from '@/components/admin/Radar/report/useReportPagination';
+import { useReportPagination, resolvePages, blocksAreAdjacent } from '@/components/admin/Radar/report/useReportPagination';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 
 import { ExecutiveSummary } from '@/components/admin/Radar/report/blocks/ExecutiveSummary';
@@ -65,24 +65,6 @@ export function comprehensiveTitle(windowDays) {
 
 const fmtLongDate = (d) =>
   new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-
-/**
- * Are two blocks (by key) directly adjacent on the same packed page?
- *
- * Blocks can only be welded into one frame when they really do touch. The
- * paginator is free to push the timeline onto the next page, where a joined
- * block would render with its top border missing and no figure above it to
- * explain why — so this is asked of the packed pages, never assumed.
- */
-function blocksAreAdjacent(pages, blocks, keyA, keyB) {
-  const a = blocks.findIndex((b) => b.key === keyA);
-  const b = blocks.findIndex((x) => x.key === keyB);
-  if (a === -1 || b === -1) return false;
-  return pages.some((idxs) => {
-    const pa = idxs.indexOf(a);
-    return pa !== -1 && idxs[pa + 1] === b;
-  });
-}
 
 /**
  * Sign every appendix figure and inline it as a data URL.

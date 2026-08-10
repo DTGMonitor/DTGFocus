@@ -11,6 +11,7 @@
 
 import { MUTED, LINE, ACCENT, IMAGE_MAX_H } from './constants';
 import { centroid, outsideLabelAnchor, PLACEMENT_OUTSIDE } from './useImageAnnotation';
+import { NorthArrow } from './NorthArrow';
 
 /**
  * Where one zone's label sits, and the leader line it needs to get there.
@@ -37,6 +38,10 @@ function labelAnchor(b) {
  *   the document, so this only adds the case where the drop zone itself is
  *   focused; both funnel into the same handler and a paste is consumed once.
  * @param {number} maxHeight
+ * @param {number|null} northRotation  Degrees clockwise from up. A number — 0
+ *   included — overlays a rotatable compass on the figure; null (the default)
+ *   renders none, so the Post-Blast and Comprehensive figures are unchanged.
+ * @param {string} northLetter       'U' on the Indonesian path, 'N' otherwise.
  */
 export function AnnotatedImage({
   image,
@@ -50,6 +55,8 @@ export function AnnotatedImage({
   onImageLoad,
   maxHeight = IMAGE_MAX_H,
   emptyHint = 'Drag & drop an image here, or use “Upload image”.',
+  northRotation = null,
+  northLetter = 'N',
 }) {
   return (
     <div
@@ -161,6 +168,14 @@ export function AnnotatedImage({
               </span>
             );
           })}
+          {/* Compass, last so it is never buried under a zone's fill. Inside the
+              image box rather than beside it, so it scales and crops with the
+              figure it describes. */}
+          {northRotation != null ? (
+            <div style={{ position: 'absolute', left: 8, top: 8, pointerEvents: 'none' }}>
+              <NorthArrow rotation={northRotation} letter={northLetter} />
+            </div>
+          ) : null}
         </div>
       ) : (
         <div style={{ textAlign: 'center', color: MUTED, fontSize: 11, padding: 18 }}>
@@ -186,10 +201,17 @@ const btn = {
 /**
  * Screen-only editing controls. Never part of the paginated paper — it must not
  * appear in the PDF.
+ *
+ * @param {boolean} showNorth  Reveal the compass bearing control. Off by
+ *   default: only the daily report draws a north arrow, and offering a rotation
+ *   the figure never renders would be a dead control in the other two reports.
+ * @param {React.ReactNode} extra  Extra controls appended to the top row —
+ *   the daily report's per-figure name and remove button.
  */
-export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
+export function AnnotationToolbar({ annotation, label = 'Deformation image', showNorth = false, extra = null }) {
   const {
     image, boundaries, draft, color, setColor, readImageFile,
+    north, setNorth,
     startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement,
   } = annotation;
 
@@ -197,6 +219,7 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
     <div style={{ background: '#111418', color: '#fff', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <strong style={{ fontSize: 12 }}>{label}</strong>
+        {extra}
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
           <input
@@ -230,6 +253,43 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image' }) {
           </>
         )}
         <button type="button" onClick={clearBoundaries} disabled={!boundaries.length} style={btn}>Clear</button>
+
+        {showNorth && setNorth ? (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <span style={{ color: '#cbd5e1' }}>North</span>
+            {/* Slider and number field over the same value: the slider is for
+                finding the bearing against the image, the field for typing a
+                surveyed one. */}
+            <input
+              type="range"
+              min={0}
+              max={359}
+              step={1}
+              value={north ?? 0}
+              onChange={(e) => setNorth(Number(e.target.value))}
+              aria-label="North arrow rotation"
+              style={{ width: 90 }}
+            />
+            <input
+              type="number"
+              min={0}
+              max={359}
+              value={north ?? 0}
+              onChange={(e) => setNorth(Number(e.target.value))}
+              aria-label="North arrow rotation, degrees"
+              style={{
+                width: 52,
+                border: '1px solid rgba(255,255,255,0.2)',
+                background: 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                borderRadius: 3,
+                padding: '2px 4px',
+                fontSize: 11,
+              }}
+            />
+            <span style={{ color: '#cbd5e1' }}>°</span>
+          </span>
+        ) : null}
 
         {draft ? (
           <span style={{ fontSize: 11, color: '#cbd5e1' }}>Click the image to add points.</span>

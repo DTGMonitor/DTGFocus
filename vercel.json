@@ -10,5 +10,11 @@
       "maxDuration": 60,
       "includeFiles": "api/_pipeline/**"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/weather/poll",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

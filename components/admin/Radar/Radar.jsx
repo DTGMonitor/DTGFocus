@@ -5,6 +5,7 @@ import { adminMenuItems } from "@/config/menuConfig";
 import RadarMonitoring from "./RadarMonitoring";
 import Notifications from "@/components/admin/Radar/Notifications";
 import Reports from "@/components/admin/Radar/Reports";
+import FogMonitor from "@/components/admin/Fog/FogMonitor";
 import ReportReminderManager from "@/components/admin/Radar/ReportReminder/ReportReminderManager";
 import '../adminpagestyle.css';
 
@@ -14,10 +15,14 @@ const getComponentKeyFromPath = (path) => {
 };
 
 
+// Keyed by the LAST SEGMENT of each adminMenuItems path. A menu entry with no
+// matching key here renders nothing at all — the nav is a state switch, not a
+// router, so there is no 404 to notice and the tab just comes up blank.
 const components = {
     RadarMonitoring: <RadarMonitoring/>,
     Notifications: <Notifications />,
-    Reports: <Reports />
+    Reports: <Reports />,
+    FogMonitor: <FogMonitor />
 };
 
 function Radar() {

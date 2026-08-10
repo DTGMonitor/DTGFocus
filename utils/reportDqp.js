@@ -160,6 +160,32 @@ export function buildAppendixItems(rows) {
     });
 }
 
+/**
+ * The parenthetical the daily report prints after its quality label —
+ * "Acceptable (Latency issue)".
+ *
+ * Built from the NOTES the analyst wrote against each non-optimal parameter,
+ * not from the parameter names: "Latency issue" is what the DQP row says, and
+ * it is the sentence a client can act on. A row with no note contributes its
+ * parameter name instead, so a downgrade is never left unexplained.
+ *
+ * Deduplicated, case-insensitively — several parameters commonly share one
+ * cause, and "Latency issue; Latency issue" reads as two separate faults.
+ */
+export function buildQualityNote(rows) {
+  const seen = new Set();
+  const parts = [];
+  for (const row of listNonOptimalParams(rows)) {
+    const text = String(row?.notes ?? '').trim() || String(row?.parameters?.name ?? '').trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(text);
+  }
+  return parts.join('; ');
+}
+
 /** The overall (level 0) status, or null. Callers must tolerate null. */
 export function findOverallStatus(rows) {
   const list = Array.isArray(rows) ? rows : [];

@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { formatFromUTC } from "@/utils/timezoneUtils";
 import { AddWorkLog } from '@/components/admin/Radar/Notifications/AddWorkLogModal';
 import { useUserSite } from '@/components/Reusable/useUserSite';
+import { fetchCrosscheckers } from '@/utils/crosscheckers';
 import toast, { Toaster } from 'react-hot-toast';
 
 interface Notification {
@@ -124,10 +125,7 @@ export default function Notifications() {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const targetNames = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
-        const { data, error } = await supabase.rpc('get_safe_crosscheckers', { target_names: targetNames });
-        if (error) throw error;
-        if (data) setCrosscheckers(data);
+        setCrosscheckers(await fetchCrosscheckers());
       } catch (err) {
         console.error("Error fetching crosscheckers:", err);
       }

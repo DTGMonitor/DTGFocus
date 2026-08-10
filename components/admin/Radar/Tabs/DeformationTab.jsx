@@ -7,6 +7,8 @@ import AddDeformationForm from '@/components/admin/Radar/Deformation/AddDeformat
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import EditModal from '@/components/admin/Radar/shared/EditModal';
 import PatternRecognitionPopup from '@/components/admin/Radar/PatternRecognition/PatternRecognitionPopup';
+import MonitoringAreasPanel from '@/components/admin/Radar/Deformation/MonitoringAreasPanel';
+import { usesAreaRoster } from '@/config/movementTableStyle';
 import { resolveDetectedBy, isoToDatetimeLocal, resolveTimelineChain, normalizePrecursorss } from '@/utils/tabHelpers';
 import { TYPE_MATRIX, FIELD_DEFINITIONS, getConfigForType } from '@/config/formConfig';
 import { getTarpPolicyForSensor, resolveTarpLevel } from '@/config/tarpPolicy';
@@ -490,6 +492,13 @@ export default function DeformationTab({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4">
+        {/* The board this radar's daily report is written against. Only the
+            radars that print every point have one — on the rest the report is
+            the list of active findings and there is no roster to keep. */}
+        {usesAreaRoster(sensor) && (
+          <MonitoringAreasPanel sensor={sensor} activeTab={activeTab} />
+        )}
+
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Spinner size={32} />

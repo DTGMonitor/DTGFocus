@@ -126,6 +126,11 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
   const [boundaries, setBoundaries] = useState([]); // [{ points, color, label, placement }]
   const [draft, setDraft] = useState(null);
   const [color, setColor] = useState(DEFAULT_BOUNDARY_COLOR);
+  // Compass bearing for the figure, in degrees clockwise from up. Only the
+  // daily report draws it (AnnotatedImage renders none unless asked), but it
+  // lives here because it is a property of the FIGURE and must survive into the
+  // export render alongside the image and the zones.
+  const [north, setNorth] = useState(0);
 
   const readImageFile = useCallback((file) => {
     if (!file || !file.type?.startsWith('image/')) return;
@@ -219,6 +224,7 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
   return {
     image, setImage,
     boundaries, draft, color, setColor,
+    north, setNorth,
     readImageFile, handleDrop, handlePaste, addPoint,
     startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement,
   };

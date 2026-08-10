@@ -22,7 +22,11 @@ export const adminMenuItems = [
   //{ label: "ALARM SUMMARY", path: "/admin/Radar/AlarmSummary", icon: "PiWarning" },
   //{ label: "DATA QUALITY", path: "/admin/Radar/DataQuality", icon: "PiPulse" },
   //{ label: "AVAILABILITY", path: "/admin/Radar/Availability", icon: "FiTrendingUp" },
-  { label: "REPORTS", path: "/admin/Radar/Reports", icon: "HiOutlineDocumentChartBar" }
+  { label: "REPORTS", path: "/admin/Radar/Reports", icon: "HiOutlineDocumentChartBar" },
+  // Path is only read for its last segment, which keys the component map in
+  // components/admin/Radar/Radar.jsx. Icon must come from a pack registered in
+  // IconMapper — "wi" is not one of them, so this uses the "lu" pack.
+  { label: "FOG MONITOR", path: "/admin/Radar/FogMonitor", icon: "LuCloudFog" }
 ];
 
 export const weatherIcons = [

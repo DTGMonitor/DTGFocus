@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { X, FileText, Calendar, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
@@ -10,10 +10,16 @@ import { buildAppendixItems } from '@/utils/reportDqp';
 import { daysForFrequency, windowForFrequency } from '@/utils/reportAvailability';
 import { fromUTC, formatFromUTC } from '@/utils/timezoneUtils';
 import { useComprehensiveReportData } from '@/components/admin/Reports/useComprehensiveReportData';
+import { DailyRadarTemplate, DAILY_TITLE } from '@/components/admin/Reports/DailyRadarTemplate';
+import { DailyReportToolbar } from '@/components/admin/Reports/DailyReportToolbar';
+import { useDailyReportData } from '@/components/admin/Reports/useDailyReportData';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
 import { useImageAnnotation } from '@/components/admin/Radar/report/useImageAnnotation';
+import { useDailyFigures } from '@/components/admin/Radar/report/useDailyFigures';
 import { AnnotationToolbar } from '@/components/admin/Radar/report/AnnotatedImage';
+import { resolveEmailLocale } from '@/config/emailLocale';
+import { hasActiveRisk } from '@/utils/dailyStatusRows';
 
 // Report configuration
 const REPORT_CONFIG = {
@@ -35,6 +41,12 @@ const REPORT_CONFIG = {
 
 /** Radar categories that render their own template rather than the DQ layout. */
 const COMPREHENSIVE = 'Comprehensive';
+/**
+ * The per-area status board. Named for its FORM, not its cadence — the
+ * Comprehensive report already has a daily edition, so "Daily" named nothing
+ * that distinguished the two.
+ */
+const TABULATION = 'Tabulation';
 
 /** The granularity that takes its span from the Days field rather than a preset. */
 const CUSTOM_FREQUENCY = 'custom';
@@ -97,10 +109,70 @@ const shiftDay = (day, deltaDays) => {
  */
 const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
 
-const ReportTemplateRenderer = ({ reportType, category, data, reportInfo, sensor, comprehensiveData, logoSrc, annotation, imageRef }) => {
+/**
+ * The FULL client logo — wordmark and all — for the daily report's masthead.
+ *
+ * `clients.logo_path` points at the LogoOnly variant, which is the compact mark
+ * the dashboard needs beside a site name. The printed daily report has a whole
+ * header band to fill and takes the full lockup instead.
+ *
+ * Not every client has one (public/logo/CompanyLogo/FullLogo is a subset, and
+ * Greatland's is filed under a different stem), so this is only ever a
+ * CANDIDATE — both call sites fall back to the LogoOnly path, the preview via
+ * the <img>'s onError and the export via `resolveFullLogo` below.
+ */
+const fullLogoPath = (p) => (p ? String(p).replace('/LogoOnly/', '/FullLogo/') : '');
+
+/**
+ * The export path's logo, inlined as a data URL.
+ *
+ * `urlToDataUrl` alone is not enough here: a missing FullLogo asset is served
+ * as Next's HTML 404 page with a 200-shaped fetch in dev, which would inline as
+ * a data URL of HTML and print as a broken image. So the response is checked
+ * for an image content type before it is accepted, and anything else falls back
+ * to the LogoOnly variant the dashboard already uses.
+ */
+async function resolveFullLogo(candidate, fallback) {
+    if (candidate) {
+        try {
+            const res = await fetch(candidate);
+            if (res.ok && String(res.headers.get('content-type') || '').startsWith('image/')) {
+                return await urlToDataUrl(candidate);
+            }
+        } catch {
+            /* fall through */
+        }
+    }
+    return urlToDataUrl(fallback);
+}
+
+const ReportTemplateRenderer = ({
+    reportType, category, data, reportInfo, sensor, comprehensiveData, logoSrc, annotation, imageRef,
+    dailyData, dailyLocale, dailyFigures, dailyFigureRefs, dailyManual, onDailyManualChange,
+    dailyLogo, onDailyLogoError,
+}) => {
     const config = REPORT_CONFIG[reportType];
     if (config?.template === 'InsarTemplate') return <InsarTemplate data={data} reportInfo={reportInfo} />;
     if (config?.template !== 'RadarTemplate') return <div>Template not found</div>;
+
+    if (category === TABULATION) {
+        return (
+            <DailyRadarTemplate
+                data={dailyData}
+                sensor={sensor}
+                reportInfo={reportInfo}
+                locale={dailyLocale}
+                logoSrc={dailyLogo}
+                onLogoError={onDailyLogoError}
+                annotation={annotation}
+                imageRef={imageRef}
+                figures={dailyFigures}
+                figureRefs={dailyFigureRefs}
+                manual={dailyManual}
+                onManualChange={onDailyManualChange}
+            />
+        );
+    }
 
     // Selection keys on category as well as report type. It previously keyed on
     // type alone, so every radar category silently rendered the Data Quality
@@ -202,6 +274,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
     const isRadar = formData.reportType === 'Radar';
     const isComprehensive = isRadar && formData.category === COMPREHENSIVE;
+    const isTabulation = isRadar && formData.category === TABULATION;
     const isCustomFrequency = formData.frequency === CUSTOM_FREQUENCY;
 
     /**
@@ -247,6 +320,17 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     // The header carries the CLIENT's logo, not DTG's — DTG's mark is the footer.
     const clientLogo = normalizeLogoPath(selectedClient?.logo_path) || FALLBACK_LOGO;
 
+    // The daily report's masthead takes the FULL lockup where the client has
+    // one. Whether they do cannot be known from the path — the FullLogo folder
+    // is a subset of LogoOnly — so the preview tries it and lets the <img>'s
+    // onError tell us, latched here so React does not re-attempt on every
+    // render. Reset when the client changes, or a client with no full logo
+    // would poison the next one's.
+    const fullClientLogo = fullLogoPath(normalizeLogoPath(selectedClient?.logo_path));
+    const [fullLogoMissing, setFullLogoMissing] = useState(false);
+    useEffect(() => { setFullLogoMissing(false); }, [fullClientLogo]);
+    const dailyLogo = !fullLogoMissing && fullClientLogo ? fullClientLogo : clientLogo;
+
     // Annotation state lives here, not in the template: the export mounts a second
     // copy of the template in a detached container, and component-local state would
     // start empty there — the uploaded image would silently vanish from the PDF.
@@ -259,6 +343,87 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     // which is a fresh reference every render.
     const seededRef = useRef(false);
     const { setImage: setAnnotationImage } = annotation;
+
+    // ── Daily report ──────────────────────────────────────────────────────
+    // Its own fetcher: the daily report prints none of the comprehensive
+    // report's alarm / availability / TARP sections, so pulling them would be a
+    // dozen wasted round trips per preview. See useDailyReportData.
+    const { data: dailyData, loading: dailyLoading } = useDailyReportData(
+        sensor,
+        formData.endDate,
+        Boolean(sensor) && isTabulation
+    );
+
+    // The language follows the SITE, not the viewer — the same resolution the
+    // email drafts use, so a client never receives a report and an email in
+    // different languages.
+    const dailyLocale = useMemo(
+        () => resolveEmailLocale(sensor, sensor?.timezone),
+        [sensor]
+    );
+
+    // Weather, fog, rainfall and the data-update stamp exist nowhere in the
+    // system — they are read off the radar software and reported by site.
+    const [dailyManual, setDailyManual] = useState({
+        dataUpdate: '',
+        weather: '',
+        fog: '',
+        rainfall: '',
+    });
+    const handleManualChange = (fieldName, value) =>
+        setDailyManual((prev) => ({ ...prev, [fieldName]: value }));
+
+    // Figure state lives HERE, not in the template: the export mounts a second
+    // copy of the template in a detached container, where component-local state
+    // would start empty and every uploaded figure would vanish from the PDF.
+    const dailyFigures = useDailyFigures();
+
+    // One ref per analysis figure, so a click lands on the element it was made
+    // against. Grown in place and never re-created, so an existing figure keeps
+    // the same ref when a new one is added beside it.
+    const dailyFigureRefsStore = useRef([]);
+    const dailyFigureRefs = useMemo(() => {
+        const store = dailyFigureRefsStore.current;
+        while (store.length < dailyFigures.figures.length) store.push(createRef());
+        return store.slice(0, dailyFigures.figures.length);
+    }, [dailyFigures.figures.length]);
+
+    // Whether this edition prints an Area Analysis section at all. The template
+    // reads the SAME predicate to decide whether to render it, so the section
+    // can never be demanded and hidden at the same time.
+    const dailyNeedsAnalysis = hasActiveRisk(dailyData?.riskPresentation);
+
+    /**
+     * What is still missing before the daily report can be generated.
+     *
+     * Every observation is required: a client reading "Kondisi Cuaca: —" learns
+     * nothing except that someone skipped a field, and the weather is context
+     * the deformation is read against. The analysis figure is required only on
+     * the days a section exists to hold it.
+     */
+    const dailyOutstanding = useMemo(() => {
+        const missing = [];
+        if (!String(dailyManual.dataUpdate || '').trim()) missing.push('data update');
+        if (!String(dailyManual.weather || '').trim()) missing.push('weather');
+        if (!String(dailyManual.fog || '').trim()) missing.push('fog');
+        if (!String(dailyManual.rainfall || '').trim()) missing.push('rainfall');
+        if (dailyNeedsAnalysis && !dailyFigures.figures.some((f) => f.image)) {
+            missing.push('an area analysis image');
+        }
+        return missing;
+    }, [dailyManual, dailyNeedsAnalysis, dailyFigures.figures]);
+
+    // Seed the scan-area figure once the wall folder's heatmap resolves.
+    // Seeds once only, and shares `seededRef` with the comprehensive path: only
+    // one category is ever previewed at a time, and either way a later refetch
+    // must not clobber an analyst's upload.
+    useEffect(() => {
+        if (seededRef.current) return;
+        if (!dailyData?.deformationImage) return;
+        seededRef.current = true;
+        setAnnotationImage(dailyData.deformationImage);
+    }, [dailyData?.deformationImage, setAnnotationImage]);
+
     useEffect(() => {
         if (seededRef.current) return;
         if (!comprehensiveData?.deformationImage) return;
@@ -275,7 +440,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     ];
 
     const reportTypes = Object.keys(REPORT_CONFIG);
-    const categories = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive'];
+    const categories = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive', TABULATION];
 
     //filename
     const rawDate = formData.endDate || new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0];
@@ -285,7 +450,12 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     // preset label to look up, and "Custom" tells a reader nothing about the file.
     const freqLabel = preset?.label || (isCustomFrequency ? `${windowDays}-Day` : 'Unknown');
     const freqAlt = preset?.alt || (isCustomFrequency ? `${windowDays}d` : 'Unknown');
-    const fileName = (sensor && formData.category === 'Data Quality') ?
+    const fileName = (sensor && isTabulation) ?
+        // The title already says "Daily", so no granularity is prefixed — and
+        // the sensor id has to appear in the filename for the report reminder's
+        // "generated today" matcher to see it (see mergeSites).
+        `${compactDate} ${DAILY_TITLE} of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
+        : (sensor && formData.category === 'Data Quality') ?
         `${compactDate} ${freqAlt} ${formData.category} Assessment of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
         : (sensor && isComprehensive) ?
             // The title already carries the granularity ("Daily" / "2-Day" /
@@ -332,6 +502,12 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const handleInputChange = (field, value) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
+
+            // The daily report has no granularity to choose — it is one day by
+            // definition. Filling it in means the analyst is not asked for a
+            // frequency the template ignores, and the Preview button is not
+            // dead for a reason nothing on screen explains.
+            if (field === 'category' && value === TABULATION) newData.frequency = 'daily';
 
             // If they changed frequency (or the custom span behind it), auto-update
             // the start date.
@@ -488,6 +664,36 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             // The slicer below assumes a known count and a fixed page height, so it
             // cannot render this template — use the shared per-page exporter, which
             // reads the page count back off the DOM.
+            // Same measured-block engine as the Comprehensive report, so the
+            // same per-page exporter — the slicer below cannot render either.
+            if (isTabulation) {
+                // Inline the logo BEFORE the export render mounts: html2canvas
+                // cannot fetch during rasterization, so a network <img> would
+                // snapshot blank. Every other image in this report is already a
+                // data URL — the analyst's uploads come through FileReader and
+                // the seeded heatmap through urlToDataUrl.
+                const logoDataUrl = await resolveFullLogo(fullClientLogo, clientLogo);
+                const pdfBlob = await generatePdfBlob(
+                    <DailyRadarTemplate
+                        data={dailyData}
+                        sensor={sensor}
+                        reportInfo={generatedReport.info}
+                        locale={dailyLocale}
+                        logoSrc={logoDataUrl}
+                        annotation={annotation}
+                        figures={dailyFigures}
+                        figureRefs={dailyFigureRefs}
+                        manual={dailyManual}
+                        exportMode
+                    />,
+                    PAGE_W
+                );
+                await persistReport(pdfBlob, { title, description, cleanFileName });
+                window.scrollTo(originalScrollX, originalScrollY);
+                setMessage('Report generated successfully!');
+                return;
+            }
+
             if (isComprehensive) {
                 // Inline every async resource BEFORE the export render mounts.
                 // html2canvas cannot fetch during rasterization, so a network
@@ -666,7 +872,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         setMessage('');
         try {
             if (formData.reportType === 'Radar') {
-                if (isComprehensive && comprehensiveLoading) {
+                if ((isComprehensive && comprehensiveLoading) || (isTabulation && dailyLoading)) {
                     setMessage('Still gathering report data — try again in a moment.');
                     setLoading(false);
                     return;
@@ -778,6 +984,14 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         {isComprehensive && (
                             <AnnotationToolbar annotation={annotation} label="Deformation figure" />
                         )}
+                        {isTabulation && (
+                            <DailyReportToolbar
+                                showAnalysis={dailyNeedsAnalysis}
+                                outstanding={dailyOutstanding}
+                                annotation={annotation}
+                                figures={dailyFigures}
+                            />
+                        )}
                         <div className="overflow-x-auto">
                             <ReportTemplateRenderer
                                 reportType={formData.reportType}
@@ -789,6 +1003,14 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                                 logoSrc={clientLogo}
                                 annotation={annotation}
                                 imageRef={imageRef}
+                                dailyData={dailyData}
+                                dailyLocale={dailyLocale}
+                                dailyFigures={dailyFigures}
+                                dailyFigureRefs={dailyFigureRefs}
+                                dailyManual={dailyManual}
+                                onDailyManualChange={handleManualChange}
+                                dailyLogo={dailyLogo}
+                                onDailyLogoError={() => setFullLogoMissing(true)}
                             />
                         </div>
                         {message && (
@@ -809,10 +1031,17 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             </button>
                             <button
                                 onClick={handleSavePDF}
-                                disabled={loading}
+                                // A report missing its observations must not reach a
+                                // client. Says WHY it is dead in the label — a
+                                // disabled control with no reason reads as broken.
+                                disabled={loading || (isTabulation && dailyOutstanding.length > 0)}
                                 className="flex-1 px-4 py-2 bg-teal-600 text-[var(--dtg-text-primary)] rounded-lg hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {loading ? 'Generating PDF...' : 'Generate & Save PDF'}
+                                {loading
+                                    ? 'Generating PDF...'
+                                    : isTabulation && dailyOutstanding.length > 0
+                                        ? `Fill in: ${dailyOutstanding.join(', ')}`
+                                        : 'Generate & Save PDF'}
                             </button>
                         </div>
                     </div>

@@ -14,8 +14,35 @@ import {
   type ParameterRow,
 } from "@/config/radarParameterSets";
 import { localRecordDate } from "@/utils/checklistDay";
+import {
+  MOVEMENT_TABLE_STYLE_OPTIONS,
+  movementTableStyleForRadar,
+  type MovementTableStyle,
+} from "@/config/movementTableStyle";
+import { areaKey } from "@/utils/dailyStatusRows";
 
 const NEW = "__new__";
+
+/**
+ * The monitoring points textarea → roster rows.
+ *
+ * One point per line, in the order the client reads them, which becomes
+ * `sort_order`. Deduplicated on the same key the report matches areas by (and
+ * that the table's unique index enforces), so a list pasted from a spreadsheet
+ * with "Kaki disp 1" twice seeds one point rather than failing the insert.
+ */
+export const parseMonitoringAreas = (text: string): string[] => {
+  const seen = new Set<string>();
+  return String(text ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      const key = areaKey(line);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
 
 interface ClientOption {
   id: number;
@@ -69,6 +96,15 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
   const [newSite, setNewSite] = useState(emptySite);
   const [newBrand, setNewBrand] = useState(emptyBrand);
 
+  // Which movement table this radar's daily report prints. Follows the radar
+  // number until the operator says otherwise — a PS is monitored as a fixed set
+  // of points and reports every one of them, an SSR/MSR reports what is moving
+  // — and `styleTouched` is what stops a later keystroke in Radar Number
+  // overwriting a deliberate choice.
+  const [movementStyle, setMovementStyle] = useState<MovementTableStyle>("chain");
+  const [styleTouched, setStyleTouched] = useState(false);
+  const [monitoringAreas, setMonitoringAreas] = useState("");
+
   const isNewSite = siteId === NEW;
   const isNewBrand = brandId === NEW;
 
@@ -81,7 +117,16 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
     setWallFolderArea("");
     setNewSite(emptySite);
     setNewBrand(emptyBrand);
+    setMovementStyle("chain");
+    setStyleTouched(false);
+    setMonitoringAreas("");
   }, []);
+
+  /** The style the radar number implies, until the operator overrides it. */
+  const handleRadarNumberChange = (value: string) => {
+    setRadarNumber(value);
+    if (!styleTouched) setMovementStyle(movementTableStyleForRadar(value));
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -209,6 +254,7 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
           commenced_at: recordDate, // radars.commenced_at is a date
           brand_id: resolvedBrandId,
           station: Number(station),
+          movement_table_style: movementStyle,
         })
         .select("id")
         .single();
@@ -233,6 +279,22 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
       if (wallFolderError) throw wallFolderError;
       created.push({ table: "radar_wall_folders", id: wallFolder.id });
 
+      // 4b. The monitoring-point roster, for a radar that reports per point.
+      //
+      // Not tracked in `created`: monitoring_areas cascades on wallfolder_id,
+      // so rolling the wall folder back takes its roster with it.
+      const areaNames = movementStyle === "roster" ? parseMonitoringAreas(monitoringAreas) : [];
+      if (areaNames.length > 0) {
+        const { error: areaError } = await supabase.from("monitoring_areas").insert(
+          areaNames.map((name, i) => ({
+            wallfolder_id: wallFolder.id,
+            name,
+            sort_order: i + 1,
+          }))
+        );
+        if (areaError) throw areaError;
+      }
+
       // 5. DQP record - 24 unchecked hourly slots
       const { data: record, error: recordError } = await supabase
         .from("dqp_records")
@@ -256,7 +318,10 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
       const { error: valuesError } = await supabase.from("dqp_values").insert(values);
       if (valuesError) throw valuesError;
 
-      toast.success(`${radarNumber.trim()} added with ${values.length} data quality parameters.`);
+      toast.success(
+        `${radarNumber.trim()} added with ${values.length} data quality parameters` +
+          (areaNames.length > 0 ? ` and ${areaNames.length} monitoring points.` : ".")
+      );
       resetForm();
       onSuccess?.();
       onClose();
@@ -301,13 +366,57 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
               <label className={labelClass}>Radar Number *</label>
               <Input
                 value={radarNumber}
-                onChange={(e) => setRadarNumber(e.target.value)}
+                onChange={(e) => handleRadarNumberChange(e.target.value)}
                 placeholder="e.g. SSR994FX, PS2000, MSR254"
               />
               {radarNumber.trim() !== "" && parameters.length > 0 && (
                 <p className={hintClass}>{describeParameterSet(radarNumber.trim(), parameters.length)}</p>
               )}
             </div>
+
+            {/* Daily report movement table */}
+            <div className={field}>
+              <label className={labelClass}>Movement Table *</label>
+              <Select
+                value={movementStyle}
+                onValueChange={(v) => {
+                  setStyleTouched(true);
+                  setMovementStyle(v as MovementTableStyle);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select movement table" />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)] border border-[var(--dtg-border-medium)]">
+                  {MOVEMENT_TABLE_STYLE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className={hintClass}>
+                {MOVEMENT_TABLE_STYLE_OPTIONS.find((o) => o.value === movementStyle)?.hint}
+              </p>
+            </div>
+
+            {movementStyle === "roster" && (
+              <div className={field}>
+                <label className={labelClass}>Monitoring Points</label>
+                <textarea
+                  value={monitoringAreas}
+                  onChange={(e) => setMonitoringAreas(e.target.value)}
+                  rows={5}
+                  placeholder={"Top dk 1\nTop dk 2\nKaki disp 1\nPoli Dk"}
+                  className="w-full rounded-md border border-[var(--dtg-border-medium)] bg-transparent p-2 text-sm text-[var(--dtg-text-primary)] outline-none"
+                />
+                <p className={hintClass}>
+                  One per line, in the order the client reads them. Every point prints in the daily
+                  report each day, whether or not anything is moving on it. This can be left empty
+                  and filled in later — until it is, the report only lists active movements.
+                </p>
+              </div>
+            )}
 
             {/* Site */}
             <div className={field}>

@@ -36,9 +36,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *
  * resolveDetectedBy falls back to the UUID when the lookup misses, which is
  * reasonable for the live UI but is noise on a printed page a client reads —
- * and the lookup CAN miss: get_safe_crosscheckers only returns the names it is
- * asked for, so anyone outside that list resolves to nothing. Belt and braces
- * with the fetch fix in useComprehensiveReportData.
+ * and the lookup CAN miss: the roster covers admins on shift, so a record left
+ * by anyone else resolves to nothing. Belt and braces with the roster fetch in
+ * useComprehensiveReportData.
  */
 const detectedByName = (uuid, crosscheckers) => {
   const resolved = resolveDetectedBy(uuid, crosscheckers);

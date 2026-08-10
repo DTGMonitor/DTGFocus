@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { formatFromUTC } from "@/utils/timezoneUtils";
 import { labelColour } from '@/config/riskDisplay';
+import { fetchCrosscheckers } from '@/utils/crosscheckers';
 import Head from 'next/head';
 
 // --- SAFE COLOR PALETTE (HEX ONLY) ---
@@ -215,9 +216,11 @@ export const HandoverTemplate = ({ data, reportInfo, exportMode = false, onClose
 
     useEffect(() => {
         const fetchUsers = async () => {
-            const targetNames = ['Adib Izzuddin', 'Lintang Sadewa', 'Nurhuda Santoso', 'Nessy Salsabilita'];
-            const { data } = await supabase.rpc('get_safe_crosscheckers', { target_names: targetNames });
-            if (data) setCrosscheckers(data);
+            try {
+                setCrosscheckers(await fetchCrosscheckers());
+            } catch (err) {
+                console.error("Error fetching crosscheckers:", err);
+            }
         };
         fetchUsers();
     }, []);

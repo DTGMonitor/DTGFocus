@@ -96,8 +96,14 @@ export function FooterLogo() {
  * BLOCK_GAP so the two borders actually meet; the block itself drops its top
  * border. Only the block's own author knows whether it is truly adjacent — see
  * ComprehensiveRadarTemplate, which resolves it from the packed pages.
+ *
+ * `renderFooter` replaces the standard DTG Focus / page-number strip. A report
+ * whose footer carries more than that (the daily report signs each page and
+ * repeats the disclaimer) supplies its own — and MUST also tell its paginator
+ * how much taller it is, via useReportPagination's `usableHeight`, or the
+ * blocks will be packed into space the footer covers.
  */
-export function PageSheet({ blocks, idxs, pageNum, total }) {
+export function PageSheet({ blocks, idxs, pageNum, total, renderFooter }) {
   return (
     <div
       className="pbr-page"
@@ -134,33 +140,49 @@ export function PageSheet({ blocks, idxs, pageNum, total }) {
           left: PAD_X,
           right: PAD_X,
           bottom: 14,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderTop: `1px solid ${LINE}`,
-          paddingTop: 8,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <FooterLogo />
-          <span style={{ fontSize: 10, color: MUTED }}>
-            Advanced Geotechnical Data Analytics. Powered by DTG Focus
-          </span>
-        </div>
-        <span style={{ fontSize: 10, color: MUTED }}>
-          Page {pageNum} of {total}
-        </span>
+        {renderFooter ? (
+          renderFooter({ pageNum, total })
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: `1px solid ${LINE}`,
+              paddingTop: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <FooterLogo />
+              <span style={{ fontSize: 10, color: MUTED }}>
+                Advanced Geotechnical Data Analytics. Powered by DTG Focus
+              </span>
+            </div>
+            <span style={{ fontSize: 10, color: MUTED }}>
+              Page {pageNum} of {total}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 /** The stacked A4 page sheets for the on-screen preview. */
-export function ReportPages({ blocks, pages }) {
+export function ReportPages({ blocks, pages, renderFooter }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
       {pages.map((idxs, pageIdx) => (
-        <PageSheet key={pageIdx} blocks={blocks} idxs={idxs} pageNum={pageIdx + 1} total={pages.length} />
+        <PageSheet
+          key={pageIdx}
+          blocks={blocks}
+          idxs={idxs}
+          pageNum={pageIdx + 1}
+          total={pages.length}
+          renderFooter={renderFooter}
+        />
       ))}
     </div>
   );
