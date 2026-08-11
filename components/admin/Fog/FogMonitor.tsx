@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { ConditionsTile } from './ConditionsTile';
 import { ConvergenceChart } from './ConvergenceChart';
 import { FogGuidance, FogGuidanceButton } from './FogGuidance';
+import { PeriodSummaryCard, type SummaryResponse } from './PeriodSummaryCard';
 import { FogStatusCard } from './FogStatusCard';
 import { RainfallPanel } from './RainfallPanel';
 import { StationBinding } from './StationBinding';
@@ -70,6 +71,7 @@ export default function FogMonitor() {
   const [fog, setFog] = useState<FogResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [rain, setRain] = useState<RainfallResponse | null>(null);
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [noStation, setNoStation] = useState(false);
@@ -108,10 +110,15 @@ export default function FogMonitor() {
       setLoading(true);
       setError(null);
       try {
-        const [fogRes, weatherRes, rainRes] = await Promise.all([
+        // The summary window follows the rainfall selector, so the dashboard
+        // and the report agree about what "this period" covers.
+        const summaryDays = windowRange === '24h' ? 1 : 7;
+
+        const [fogRes, weatherRes, rainRes, summaryRes] = await Promise.all([
           fetch(`/api/sites/${id}/fog`),
           fetch(`/api/sites/${id}/weather`),
           fetch(`/api/sites/${id}/rainfall?range=${windowRange}`),
+          fetch(`/api/sites/${id}/summary?days=${summaryDays}`),
         ]);
 
         if (!fogRes.ok) {
@@ -126,6 +133,7 @@ export default function FogMonitor() {
             setFog(null);
             setWeather(null);
             setRain(null);
+            setSummary(null);
             return;
           }
 
@@ -145,6 +153,7 @@ export default function FogMonitor() {
         setFog(await fogRes.json());
         if (weatherRes.ok) setWeather(await weatherRes.json());
         if (rainRes.ok) setRain(await rainRes.json());
+        if (summaryRes.ok) setSummary(await summaryRes.json());
         setNow(Date.now());
       } catch (err) {
         setError((err as Error).message);
@@ -275,6 +284,11 @@ export default function FogMonitor() {
             <FogStatusCard data={fogLive} loading={loading} />
             <ConditionsTile data={weatherLive} loading={loading} />
           </div>
+          <PeriodSummaryCard
+            data={summary}
+            loading={loading}
+            rangeLabel={range === '24h' ? '24 jam terakhir' : '7 hari terakhir'}
+          />
           <ConvergenceChart data={fogLive} loading={loading} />
           <RainfallPanel data={rainLive} loading={loading} range={range} />
         </>

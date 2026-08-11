@@ -215,21 +215,53 @@ export async function upsertReadings(
   return readings.length;
 }
 
-/** Readings for a station since an instant, oldest first. */
+/**
+ * Readings for a station since an instant, oldest first.
+ *
+ * `untilIso` bounds the window at both ends. Without it a report summarising
+ * last week would pull every reading from then to now — correct once the
+ * summariser filters, but pointless traffic that grows with the retention
+ * period rather than with the window.
+ */
 export async function fetchReadings(
   db: SupabaseClient,
   macAddress: string,
-  sinceIso: string
+  sinceIso: string,
+  untilIso?: string
 ): Promise<ReadingRecord[]> {
-  const { data, error } = await db
+  let query = db
     .from('weather_readings')
     .select(READING_COLUMNS)
     .eq('mac_address', macAddress)
-    .gte('observed_at', sinceIso)
-    .order('observed_at', { ascending: true });
+    .gte('observed_at', sinceIso);
+
+  if (untilIso) query = query.lte('observed_at', untilIso);
+
+  const { data, error } = await query.order('observed_at', { ascending: true });
 
   if (error) throw new RepositoryError('fetchReadings', error.message);
   return rows<ReadingRecord[]>(data ?? []);
+}
+
+/** Assessments across a window, oldest first. */
+export async function fetchAssessments(
+  db: SupabaseClient,
+  macAddress: string,
+  sinceIso: string,
+  untilIso?: string
+): Promise<AssessmentRow[]> {
+  let query = db
+    .from('fog_assessments')
+    .select(ASSESSMENT_COLUMNS)
+    .eq('mac_address', macAddress)
+    .gte('assessed_at', sinceIso);
+
+  if (untilIso) query = query.lte('assessed_at', untilIso);
+
+  const { data, error } = await query.order('assessed_at', { ascending: true });
+
+  if (error) throw new RepositoryError('fetchAssessments', error.message);
+  return rows<AssessmentRow[]>(data ?? []);
 }
 
 export async function fetchLatestReading(

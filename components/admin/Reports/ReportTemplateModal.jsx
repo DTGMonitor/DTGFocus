@@ -373,6 +373,24 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const handleManualChange = (fieldName, value) =>
         setDailyManual((prev) => ({ ...prev, [fieldName]: value }));
 
+    /**
+     * Seed Data Update with when the wall was last checked, in SITE wall time.
+     *
+     * The stamp is the one thing on this card that the system already knows —
+     * it is the hourly checklist's own timestamp — so the analyst confirms or
+     * corrects a figure instead of transcribing one. Seeds ONCE and only over an
+     * empty field: the value they type is read off the radar software and must
+     * survive a refetch (changing the report date re-runs the hook).
+     */
+    const dataUpdateSeededRef = useRef(false);
+    useEffect(() => {
+        if (dataUpdateSeededRef.current || !dailyData?.lastCheck) return;
+        dataUpdateSeededRef.current = true;
+        setDailyManual((prev) =>
+            prev.dataUpdate ? prev : { ...prev, dataUpdate: dailyData.lastCheck }
+        );
+    }, [dailyData?.lastCheck]);
+
     // Figure state lives HERE, not in the template: the export mounts a second
     // copy of the template in a detached container, where component-local state
     // would start empty and every uploaded figure would vanish from the PDF.
@@ -990,6 +1008,30 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                                 outstanding={dailyOutstanding}
                                 annotation={annotation}
                                 figures={dailyFigures}
+                                stationFill={
+                                    formData.clientID
+                                        ? {
+                                            siteId: formData.clientID,
+                                            // The SAME granularity the rest of the
+                                            // report resolves its window from, so a
+                                            // weekly edition summarises its seven days
+                                            // without this path knowing it is weekly.
+                                            frequency: resolvedFrequency,
+                                            endDate: formData.endDate,
+                                            timeZone: reportTimeZone,
+                                            locale: dailyLocale,
+                                            onFill: (lines) => {
+                                                if (!lines) return;
+                                                setDailyManual((prev) => ({
+                                                    ...prev,
+                                                    weather: lines.weather ?? prev.weather,
+                                                    fog: lines.fog ?? prev.fog,
+                                                    rainfall: lines.rainfall ?? prev.rainfall,
+                                                }));
+                                            },
+                                        }
+                                        : null
+                                }
                             />
                         )}
                         <div className="overflow-x-auto">

@@ -14,11 +14,18 @@
  * straight onto the page where they will print (see DailySummary's
  * EditableValue and DailyHeader's DataUpdateInput), which is both fewer places
  * to look and a direct preview of the result.
+ *
+ * The one exception is the "Isi dari stasiun" button, which fills three of those
+ * fields from the site's weather station. It sits here rather than beside the
+ * fields because DailySummary is ALSO rendered into a hidden measurement layer
+ * to compute page breaks — a control inside it would make the two passes
+ * measure different heights.
  */
 
 import { useState } from 'react';
 
 import { AnnotationToolbar } from '@/components/admin/Radar/report/AnnotatedImage';
+import { StationSummaryFill } from '@/components/admin/Reports/StationSummaryFill';
 
 const panel = {
   background: '#111418',
@@ -77,7 +84,19 @@ function Outstanding({ items }) {
  * @param {object} annotation A useImageAnnotation() bundle for the scan area.
  * @param {object} figures    A useDailyFigures() bundle for the analysis areas.
  */
-export function DailyReportToolbar({ showAnalysis, outstanding = [], annotation, figures }) {
+/**
+ * @param {object} [stationFill]  Props for the "Isi dari stasiun" control:
+ *   { siteId, frequency, endDate, timeZone, locale, onFill }. Omitted when no
+ *   site is selected yet, in which case the button is simply absent rather than
+ *   present and dead.
+ */
+export function DailyReportToolbar({
+  showAnalysis,
+  outstanding = [],
+  annotation,
+  figures,
+  stationFill,
+}) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -107,6 +126,16 @@ export function DailyReportToolbar({ showAnalysis, outstanding = [], annotation,
           {open ? '▲ Hide controls' : '▼ Show controls'}
         </button>
         <Outstanding items={outstanding} />
+        {stationFill ? (
+          <StationSummaryFill
+            siteId={stationFill.siteId}
+            frequency={stationFill.frequency}
+            endDate={stationFill.endDate}
+            timeZone={stationFill.timeZone}
+            locale={stationFill.locale}
+            onFill={stationFill.onFill}
+          />
+        ) : null}
         {open ? (
           <span style={{ fontSize: 11, color: '#64748b' }}>
             Weather, fog, rainfall and the data update are typed on the page itself.

@@ -124,14 +124,26 @@ $$;
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW fog_poll_schedule_health AS
 SELECT
-  r.status_code,
   r.created                                        AS called_at,
-  r.error_msg,
+  r.status_code,
   -- The poll route answers 200 even when individual stations fail, so anything
   -- else here is the route or the secret, not the weather station.
   (r.status_code = 200)                            AS route_ok,
-  (r.content::jsonb ->> 'succeeded')::int          AS stations_succeeded,
-  (r.content::jsonb ->> 'failed')::int             AS stations_failed
+  r.error_msg,
+
+  -- The route's OWN words, which is the whole point. A bare status code sends
+  -- you hunting through Vercel logs for something the response already said —
+  -- a 500 here is almost always `CRON_SECRET` missing from the deployment
+  -- environment, and the body says exactly that.
+  left(coalesce(r.content, ''), 300)               AS response_body,
+
+  -- Guarded: a platform-level failure answers with an HTML error page, and an
+  -- unguarded ::jsonb cast on that would make the whole view error out —
+  -- blinding the one query you reach for when things are already broken.
+  CASE WHEN r.status_code = 200 AND r.content ~ '^\s*\{'
+       THEN (r.content::jsonb ->> 'succeeded')::int END AS stations_succeeded,
+  CASE WHEN r.status_code = 200 AND r.content ~ '^\s*\{'
+       THEN (r.content::jsonb ->> 'failed')::int END    AS stations_failed
 FROM net._http_response r
 WHERE r.created > now() - interval '24 hours'
 ORDER BY r.created DESC;

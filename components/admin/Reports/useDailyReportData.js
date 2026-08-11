@@ -50,6 +50,25 @@ const DEF_SELECT =
 const AREA_SELECT = 'id, name, sort_order';
 
 /**
+ * A stored UTC instant as the SITE's wall clock, shaped for a
+ * `<input type="datetime-local">`: 'YYYY-MM-DDTHH:mm'.
+ *
+ * Everything downstream of the Data Update card — `formatDataUpdate`, the
+ * lateness rule — reads that value component-wise and treats it as site-local
+ * and tz-naive, so the conversion has to happen HERE, once, rather than being
+ * left to a `new Date()` somewhere that would re-project it through the
+ * browser's zone.
+ */
+const siteLocalInput = (utc, timeZone) => {
+  if (!utc) return '';
+  try {
+    return (fromUTC(utc, timeZone || 'UTC') || '').slice(0, 16);
+  } catch {
+    return '';
+  }
+};
+
+/**
  * Today on the SITE's calendar, as 'YYYY-MM-DD'.
  *
  * The report day is a SITE day, never the viewer's: the Data Update lateness
@@ -104,7 +123,7 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
     };
 
     (async () => {
-      const [defRes, dqpRes, scheduleRes, areaRes] = await Promise.all([
+      const [defRes, dqpRes, scheduleRes, areaRes, checkRes] = await Promise.all([
         // The CURRENT wall folder only. The comprehensive report spans archived
         // folders so its timeline keeps its history; a daily status board is a
         // statement about the wall being scanned right now, and a record still
@@ -173,6 +192,28 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
               })
               .catch(warn('monitoring areas'))
           : Promise.resolve(null),
+
+        // When the wall was last checked — the newest hourly-checklist record
+        // for this folder, which is exactly what the board and the sensor panel
+        // call "Latest Check". It seeds the Data Update card so the analyst
+        // confirms a timestamp rather than typing one from memory.
+        //
+        // Deliberately NOT filtered to the report day: on a day the link was
+        // down the newest record IS yesterday's, and seeding it (which the
+        // lateness rule then prints in red) states the problem, where seeding
+        // nothing would only hide it.
+        supabase
+          .from('dqp_records')
+          .select('created_time')
+          .eq('wall_folder_id', sensor.wallfolder_id)
+          .order('created_time', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+          .then((r) => {
+            if (r.error) throw r.error;
+            return r.data;
+          })
+          .catch(warn('latest checklist')),
       ]);
 
       if (cancelled) return;
@@ -231,6 +272,12 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
           // Falls back to the registry default when the site has no stored row,
           // so the lateness rule still applies rather than silently switching off.
           deadline: scheduleRes?.deadline || RADAR_TYPE.defaultDeadline,
+          // The Data Update card's SUGGESTED value, in site wall time. An
+          // initial value only: the analyst reads the true figure off the radar
+          // software and the field stays theirs to correct. '' when the folder
+          // has never been checked, which leaves the card blank and the report
+          // ungeneratable until someone fills it in — the existing behaviour.
+          lastCheck: siteLocalInput(checkRes?.created_time, timeZone),
           deformationImage,
         },
       });
