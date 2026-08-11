@@ -13,6 +13,7 @@ import { useComprehensiveReportData } from '@/components/admin/Reports/useCompre
 import { DailyRadarTemplate, DAILY_TITLE } from '@/components/admin/Reports/DailyRadarTemplate';
 import { DailyReportToolbar } from '@/components/admin/Reports/DailyReportToolbar';
 import { useDailyReportData } from '@/components/admin/Reports/useDailyReportData';
+import { useGeneratorRuntime } from '@/components/admin/Reports/useGeneratorRuntime';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
 import { useImageAnnotation } from '@/components/admin/Radar/report/useImageAnnotation';
@@ -149,6 +150,7 @@ async function resolveFullLogo(candidate, fallback) {
 const ReportTemplateRenderer = ({
     reportType, category, data, reportInfo, sensor, comprehensiveData, logoSrc, annotation, imageRef,
     dailyData, dailyLocale, dailyFigures, dailyFigureRefs, dailyManual, onDailyManualChange,
+    dailyGenerator,
     dailyLogo, onDailyLogoError,
 }) => {
     const config = REPORT_CONFIG[reportType];
@@ -170,6 +172,7 @@ const ReportTemplateRenderer = ({
                 figureRefs={dailyFigureRefs}
                 manual={dailyManual}
                 onManualChange={onDailyManualChange}
+                generator={dailyGenerator}
             />
         );
     }
@@ -390,6 +393,24 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             prev.dataUpdate ? prev : { ...prev, dataUpdate: dailyData.lastCheck }
         );
     }, [dailyData?.lastCheck]);
+
+    /**
+     * The summary's seven-day generator running-time strip.
+     *
+     * Unlike the observations above, this one is STORED — it is a history, not a
+     * statement about the day being reported, and the analyst fills only the new
+     * leftmost cell each morning. Keyed to the radar (`sensor.id`), not the wall
+     * folder: re-aiming a radar does not give it a different generator.
+     *
+     * Owned here for the same reason as `dailyManual`: the export mounts a
+     * second copy of the template, and a hook called inside it would start empty
+     * and print a blank strip into the PDF.
+     */
+    const dailyGenerator = useGeneratorRuntime(
+        sensor?.id,
+        dailyData?.reportDay,
+        Boolean(sensor) && isTabulation
+    );
 
     // Figure state lives HERE, not in the template: the export mounts a second
     // copy of the template in a detached container, where component-local state
@@ -702,6 +723,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         figures={dailyFigures}
                         figureRefs={dailyFigureRefs}
                         manual={dailyManual}
+                        generator={dailyGenerator}
                         exportMode
                     />,
                     PAGE_W
@@ -1006,6 +1028,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                             <DailyReportToolbar
                                 showAnalysis={dailyNeedsAnalysis}
                                 outstanding={dailyOutstanding}
+                                notice={dailyGenerator.error}
                                 annotation={annotation}
                                 figures={dailyFigures}
                                 stationFill={
@@ -1051,6 +1074,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                                 dailyFigureRefs={dailyFigureRefs}
                                 dailyManual={dailyManual}
                                 onDailyManualChange={handleManualChange}
+                                dailyGenerator={dailyGenerator}
                                 dailyLogo={dailyLogo}
                                 onDailyLogoError={() => setFullLogoMissing(true)}
                             />

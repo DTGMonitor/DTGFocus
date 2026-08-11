@@ -116,6 +116,10 @@ const GRAPH_MAX_H = 250;
  *   input, typed straight onto the page (see DailySummary's EditableValue).
  * @param {Function} onManualChange  (field, value) => void. Absent on the
  *   export path, where the page is not editable.
+ * @param {object} generator  A useGeneratorRuntime() bundle for the summary's
+ *   seven-day running-time strip. Owned by the caller for the same reason as
+ *   `manual`: the export mounts a second copy of this template, and state held
+ *   here would start empty in it.
  */
 export function DailyRadarTemplate({
   data,
@@ -131,6 +135,7 @@ export function DailyRadarTemplate({
   figureRefs,
   manual,
   onManualChange,
+  generator,
 }) {
   const strings = useMemo(() => dailyStrings(locale), [locale]);
   const glossary = useMemo(() => dailyGlossaryGroups(locale), [locale]);
@@ -206,8 +211,19 @@ export function DailyRadarTemplate({
   // Declared before the blocks: they close over bumpMeasure. `analysisFigures`
   // is a dep because adding a figure or a graph changes the block heights and
   // the pages have to re-pack around them.
+  // `generator?.columns?.length` and not the columns themselves: the strip
+  // appears when the window resolves, which changes the summary block's height,
+  // but typing a figure into a cell it already has cannot.
   const { pages, measureRef, measureLayer, bumpMeasure } = useReportPagination(
-    [data, rows, annotation?.image, annotation?.boundaries, analysisFigures, locale],
+    [
+      data,
+      rows,
+      annotation?.image,
+      annotation?.boundaries,
+      analysisFigures,
+      locale,
+      generator?.columns?.length ?? 0,
+    ],
     { usableHeight: DAILY_USABLE_H }
   );
 
@@ -259,6 +275,7 @@ export function DailyRadarTemplate({
         manual={manual}
         editable={interactive}
         onManualChange={onManualChange}
+        generator={generator}
       />,
     ];
 

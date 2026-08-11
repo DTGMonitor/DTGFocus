@@ -48,6 +48,11 @@ export interface DailyStrings {
     summaryWeather: string;
     summaryFog: string;
     summaryRainfall: string;
+    /**
+     * The generator strip's heading. Carries the UNIT, because the cells are
+     * bare numbers — a column of "612" against a date means nothing without it.
+     */
+    summaryGenerator: string;
 
     // Scan area.
     scanAreaHeading: string;
@@ -144,6 +149,7 @@ const EN: DailyStrings = {
     summaryWeather: 'Weather Condition',
     summaryFog: 'Fog Condition',
     summaryRainfall: 'Rainfall Record',
+    summaryGenerator: 'Generator Running Time (minutes)',
 
     scanAreaHeading: 'SCAN AREA',
     scanAreaFigure: 'Scan Area Deformation Image',
@@ -202,6 +208,7 @@ const ID: DailyStrings = {
     summaryWeather: 'Kondisi Cuaca',
     summaryFog: 'Kondisi Kabut',
     summaryRainfall: 'Rekaman Curah Hujan',
+    summaryGenerator: 'Waktu Operasi Genset (menit)',
 
     scanAreaHeading: 'AREA PEMINDAIAN',
     scanAreaFigure: 'Gambar Deformasi Area Pemindaian',

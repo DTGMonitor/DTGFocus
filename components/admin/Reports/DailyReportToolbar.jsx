@@ -89,6 +89,9 @@ function Outstanding({ items }) {
  *   { siteId, frequency, endDate, timeZone, locale, onFill }. Omitted when no
  *   site is selected yet, in which case the button is simply absent rather than
  *   present and dead.
+ * @param {string} [notice]  A failure the analyst has to know about but cannot
+ *   see on the page — a generator figure that did not save still SHOWS in its
+ *   cell, so nothing on the sheet would give the loss away.
  */
 export function DailyReportToolbar({
   showAnalysis,
@@ -96,6 +99,7 @@ export function DailyReportToolbar({
   annotation,
   figures,
   stationFill,
+  notice,
 }) {
   const [open, setOpen] = useState(true);
 
@@ -126,6 +130,7 @@ export function DailyReportToolbar({
           {open ? '▲ Hide controls' : '▼ Show controls'}
         </button>
         <Outstanding items={outstanding} />
+        {notice ? <span style={{ fontSize: 11, color: '#f87171' }}>{notice}</span> : null}
         {stationFill ? (
           <StationSummaryFill
             siteId={stationFill.siteId}

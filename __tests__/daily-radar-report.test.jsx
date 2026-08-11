@@ -640,6 +640,61 @@ describe('rendering', () => {
     expect(screen.getByText('Cerah')).toBeInTheDocument();
   });
 
+  /**
+   * The strip is the report's only stored manual field, so the two things worth
+   * pinning are that it reads left-to-right newest-first — the analyst fills the
+   * left cell and the client reads the same way — and that a committed figure is
+   * handed back with its DATE, not its column. A commit keyed to a position
+   * would rewrite the wrong day the moment the window moved.
+   */
+  test('the generator strip runs latest-first and commits against the day, not the column', () => {
+    const onChange = jest.fn();
+    const onCommit = jest.fn();
+    const columns = [
+      { date: '2026-08-06', label: '06/08', value: '' },
+      { date: '2026-08-05', label: '05/08', value: '612' },
+      { date: '2026-08-04', label: '04/08', value: '0' },
+    ];
+
+    const { rerender } = render(
+      <DailySummary
+        strings={strings}
+        quality="Acceptable"
+        manual={{}}
+        editable
+        generator={{ columns, onChange, onCommit }}
+      />
+    );
+
+    expect(screen.getByText('Waktu Operasi Genset (menit)')).toBeInTheDocument();
+
+    const headings = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headings).toEqual(['06/08', '05/08', '04/08']);
+
+    const yesterday = screen.getByLabelText('Waktu Operasi Genset (menit) 06/08');
+    fireEvent.change(yesterday, { target: { value: '540' } });
+    expect(onChange).toHaveBeenCalledWith('2026-08-06', '540');
+    fireEvent.blur(yesterday);
+    expect(onCommit).toHaveBeenCalledWith('2026-08-06');
+
+    // A generator that did not run is a reading. Printed as 0, not as blank.
+    rerender(
+      <DailySummary
+        strings={strings}
+        quality="Acceptable"
+        manual={{}}
+        generator={{ columns, onChange, onCommit }}
+      />
+    );
+    const printed = screen.getAllByRole('cell').map((cell) => cell.textContent);
+    expect(printed).toEqual(['—', '612', '0']);
+  });
+
+  test('a report composed without the strip prints as it always did', () => {
+    render(<DailySummary strings={strings} quality="Acceptable" manual={{}} />);
+    expect(screen.queryByText('Waktu Operasi Genset (menit)')).not.toBeInTheDocument();
+  });
+
   test('the data update is edited on the card itself', () => {
     const onDataUpdateChange = jest.fn();
     render(

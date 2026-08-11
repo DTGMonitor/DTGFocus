@@ -65,6 +65,8 @@ function liveAge(observedAt: string | null, now: number): DataAge {
 
 export default function FogMonitor() {
   const [sites, setSites] = useState<Site[]>([]);
+  /** Site ids with an active station, so the picker can say which are wired up. */
+  const [boundSites, setBoundSites] = useState<Set<number>>(new Set());
   const [siteId, setSiteId] = useState<number | null>(null);
   const [range, setRange] = useState<'24h' | '7d'>('24h');
 
@@ -87,18 +89,36 @@ export default function FogMonitor() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error: err } = await supabase
-        .from('clients')
-        .select('id, site_name')
-        .order('site_name');
+      // Which sites have a station is fetched alongside the site list, because
+      // the default selection depends on it. Opening on the alphabetically
+      // first site lands on whichever one happens to sort first — and if that
+      // site has no station, the page greets you with a binding panel while a
+      // fully configured site sits one dropdown away, looking broken.
+      const [siteResult, stationResult] = await Promise.all([
+        supabase.from('clients').select('id, site_name').order('site_name'),
+        supabase.from('weather_stations').select('site_id').eq('is_active', true),
+      ]);
+
       if (cancelled) return;
-      if (err) {
-        setError(err.message);
+      if (siteResult.error) {
+        setError(siteResult.error.message);
         return;
       }
-      const rows = (data ?? []) as Site[];
+
+      const rows = (siteResult.data ?? []) as Site[];
+      const withStation = new Set(
+        ((stationResult.data ?? []) as { site_id: number }[]).map((s) => s.site_id)
+      );
+
       setSites(rows);
-      setSiteId((current) => current ?? rows[0]?.id ?? null);
+      setBoundSites(withStation);
+      setSiteId(
+        (current) =>
+          current ??
+          rows.find((s) => withStation.has(s.id))?.id ??
+          rows[0]?.id ??
+          null
+      );
     })();
     return () => {
       cancelled = true;
@@ -229,6 +249,14 @@ export default function FogMonitor() {
                 {sites.map((s) => (
                   <SelectItem key={s.id} value={String(s.id)}>
                     {s.site_name}
+                    {/* Marked rather than hidden: a site with no station is a
+                        setup gap the operator may want to close, not a site
+                        that does not exist. */}
+                    {!boundSites.has(s.id) && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        (no station)
+                      </span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>

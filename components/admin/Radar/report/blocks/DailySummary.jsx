@@ -85,6 +85,106 @@ function EditableValue({ editable, value, placeholder, onChange, ariaLabel }) {
 }
 
 /**
+ * The generator running-time strip: seven days of minutes, latest on the LEFT.
+ *
+ * The columns are DATES, not positions — "the last seven days" is a window over
+ * a stored history (see useGeneratorRuntime), so the analyst fills the new
+ * leftmost cell each morning and every earlier figure walks right on its own.
+ * It starts at yesterday because the report is issued at 05:00–06:00 site time,
+ * when today has no running time to report yet.
+ *
+ * Blank prints as an em dash, exactly like the observations above it. A cell
+ * holding 0 prints "0": the generator not running is a reading, and it must not
+ * read as an unanswered day.
+ */
+function GeneratorStrip({ strings, columns, editable, onChange, onCommit }) {
+  if (!columns?.length) return null;
+
+  const cellWidth = `${(100 / columns.length).toFixed(4)}%`;
+
+  return (
+    <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px solid ${LINE}` }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: INK, marginBottom: 3 }}>
+        {strings.summaryGenerator}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <thead>
+          <tr>
+            {columns.map((col) => (
+              <th key={col.date} style={{ ...th, width: cellWidth, textAlign: 'center' }}>
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {columns.map((col) => (
+              <td key={col.date} style={{ ...td, textAlign: 'center', fontWeight: 600 }}>
+                {editable ? (
+                  <MinutesInput
+                    value={col.value}
+                    ariaLabel={`${strings.summaryGenerator} ${col.label}`}
+                    onChange={(v) => onChange?.(col.date, v)}
+                    onCommit={() => onCommit?.(col.date)}
+                  />
+                ) : (
+                  col.value || strings.notProvided
+                )}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * One cell of the strip.
+ *
+ * Committed on BLUR rather than on every keystroke: each commit is a round trip,
+ * and "612" typed a digit at a time would store 6, then 61, then 612 — the
+ * middle two being figures the analyst never meant. Enter commits too, so the
+ * field can be filled without reaching for the mouse.
+ */
+function MinutesInput({ value, ariaLabel, onChange, onCommit }) {
+  const filled = Boolean(String(value ?? '').trim());
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={1440}
+      step={1}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+      onBlur={() => onCommit?.()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+      }}
+      aria-label={ariaLabel}
+      style={{
+        width: '100%',
+        fontSize: 8.5,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        textAlign: 'center',
+        color: INK,
+        background: filled ? 'transparent' : '#fffbe6',
+        border: 'none',
+        borderBottom: filled ? '1px solid transparent' : '1px dashed #d97706',
+        padding: 0,
+        outline: 'none',
+        // Spinners would eat half a 40px-wide cell.
+        appearance: 'textfield',
+        MozAppearance: 'textfield',
+      }}
+    />
+  );
+}
+
+/**
  * @param {object} strings   dailyStrings(locale)
  * @param {string} deformation  The risk verdict sentence.
  * @param {string} quality      The data-quality label, e.g. 'Acceptable'.
@@ -96,6 +196,9 @@ function EditableValue({ editable, value, placeholder, onChange, ariaLabel }) {
  * @param {boolean} editable  Type the observations straight onto the page.
  *   False on the export render and the measurement layer.
  * @param {Function} onManualChange  (field, value) => void
+ * @param {object} generator  A useGeneratorRuntime() bundle — { columns,
+ *   onChange, onCommit }. Absent (or empty) drops the strip entirely, so a
+ *   report composed without it is the report as it was before.
  */
 export function DailySummary({
   strings,
@@ -106,6 +209,7 @@ export function DailySummary({
   manual,
   editable = false,
   onManualChange,
+  generator,
 }) {
   const qualityTone = severityColor(quality).color;
   const observation = (fieldName, label) => (
@@ -139,6 +243,13 @@ export function DailySummary({
         <SummaryRow label={strings.summaryRainfall}>
           {observation('rainfall', strings.summaryRainfall)}
         </SummaryRow>
+        <GeneratorStrip
+          strings={strings}
+          columns={generator?.columns}
+          editable={editable}
+          onChange={generator?.onChange}
+          onCommit={generator?.onCommit}
+        />
       </div>
     </div>
   );
