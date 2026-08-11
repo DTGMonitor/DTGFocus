@@ -86,7 +86,13 @@ The ingest path has been exercised end to end against the live endpoint.
   - [x] 4.7 `GET /api/sites/[id]/rainfall?range=24h|7d` — fills the hour grid itself; the view only emits hours that contain readings. _Requirements: 13.8_
   - [x] 4.8 `POST /api/stations/discover` — returns candidates, never binds. _Requirements: 13.11_
   - [x] 4.9 `POST /api/stations/bind` — **not in the original route list**; §6 requires a binding UI and discover deliberately does not bind. Probes the station before binding.
-  - [x] 4.10 `vercel.json` — `*/5 * * * *` cron entry
+  - [x] 4.10 Scheduling — **NOT Vercel Cron**. The Hobby plan caps cron at once
+    per day (https://vercel.com/docs/cron-jobs/usage-and-pricing) and rejects a
+    `*/5 * * * *` entry at deploy time. Dropping to daily does not degrade the
+    feature, it removes it: one reading a day against an 8-reading minimum in a
+    24-hour window never scores. Migration 005 schedules the poll from Supabase
+    with `pg_cron` + `pg_net` instead — free, already in the stack, secret held
+    in Vault. `vercel.json` carries no `crons` block.
   - [x] 4.11 `__tests__/fog-poll.test.ts` — 10 tests: concurrency never exceeds 3, a slow station does not stall its neighbours, failures contained, error samples capped, audit opened first, previous state read strictly before the scored instant
 
 - [x] 5. UI (`components/admin/Fog/`)
@@ -150,7 +156,20 @@ The ingest path has been exercised end to end against the live endpoint.
   design** — this route writes with the service role and makes outbound
   requests. `npm run poll:fog` prints a generated value if the variable is
   missing.
-- [ ] D4. Confirm the Vercel plan supports a `*/5` schedule. Hobby is daily-only; minute-level cron needs Pro.
+- [ ] D4. Run migration **005** to schedule the poll from Postgres, and store
+  the two Vault secrets its header describes (`fog_poll_url`,
+  `fog_cron_secret`). Enable `pg_cron` and `pg_net` under Database >
+  Extensions first.
+
+  Vercel Cron is not used: the Hobby plan is daily-only and a daily poll cannot
+  feed this index. If you move to Vercel Pro and would rather schedule there,
+  add back to `vercel.json`:
+
+  ```json
+  "crons": [{ "path": "/api/weather/poll", "schedule": "*/5 * * * *" }]
+  ```
+
+  and run `select cron.unschedule('fog-poll');` so only one scheduler is live.
 - [ ] D5. Set `latitude` and `longitude` on the East Luwu site row in `public.clients` if not already present — discovery refuses without them.
 - [ ] D6. Bind `C8:C9:A3:0F:C7:FD` (ASBSAR1) via `/admin/FogMonitor`. Enter elevation ≈ 950 m manually; the endpoint does not report it.
 - [ ] D7. Accumulate history. **Vercel Cron never fires against `npm run dev`**,
