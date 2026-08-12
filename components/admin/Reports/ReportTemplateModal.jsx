@@ -712,9 +712,18 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                 // data URL — the analyst's uploads come through FileReader and
                 // the seeded heatmap through urlToDataUrl.
                 const logoDataUrl = await resolveFullLogo(fullClientLogo, clientLogo);
+                // The appendix figures are the one thing on this page still held
+                // in Supabase storage. Signed and inlined BEFORE the export
+                // render mounts, for the reason the comprehensive path documents:
+                // an image resolving in an effect measures at zero height, and
+                // the capture would drop whole appendix pages from the PDF.
+                const dailyAppendixItems = await resolveAppendixImages(
+                    buildAppendixItems(dailyData?.dqpRows ?? [])
+                );
                 const pdfBlob = await generatePdfBlob(
                     <DailyRadarTemplate
                         data={dailyData}
+                        appendixItems={dailyAppendixItems}
                         sensor={sensor}
                         reportInfo={generatedReport.info}
                         locale={dailyLocale}

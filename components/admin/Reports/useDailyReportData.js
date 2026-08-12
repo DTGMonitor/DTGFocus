@@ -26,7 +26,7 @@ import { fromUTC } from '@/utils/timezoneUtils';
 import { resolveRiskPresentation, getRiskDisplayMode } from '@/config/riskDisplay';
 import { resolveMovementTableStyle } from '@/config/movementTableStyle';
 import { buildQualityNote, findOverallStatus } from '@/utils/reportDqp';
-import { DQP_IMAGE_COLUMNS } from '@/utils/dqpImages';
+import { DQP_IMAGE_COLUMNS, attachDqpImages } from '@/utils/dqpImages';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { RADAR_TYPE } from '@/components/admin/Radar/ReportReminder/reportTypes';
 
@@ -140,6 +140,11 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
           })
           .catch(warn('deformation records')),
 
+        // The figure columns hold ids, not storage paths — PostgREST cannot
+        // embed a join through an array column, so `attachDqpImages` resolves
+        // them all in one follow-up query. The appendix is what needs them: it
+        // prints the analyst's note for each non-optimal parameter alongside
+        // whatever they attached to it.
         sensor.dqp_record_id
           ? supabase
               .from('dqp_values')
@@ -148,7 +153,7 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
               .in('parameters.level', [0, 1, 2])
               .then((r) => {
                 if (r.error) throw r.error;
-                return r.data;
+                return attachDqpImages(supabase, r.data);
               })
               .catch(warn('data quality values'))
           : Promise.resolve(null),

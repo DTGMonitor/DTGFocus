@@ -81,6 +81,14 @@ export interface DailyStrings {
     /** Placeholder heading for an analysis area the analyst has not named. */
     analysisAreaFallback: (index: number) => string;
 
+    // Appendix — the evidence behind the day's data-quality verdict, one entry
+    // per DQP parameter the analyst wrote a note against.
+    appendixHeading: string;
+    /** The entry's own heading: "Appendix A" / "Lampiran A". */
+    appendixLabel: (letter: string) => string;
+    /** A figure caption's number prefix: "Figure 2." / "Gambar 2.". */
+    appendixFigure: (n: number) => string;
+
     // Glossary.
     glossaryHeading: string;
     glossaryIntro: string;
@@ -172,6 +180,10 @@ const EN: DailyStrings = {
     analysisGraphCaption: (name) => `Deformation Graph at ${name}`,
     analysisAreaFallback: (index) => `Area ${index}`,
 
+    appendixHeading: 'APPENDIX',
+    appendixLabel: (letter) => `Appendix ${letter}`,
+    appendixFigure: (n) => `Figure ${n}.`,
+
     glossaryHeading: 'RADAR TERMINOLOGY GLOSSARY',
     glossaryIntro:
         'This glossary is intended to help the reader understand technical terminology that may be unfamiliar. It serves as a guide to the technical terms used in this document, so that the report can be followed without confusion.',
@@ -230,6 +242,10 @@ const ID: DailyStrings = {
     analysisHeading: 'ANALISIS AREA',
     analysisGraphCaption: (name) => `Grafik Deformasi pada ${name}`,
     analysisAreaFallback: (index) => `Area ${index}`,
+
+    appendixHeading: 'LAMPIRAN',
+    appendixLabel: (letter) => `Lampiran ${letter}`,
+    appendixFigure: (n) => `Gambar ${n}.`,
 
     glossaryHeading: 'GLOSSARIUM TERMINOLOGI RADAR',
     glossaryIntro:

@@ -12,7 +12,8 @@
  *
  * Block order:
  *   Header + cards → Summary → Scan-area figure → Movement table → Legend →
- *   Analysis figure[+ its graphs]… → Glossary intro → Glossary group[]
+ *   Analysis figure[+ its graphs]… → Glossary intro → Glossary group[] →
+ *   Appendix[]
  *
  * Two things about this report are unlike the other two:
  *
@@ -33,6 +34,7 @@ import {
   resolvePages,
   blocksAreAdjacent,
 } from '@/components/admin/Radar/report/useReportPagination';
+import { useAppendixImages } from '@/components/admin/Radar/report/useAppendixImages';
 
 import { DailyHeader } from '@/components/admin/Radar/report/blocks/DailyHeader';
 import {
@@ -50,6 +52,7 @@ import {
   DailyGlossaryGroup,
   DailyFooter,
 } from '@/components/admin/Radar/report/blocks/DailyGlossary';
+import { DailyAppendixItem } from '@/components/admin/Radar/report/blocks/DailyAppendix';
 
 import {
   dailyStrings,
@@ -61,6 +64,7 @@ import {
   dailySubtitle,
 } from '@/config/dailyReportLocale';
 import { dailyGlossaryGroups } from '@/config/dailyGlossary';
+import { buildAppendixItems } from '@/utils/reportDqp';
 import {
   buildStatusRows,
   splitStatusRows,
@@ -120,6 +124,9 @@ const GRAPH_MAX_H = 250;
  *   seven-day running-time strip. Owned by the caller for the same reason as
  *   `manual`: the export mounts a second copy of this template, and state held
  *   here would start empty in it.
+ * @param {object[]} appendixItems  Pre-resolved appendix items (see
+ *   resolveAppendixImages). REQUIRED on the export path — without it the figures
+ *   resolve after the capture and the PDF loses pages.
  */
 export function DailyRadarTemplate({
   data,
@@ -136,6 +143,7 @@ export function DailyRadarTemplate({
   manual,
   onManualChange,
   generator,
+  appendixItems: preResolvedAppendix,
 }) {
   const strings = useMemo(() => dailyStrings(locale), [locale]);
   const glossary = useMemo(() => dailyGlossaryGroups(locale), [locale]);
@@ -143,6 +151,19 @@ export function DailyRadarTemplate({
   // Stabilised: `data?.defRecords ?? []` would be a fresh array each render, so
   // every downstream memo would recompute and the pagination effect re-fire.
   const defRecords = useMemo(() => data?.defRecords ?? [], [data?.defRecords]);
+
+  /**
+   * The appendix — the evidence behind the day's data-quality verdict.
+   *
+   * Built from the SAME DQP rows the quality note is (`buildQualityNote` in the
+   * data hook), through the same builder the Comprehensive report uses, so a
+   * parameter that downgraded the day appears with its note and its figures in
+   * both documents. Empty on a day the analyst annotated nothing, which drops
+   * the section entirely — there is no heading over an empty appendix.
+   */
+  const dqpRows = useMemo(() => data?.dqpRows ?? [], [data?.dqpRows]);
+  const rawAppendixItems = useMemo(() => buildAppendixItems(dqpRows), [dqpRows]);
+  const appendixItems = useAppendixImages(rawAppendixItems, preResolvedAppendix);
 
   /**
    * Which movement table this radar prints — one row per active chain (the DTG
@@ -223,6 +244,10 @@ export function DailyRadarTemplate({
       analysisFigures,
       locale,
       generator?.columns?.length ?? 0,
+      // The whole item array, not its length: the figures arrive as data URLs
+      // after the first render (useAppendixImages), and a block that measured
+      // at heading-height with no image would leave the pages packed short.
+      appendixItems,
     ],
     { usableHeight: DAILY_USABLE_H }
   );
@@ -359,6 +384,21 @@ export function DailyRadarTemplate({
     out.push(<DailyGlossaryIntro key="glossary-intro" strings={strings} />);
     glossary.forEach((group) => {
       out.push(<DailyGlossaryGroup key={`glossary-${group.letter}`} strings={strings} group={group} />);
+    });
+
+    // One block per appendix entry — the paginator places them, exactly as in
+    // the Comprehensive report, so there is no items-per-page constant here to
+    // drift out of sync with anything.
+    appendixItems.forEach((item, i) => {
+      out.push(
+        <DailyAppendixItem
+          key={`appendix-${item.letter}`}
+          strings={strings}
+          item={item}
+          onImageLoad={bumpMeasure}
+          withHeader={i === 0}
+        />
+      );
     });
 
     return out;

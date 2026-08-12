@@ -33,7 +33,8 @@ import {
 import { resolveRiskPresentation, riskSentence } from '@/config/riskDisplay';
 import { getStatusDefinition } from '@/config/statusConfig';
 import { dailyGlossaryGroups } from '@/config/dailyGlossary';
-import { buildQualityNote } from '@/utils/reportDqp';
+import { buildQualityNote, buildAppendixItems } from '@/utils/reportDqp';
+import { DailyAppendixItem } from '@/components/admin/Radar/report/blocks/DailyAppendix';
 import { DailySummary, DailyMovementTable, DailyLegend } from '@/components/admin/Radar/report/blocks/DailySummary';
 import { DailyHeader } from '@/components/admin/Radar/report/blocks/DailyHeader';
 
@@ -387,6 +388,79 @@ describe('locale', () => {
       expect(terms.some((t) => t.term.startsWith('TARP'))).toBe(true);
       expect(terms.some((t) => t.term.startsWith('Speed Reciprocal'))).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Appendix
+// ---------------------------------------------------------------------------
+
+describe('appendix', () => {
+  // A DQP row as the daily hook hands it over: notes are what promotes a row
+  // into the appendix, `images` is what attachDqpImages resolved for it.
+  const dqpRow = (over = {}) => ({
+    value: 'Sub-Optimal',
+    notes: 'Latency issue',
+    appendix: 'The link dropped for 40 minutes.',
+    parameters: { id: 12, name: 'Data Latency', level: 2, parent_id: 3 },
+    images: [],
+    ...over,
+  });
+
+  test('carries the same entries the comprehensive report would build', () => {
+    // Both documents read the same rows through buildAppendixItems, so a row
+    // with a note and nothing to show is still an entry, and a row with neither
+    // is not one at all.
+    const items = buildAppendixItems([
+      dqpRow(),
+      dqpRow({ parameters: { id: 4, name: 'Alignment', level: 2 }, notes: null, appendix: 'ignored' }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].letter).toBe('A');
+    expect(items[0].name).toBe('Data Latency');
+  });
+
+  test('is written in the site language, like every other block', () => {
+    const [item] = buildAppendixItems([
+      dqpRow({ images: [{ id: 7, caption: 'Availability trace', image_url: 'a/b.png' }] }),
+    ]);
+    // Rendered as the template renders it: figures already inlined.
+    const inlined = { ...item, images: item.images.map((i) => ({ ...i, imageUrl: 'data:image/png;base64,x' })) };
+
+    const { unmount } = render(
+      <DailyAppendixItem strings={dailyStrings('id')} item={inlined} withHeader />
+    );
+    expect(screen.getByText('LAMPIRAN')).toBeInTheDocument();
+    expect(screen.getByText(/Lampiran A/)).toBeInTheDocument();
+    expect(screen.getByText('Gambar 1.')).toBeInTheDocument();
+    unmount();
+
+    render(<DailyAppendixItem strings={dailyStrings('en')} item={inlined} withHeader />);
+    expect(screen.getByText('APPENDIX')).toBeInTheDocument();
+    expect(screen.getByText(/Appendix A/)).toBeInTheDocument();
+    expect(screen.getByText('Figure 1.')).toBeInTheDocument();
+  });
+
+  test('a figure that never resolved leaves its number unused', () => {
+    // Numbering follows the row's declared order. Renumbering around a missing
+    // figure would make the caption disagree with any reference to it.
+    const [item] = buildAppendixItems([
+      dqpRow({
+        images: [
+          { id: 1, caption: 'lost', image_url: 'gone.png' },
+          { id: 2, caption: 'kept', image_url: 'here.png' },
+        ],
+      }),
+    ]);
+    const partial = {
+      ...item,
+      images: [item.images[0], { ...item.images[1], imageUrl: 'data:image/png;base64,x' }],
+    };
+
+    render(<DailyAppendixItem strings={dailyStrings('en')} item={partial} withHeader />);
+    expect(screen.queryByText('Figure 1.')).not.toBeInTheDocument();
+    expect(screen.getByText('Figure 2.')).toBeInTheDocument();
   });
 });
 
