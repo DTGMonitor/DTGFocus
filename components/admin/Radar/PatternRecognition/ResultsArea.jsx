@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import VCPSummaryTable from './VCPSummaryTable';
 import StageSummaryTable from './StageSummaryTable';
@@ -9,6 +9,12 @@ import PostBlastReportModal from './PostBlastReportModal';
 import VcpParameterEditor from './VcpParameterEditor';
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import { selectFormVcp } from '@/utils/patternRecognitionMapper';
+import {
+  EVENT_ICON,
+  EVENT_SHORT,
+  buildEventOverlays,
+  captureChartView,
+} from './chartOverlays';
 import {
   PHASE_OPTIONS,
   windowsToBoundaries,
@@ -27,22 +33,6 @@ const PHASE_COLORS = {
   'Progressive Failure': '#FF0000',
   Regressive: '#FFFF00',
   Unclassified: '#9E9E9E',
-};
-
-/** Deformation-event types plotted as vertical markers + chart icons/labels. */
-const EVENT_ICON = {
-  'Blast Event': '💥',
-  'Rock Fall': '🪨',
-  'Material Detachment': '⛏️',
-  'Rainfall Event': '🌧️',
-  Failure: '⚠️',
-};
-const EVENT_SHORT = {
-  'Blast Event': 'Blast',
-  'Rock Fall': 'Rock Fall',
-  'Material Detachment': 'Material Detachment',
-  'Rainfall Event': 'Rainfall',
-  Failure: 'Failure',
 };
 
 /**
@@ -201,8 +191,6 @@ function VCPSelector({ vcpResults, activeIndex, onSelect }) {
  * the built-in Plotly mode-bar camera button.
  */
 const BOUNDARY_COLOR = '#FFD54F';
-const BLAST_COLOR = '#FF1744';
-const ACTUAL_FAILURE_COLOR = '#FF4081';
 const NEAR_PX = 35;
 
 /** True if a layout shape is one of our draggable stage-boundary lines. */
@@ -225,6 +213,7 @@ function ChartPanel({
   blastEvents = null,
   pfConfirmed = false,
   actualFailureTime = '',
+  onGraphDiv = null,
 }) {
   const graphDivRef = useRef(null);
   const isDark = useIsDarkTheme();
@@ -293,71 +282,16 @@ function ChartPanel({
     shapes = [...shapes, ...boundaryShapes];
   }
 
-  // Overlay blasting events as non-editable labeled vertical lines (issue 7).
+  // Overlay deformation events + the confirmed failure time as non-editable
+  // labeled vertical lines (issue 7) — same builder the report uses, so the
+  // printed chart carries the identical markers.
   let annotations = Array.isArray(layout.annotations) ? layout.annotations : [];
-  if (Array.isArray(blastEvents) && blastEvents.length > 0) {
-    const blastShapes = blastEvents.map((b) => ({
-      type: 'line',
-      xref: 'x',
-      yref: 'paper',
-      x0: b.time,
-      x1: b.time,
-      y0: 0,
-      y1: 1,
-      line: { color: BLAST_COLOR, width: 1.5, dash: 'dot' },
-    }));
-    const blastAnnos = blastEvents.map((b) => ({
-      x: b.time,
-      xref: 'x',
-      y: 0.04,
-      yref: 'paper',
-      text: `${EVENT_ICON[b.type] ?? '💥'} ${EVENT_SHORT[b.type] ?? b.type ?? 'Event'}`,
-      showarrow: false,
-      textangle: -90,
-      font: { color: BLAST_COLOR, size: 9 },
-      xanchor: 'left',
-      yanchor: 'bottom',
-      bgcolor: 'rgba(0,0,0,0.55)',
-      bordercolor: BLAST_COLOR,
-      borderpad: 2,
-    }));
-    shapes = [...shapes, ...blastShapes];
-    annotations = [...annotations, ...blastAnnos];
-  }
-
-  // Overlay the actual failure time when provided (issue 3).
-  if (actualFailureTime) {
-    shapes = [
-      ...shapes,
-      {
-        type: 'line',
-        xref: 'x',
-        yref: 'paper',
-        x0: actualFailureTime,
-        x1: actualFailureTime,
-        y0: 0,
-        y1: 1,
-        line: { color: ACTUAL_FAILURE_COLOR, width: 2.5 },
-      },
-    ];
-    annotations = [
-      ...annotations,
-      {
-        x: actualFailureTime,
-        xref: 'x',
-        y: 0.99,
-        yref: 'paper',
-        text: '⚑ Actual Failure',
-        showarrow: false,
-        font: { color: ACTUAL_FAILURE_COLOR, size: 10 },
-        xanchor: 'left',
-        yanchor: 'top',
-        bgcolor: 'rgba(0,0,0,0.6)',
-        bordercolor: ACTUAL_FAILURE_COLOR,
-        borderpad: 3,
-      },
-    ];
-  }
+  const eventOverlays = buildEventOverlays({
+    events: blastEvents ?? [],
+    actualFailureTime,
+  });
+  shapes = [...shapes, ...eventOverlays.shapes];
+  annotations = [...annotations, ...eventOverlays.annotations];
 
   // Optimistically apply the new windows locally (smooth UI), then re-classify.
   const commit = (newWindows) => {
@@ -506,9 +440,11 @@ function ChartPanel({
           useResizeHandler
           onInitialized={(_fig, gd) => {
             graphDivRef.current = gd;
+            onGraphDiv?.(gd);
           }}
           onUpdate={(_fig, gd) => {
             graphDivRef.current = gd;
+            onGraphDiv?.(gd);
           }}
           onRelayout={handleRelayout}
         />
@@ -768,18 +704,35 @@ export default function ResultsArea({
   // Generate Report dropdown open state.
   const [showReportMenu, setShowReportMenu] = useState(false);
 
+  // Live Plotly graph div of the per-VCP chart, plus the view snapshot taken
+  // from it when the report is opened. The report re-renders the stored figure
+  // JSON, so hidden traces (e.g. the inverse velocity) and the current zoom only
+  // reach it as data.
+  const activeChartDivRef = useRef(null);
+  const [chartView, setChartView] = useState(null);
+  const [chartViewVcpIndex, setChartViewVcpIndex] = useState(null);
+
   // Deformation events within the analysis period (request 2): the included
   // subset is plotted on the charts and folded into the slope-behaviour summary.
-  const periodEvents = Array.isArray(events) ? events : [];
-  const includedEvents = periodEvents.filter((e) => e.included !== false);
+  // Memoised: these arrays are props of the report modal, which re-renders its
+  // chart images whenever they change identity.
+  const periodEvents = useMemo(() => (Array.isArray(events) ? events : []), [events]);
+  const includedEvents = useMemo(
+    () => periodEvents.filter((e) => e.included !== false),
+    [periodEvents]
+  );
 
   // Mode → report title. Back Analysis becomes "Failure Back Analysis" once an
   // actual failure time is supplied (request 1).
   const backAnalysisTitle = actualFailureTime ? 'Failure Back Analysis' : 'Back Analysis';
   const analysisTitle = analysisMode === 'back' ? backAnalysisTitle : 'Post-Blast Analysis';
 
-  // Open the report preview in a given mode (from the dropdown).
+  // Open the report preview in a given mode (from the dropdown). Snapshot the
+  // chart as it stands right now so the printed figure inherits the analyst's
+  // hidden traces and zoom rather than the as-analysed defaults.
   const openReport = (mode) => {
+    setChartView(captureChartView(activeChartDivRef.current));
+    setChartViewVcpIndex(safeActiveIndex);
     setAnalysisMode(mode);
     setShowReportMenu(false);
     setShowReport(true);
@@ -911,6 +864,9 @@ export default function ResultsArea({
           blastEvents={includedEvents}
           pfConfirmed={pfConfirmed}
           actualFailureTime={actualFailureTime}
+          onGraphDiv={(gd) => {
+            activeChartDivRef.current = gd;
+          }}
         />
       )}
 
@@ -1203,6 +1159,8 @@ export default function ResultsArea({
         pfConfirmed={pfConfirmed}
         blastEvents={includedEvents}
         analysisTitle={analysisTitle}
+        chartView={chartView}
+        chartViewVcpIndex={chartViewVcpIndex}
       />
 
       {/* ── Archive-blast confirmation (issue 3) ── */}

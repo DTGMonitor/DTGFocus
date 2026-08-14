@@ -34,6 +34,12 @@ import {
   IMAGE_MAX_H as PIT_MAX_H,
   FALLBACK_LOGO,
 } from '../report/constants';
+import {
+  EVENT_SHORT,
+  buildEventOverlays,
+  applyChartView,
+  timeAxisOnly,
+} from './chartOverlays';
 import { PageSheet, ReportPages, SectionBar } from '../report/pageFrame';
 import { useReportPagination, resolvePages } from '../report/useReportPagination';
 import { useImageAnnotation } from '../report/useImageAnnotation';
@@ -75,14 +81,6 @@ const PHASE_TO_TARP = {
   Regressive: 'TARP 2',
   Linear: 'TARP 3',
   'Progressive Failure': 'TARP 4',
-};
-
-/** Short labels for deformation events shown in the transition sequence. */
-const EVENT_LABEL = {
-  'Blast Event': 'Blast',
-  'Rock Fall': 'Rock Fall',
-  'Material Detachment': 'Material Detachment',
-  Failure: 'Failure',
 };
 
 /** Stage band colours — mirror ResultsArea.PHASE_COLORS. */
@@ -179,16 +177,42 @@ function formatStageCell(col, row, pfConfirmed) {
   return n.toFixed(3);
 }
 
-/** Re-theme a PR Plotly figure for a white printed page. */
-function printFigure(chartJson) {
-  const data = (chartJson.data ?? []).map((t) => {
+/**
+ * Re-theme a PR Plotly figure for a white printed page, replaying the analyst's
+ * on-screen view (hidden traces + zoom, via `view`) and re-drawing the
+ * deformation-event markers, which live as overlays on the interactive chart
+ * and are not part of the stored figure JSON.
+ */
+function printFigure(
+  chartJson,
+  { view = null, matchByIndex = false, overlays = null, pfConfirmed = true } = {}
+) {
+  const viewed = applyChartView(chartJson, view, {
+    matchByIndex,
+    // Other VCPs share the time axis but not the displacement / velocity scales.
+    axisFilter: matchByIndex ? null : timeAxisOnly,
+  });
+
+  const data = viewed.data.map((trace) => {
+    // Legend wording follows the same rule as the stage tables: "Progressive"
+    // until an actual failure time confirms the failure (issue 3).
+    const t = pfConfirmed || !trace?.name
+      ? trace
+      : { ...trace, name: displayPhase(trace.name, false) };
     const c = t?.line?.color;
     if (typeof c === 'string' && (c.toUpperCase() === '#FFFFFF' || c.toLowerCase() === '#fff')) {
       return { ...t, line: { ...t.line, color: INK } };
     }
     return t;
   });
-  const layout = { ...(chartJson.layout ?? {}) };
+  const layout = { ...viewed.layout };
+  if (overlays) {
+    layout.shapes = [...(Array.isArray(layout.shapes) ? layout.shapes : []), ...overlays.shapes];
+    layout.annotations = [
+      ...(Array.isArray(layout.annotations) ? layout.annotations : []),
+      ...overlays.annotations,
+    ];
+  }
   layout.paper_bgcolor = '#ffffff';
   layout.plot_bgcolor = '#ffffff';
   layout.font = { ...(layout.font ?? {}), color: INK, size: 11 };
@@ -231,6 +255,8 @@ export default function PostBlastReportModal({
   pfConfirmed = false,
   blastEvents = [],
   analysisTitle = 'Post-Blast Analysis',
+  chartView = null,
+  chartViewVcpIndex = null,
 }) {
   const imageRef = useRef(null);
 
@@ -281,7 +307,9 @@ export default function PostBlastReportModal({
       setChartImgs([]);
       return undefined;
     }
-    const list = (vcpResults || []).filter((v) => v?.combinedChartJson);
+    const list = (vcpResults || [])
+      .map((v, idx) => ({ vcp: v, idx }))
+      .filter(({ vcp }) => vcp?.combinedChartJson);
     if (list.length === 0) {
       setChartImgs([]);
       return undefined;
@@ -291,9 +319,19 @@ export default function PostBlastReportModal({
     (async () => {
       try {
         const Plotly = (await import('plotly.js-dist-min')).default;
+        const overlays = buildEventOverlays({
+          events: blastEvents,
+          actualFailureTime,
+          print: true,
+        });
         const imgs = await Promise.all(
-          list.map(async (v, idx) => {
-            const fig = printFigure(v.combinedChartJson);
+          list.map(async ({ vcp: v, idx }) => {
+            const fig = printFigure(v.combinedChartJson, {
+              view: chartView,
+              matchByIndex: idx === chartViewVcpIndex,
+              overlays,
+              pfConfirmed,
+            });
             const url = await Plotly.toImage(
               { data: fig.data, layout: { ...fig.layout, margin: { l: 60, r: 60, t: 28, b: 50 } } },
               { format: 'png', width: 1000, height: 430, scale: 2 }
@@ -312,7 +350,7 @@ export default function PostBlastReportModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, vcpResults]);
+  }, [isOpen, vcpResults, chartView, chartViewVcpIndex, blastEvents, actualFailureTime, pfConfirmed]);
 
   // Close on Escape
   useEffect(() => {
@@ -351,7 +389,7 @@ export default function PostBlastReportModal({
     const blastPts = (blastEvents ?? [])
       .map((b) => ({
         time: toMs(b.time),
-        label: EVENT_LABEL[b.type] ?? b.type ?? 'Blast',
+        label: EVENT_SHORT[b.type] ?? b.type ?? 'Blast',
       }))
       .filter(
         (p) =>
