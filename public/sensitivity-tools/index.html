@@ -379,6 +379,97 @@
       </div>
     </details>
 
+    <!-- ── 8. RADAR DEFORMATION ── -->
+    <details id="secRadar">
+      <summary><span class="num">8</span> Radar Deformation</summary>
+      <div class="body">
+        <div id="radarIntro" class="info">
+          Drop a radar deformation export (<span class="dim">…_DDMMYYYY_HHMM_DDMMYYYY_HHMM.csv</span>)
+          anywhere on this window. The first scan of a wall folder has to be
+          <b>georeferenced</b> by hand; every later scan of the same folder is placed automatically.
+        </div>
+
+        <div id="radarFolders"></div>
+
+        <!-- ---- colour scale ---- -->
+        <div class="subpanel">
+          <div class="subhead">Colour scale <span class="dim">deformation, mm</span></div>
+
+          <div class="row">
+            <label title="The scale is symmetric about zero: this sets both ends at once, so the middle colour always means no movement.">
+              Limit ±<input type="number" id="radarLimit" value="5" min="0" step="1" style="width:64px"> mm
+              <span class="dim">(0 = auto)</span>
+            </label>
+            <button id="radarAuto" class="miniBtn" title="Fit the limit to the loaded scans, ignoring the wildest 0.5% so one noisy pixel cannot flatten everything else.">Auto</button>
+          </div>
+
+          <canvas id="radarBar" class="radarBar" height="18"></canvas>
+          <div class="radarBarAxis">
+            <span id="radarBarMin">−5</span><span>0</span><span id="radarBarMax">+5</span>
+          </div>
+
+          <div id="radarStops" class="stops"></div>
+          <div class="row">
+            <button id="radarAddStop" class="miniBtn">+ Stop</button>
+            <button id="radarEvenStops" class="miniBtn">Distribute</button>
+            <button id="radarRevStops" class="miniBtn">Reverse</button>
+            <button id="radarResetStops" class="miniBtn">Reset</button>
+          </div>
+          <div class="grid2">
+            <label title="0 = continuous gradient. Any other number quantises the scale into that many flat classes.">Bands (0=cont.)<input type="number" id="radarBands" value="0" min="0" max="32" step="1"></label>
+            <label title="Bends the scale without moving the ends. Below 1 brings out the small movements near zero.">Gamma<input type="number" id="radarGamma" value="1" min="0.2" max="4" step="0.1"></label>
+          </div>
+          <div class="row">
+            <label title="Draw the drape semi-transparent so the survey surface stays readable underneath.">
+              Opacity <input type="range" id="radarAlpha" min="20" max="100" value="100" style="width:110px">
+            </label>
+          </div>
+          <label class="chk" title="Slide every pixel down its line of sight until it meets the survey surface, so the image cannot float above or sink into the terrain. The offset it absorbs is reported per folder — a large one means the georeference itself is out."><input type="checkbox" id="radarDrape" checked> Follow the terrain surface</label>
+        </div>
+
+        <!-- ---- georeference workflow ---- -->
+        <div id="georefPanel" class="subpanel hidden">
+          <div class="subhead">Georeference <span id="grFolder" class="dim"></span></div>
+          <div id="grHelp" class="info">
+            Click a recognisable feature in the radar image below — a crest, a toe, a berm
+            corner — then click the same feature on the survey surface in the 3&nbsp;D view.
+            Repeat for at least <b>two</b> well-separated points.
+          </div>
+
+          <canvas id="grCanvas" class="grCanvas"></canvas>
+          <div id="grCanvasNote" class="dim" style="font-size:11px;margin:4px 0 8px">
+            Front view as the radar sees it — colour is deformation.
+          </div>
+
+          <div class="grid2">
+            <label title="Rotation about the vertical only. Correct for a levelled sensor and needs just two points.">
+              Fit
+              <select id="grMode">
+                <option value="yaw">Bearing only (2+ points)</option>
+                <option value="rigid">Full 3-D (3+ points)</option>
+              </select>
+            </label>
+            <label title="How far a tied point may sit from the fitted surface before it is called a blunder.">
+              <span class="dim">Points</span>
+              <span id="grCount" class="mono">0</span>
+            </label>
+          </div>
+
+          <table id="grTable" class="grTable"></table>
+          <div class="row" style="margin-top:4px">
+            <button id="grAddTie" class="miniBtn" title="Add a row and type the numbers, instead of clicking the image. Every cell below is editable either way.">+ Tie by typing</button>
+          </div>
+          <div id="grResult" class="info hidden"></div>
+
+          <div class="row" style="margin-top:8px">
+            <button id="grSave" class="primary" disabled>Save georeference</button>
+            <button id="grUndo" disabled>Undo point</button>
+            <button id="grCancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <div class="foot">SensiMap · offline single-folder tool · v1.0</div>
   </aside>
 
@@ -393,6 +484,15 @@
       </div>
 
       <div id="hudReadout" class="hud readout hidden"></div>
+
+      <!-- Wall folders covering the clicked point, newest scan first -->
+      <div id="coverPanel" class="hud coverPanel hidden">
+        <div class="coverHead">
+          <span id="coverTitle">Wall folders here</span>
+          <button id="coverClose" class="coverX" aria-label="Close">✕</button>
+        </div>
+        <div id="coverBody"></div>
+      </div>
 
       <div id="legend">
         <div id="legendTitle">Sensitivity</div>
@@ -488,6 +588,12 @@
 <script src="js/grid.js"></script>
 <script src="js/sensitivity.js"></script>
 <script src="js/renderer.js"></script>
+<script src="js/radar-scan.js"></script>
+<script src="js/georef.js"></script>
+<script src="js/georef-store.js"></script>
+<script src="js/scan-layer.js"></script>
 <script src="js/ui.js"></script>
+<!-- after ui.js: the radar module attaches through window.SensiMap -->
+<script src="js/radar-ui.js"></script>
 </body>
 </html>

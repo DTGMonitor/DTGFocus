@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { SlClock } from "react-icons/sl";
 import { FaCalendarAlt } from "react-icons/fa";
 import LogoSection from "@/components/Reusable/HeaderComponents/LogoSection";
+import { handleGeorefRequest } from "@/lib/radarGeoref";
 
 // The sensitivity tool is a self-contained static app (WebGL viewer + DXF/Surpac
 // parsers, no dependencies) living in public/sensitivity-tools. It is embedded as
@@ -54,6 +55,52 @@ const SensitivityTools = () => {
     );
   };
   useEffect(pushTheme, [theme]);
+
+  // ---- RADAR GEOREFERENCE BRIDGE ----
+  //
+  // The tool holds no Supabase session, so it asks for a wall folder's
+  // georeference over postMessage and this answers from the database. Only the
+  // transform crosses the boundary — scan CSVs stay on the operator's machine
+  // (see lib/radarGeoref.js).
+  useEffect(() => {
+    const onMessage = async (event) => {
+      // The tool is served from public/, so it is same-origin. Check the frame
+      // as well as the origin: another same-origin frame on the page must not
+      // be able to drive writes through this listener.
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+
+      const msg = event.data;
+      if (!msg || msg.type !== "sensimap-georef") return;
+
+      const reply = (payload) =>
+        event.source?.postMessage(
+          { type: "sensimap-georef-result", id: msg.id, ...payload },
+          window.location.origin
+        );
+
+      try {
+        reply({ ok: true, data: await handleGeorefRequest(msg) });
+      } catch (err) {
+        // Surfaced in the tool as "registry unreachable" rather than being
+        // silently read as "this folder is not registered yet".
+        reply({ ok: false, error: err?.message ?? "georeference request failed" });
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // The tool probes for a platform on start-up and falls back to localStorage
+  // if nothing answers, so announce the bridge once the frame is up — it may
+  // have finished booting before this listener was attached.
+  const announceBridge = () => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "sensimap-georef-ready" },
+      window.location.origin
+    );
+  };
 
   // ---- DATE & TIME ----
   const [dateTime, setDateTime] = useState(new Date());
@@ -163,7 +210,10 @@ const SensitivityTools = () => {
         allow="fullscreen"
         // Covers the case where the theme changed while the frame was still
         // loading and the initial postMessage had no document to land on.
-        onLoad={pushTheme}
+        onLoad={() => {
+          pushTheme();
+          announceBridge();
+        }}
         style={{
           flex: 1,
           width: "100%",

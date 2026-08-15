@@ -26,6 +26,13 @@
     lastStatsHtml: ''
   };
 
+  /* Attachment point for optional add-on modules (radar-ui.js). They need two
+     things ui.js cannot anticipate: to take over canvas clicks while a
+     tie-point is being placed, and to watch ordinary probe clicks so they can
+     answer "what covers this spot". Kept as a tiny surface so ui.js never has
+     to know what the add-on actually does. */
+  var EXT = { pick: null, cancel: null, probe: [] };
+
   var LAYER_DEFAULTS = {
     sens: { preset: 'green', vmin: 0, vmax: 1 },
     amp: { preset: 'amplitude', vmin: 0, vmax: 1 },
@@ -196,6 +203,18 @@
           return;
         }
         var txt = Parsers.decodeText(buf);
+
+        /* A radar deformation export is a CSV and would otherwise be read as a
+           survey point cloud — its Easting/Northing columns are radar-local
+           metres, so it would land beside the pit rather than on it. Hand it to
+           the radar module instead, before the terrain readers see it. */
+        if (window.RadarUI && RadarScan.sniff(txt)) {
+          try { RadarUI.acceptFile(f.name, txt); }
+          catch (e) { status('Could not read ' + f.name + ': ' + e.message); }
+          if (--pending === 0) afterRead();
+          return;
+        }
+
         var type = Parsers.sniff(txt, f.name);
         var rec = { name: f.name, text: txt, type: type, dataset: null, note: '', size: f.size, head: signature(buf) };
         try {
@@ -1173,9 +1192,21 @@
         : 'Click the first AOI corner  (Esc to cancel)';
     } else b.classList.add('hidden');
   }
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setPickMode(null); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (EXT.pick) { var c = EXT.cancel; extRelease(); if (c) c(); return; }
+    setPickMode(null);
+  });
+
+  function extRelease() {
+    EXT.pick = null; EXT.cancel = null;
+    $('pickBanner').classList.add('hidden');
+  }
 
   function onCanvasClick(hit) {
+    /* An add-on placing a tie-point owns the click outright — it must not also
+       move the probe or drop an AOI corner. */
+    if (EXT.pick) { if (hit) EXT.pick(hit); return; }
     if (!hit) { if (!S.pickMode) { S.probe = null; $('hudReadout').classList.add('hidden'); updateOverlays(); } return; }
     if (S.pickMode === 'radar') {
       var r = S.radars[S.sel];
@@ -1201,6 +1232,7 @@
     S.probe = hit;
     showReadout(hit);
     updateOverlays();
+    for (var pi = 0; pi < EXT.probe.length; pi++) EXT.probe[pi](hit);
   }
 
   function onCanvasHover(ev) {
@@ -1219,7 +1251,13 @@
   }
 
   function showReadout(hit) {
-    var g = S.grid, id = Grid.nodeIndex(g, hit.x, hit.y);
+    var g = S.grid;
+    /* The probe reads the terrain rasters, so it has nothing to say before a
+       surface is built. Reachable when a hit arrives from somewhere other than
+       the terrain — an add-on drape, say — and dereferencing a null grid here
+       would take the whole click handler down with it. */
+    if (!g || !S.der) return;
+    var id = Grid.nodeIndex(g, hit.x, hit.y);
     if (id < 0) return;
     var r = S.radars[S.sel];
     var slope = S.der.slope[id] * 180 / Math.PI, asp = S.der.aspect[id];
@@ -1741,6 +1779,40 @@
     status('Project loaded — press “Compute sensitivity map”.');
     badge('project loaded', 'busy');
   }
+
+  /* ---------------------------------------------------- add-on surface
+
+     Everything an add-on module is allowed to reach. Deliberately functions
+     rather than live references, because the viewer and grid are replaced
+     wholesale when a new survey is loaded. */
+  window.SensiMap = {
+    viewer: function () { return V; },
+    /* "Is there a surface to click on?" The viewer's grid is the honest answer,
+       because that is the thing pickAt actually raycasts — S.grid is ui.js's
+       copy of the same raster and is only consulted as a fallback. */
+    grid: function () { return (V && V.grid) || S.grid || null; },
+    status: status,
+    redraw: function () { if (V) V.draw(); },
+
+    /* Take exclusive ownership of canvas clicks until released. `onCancel`
+       fires if the user presses Escape, so the add-on can unwind its own
+       half-finished state instead of being left mid-workflow. */
+    claimPick: function (fn, message, onCancel) {
+      setPickMode(null);
+      EXT.pick = fn; EXT.cancel = onCancel || null;
+      var b = $('pickBanner');
+      b.classList.remove('hidden');
+      b.textContent = message || 'Click on the model  (Esc to cancel)';
+    },
+    setPickMessage: function (message) {
+      var b = $('pickBanner');
+      if (!b.classList.contains('hidden')) b.textContent = message;
+    },
+    releasePick: extRelease,
+
+    /* Observe ordinary probe clicks — the ones that are not placing anything. */
+    onProbe: function (fn) { EXT.probe.push(fn); }
+  };
 
   /* ---------------------------------------------------- start */
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

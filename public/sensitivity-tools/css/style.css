@@ -119,6 +119,11 @@ button.danger{background:var(--sm-danger-bg);border-color:var(--sm-danger-border
 button.danger:hover{background:var(--sm-danger-hover)}
 button.ghost{background:transparent;border-color:var(--line2);flex:0 0 auto;width:26px;padding:2px}
 button.wide{width:100%;flex:1 1 100%}
+/* Upstream had no disabled styling, so a disabled button looked live and even
+   lit up on hover — which makes "nothing happens when I click Save"
+   indistinguishable from a broken handler. pointer-events:none also stops the
+   hover state firing, so it cannot pretend to be interactive. */
+button[disabled]{opacity:.4;filter:saturate(.3);pointer-events:none}
 button.big{padding:9px;font-size:13px;font-weight:600;margin-top:10px}
 .hint{font-size:10.5px;color:var(--dim2);line-height:1.4;margin:8px 0 0}
 .hidden{display:none!important}
@@ -294,3 +299,113 @@ label[title]{cursor:help}
 ::-webkit-scrollbar-thumb{background:var(--sm-raised);border-radius:5px}
 ::-webkit-scrollbar-thumb:hover{background:var(--sm-raised2)}
 #histCanvas{width:100%;display:block;margin:8px 0;background:var(--sm-field);border:1px solid var(--line);border-radius:4px}
+
+/* ================= radar deformation ================= */
+
+/* Front view the tie-points are picked on. Pixelated on purpose: these are
+   radar bins, and smoothing them would invent detail between beams that the
+   operator would then try to click on. */
+.grCanvas{
+  width:100%; display:block; margin-top:8px; border:1px solid var(--line2);
+  border-radius:3px; background:var(--bg); cursor:crosshair;
+  image-rendering:pixelated;
+}
+.grCanvas.armed{border-color:var(--acc2);outline:2px solid var(--acc2);outline-offset:-1px}
+
+.grTable{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px}
+.grTable th{
+  text-align:left;font-weight:600;color:var(--dim);padding:2px 4px;
+  border-bottom:1px solid var(--line);font-size:10px;
+  text-transform:uppercase;letter-spacing:.4px;
+}
+.grTable td{padding:2px 4px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+.grTable tr.worst td{color:var(--warn)}
+.grTable .drop{cursor:pointer;color:var(--dim2)}
+.grTable .drop:hover{color:var(--bad)}
+
+/* ---- deformation colour scale ---- */
+.radarBar{
+  width:100%; display:block; margin-top:8px; border-radius:3px;
+  border:1px solid var(--line2);
+}
+.radarBarAxis{
+  display:flex; justify-content:space-between; margin-top:2px;
+  font-size:9.5px; color:var(--dim); font-family:var(--mono);
+}
+
+/* ---- wall folder cards in the sidebar ---- */
+.folderCard{
+  border:1px solid var(--line); border-left:3px solid var(--line2);
+  border-radius:3px; margin-top:6px; overflow:hidden; background:var(--panel2);
+}
+.folderCard.placed{border-left-color:var(--acc2)}
+.folderCard.unplaced{border-left-color:var(--warn)}
+.folderHead{display:flex;align-items:center;gap:6px;padding:5px 7px}
+.folderName{flex:1;min-width:0;font-size:12px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folderMeta{font-size:10px;color:var(--dim);padding:0 7px 5px}
+.folderBody{border-top:1px solid var(--line);padding:4px 7px 6px}
+
+.scanRow{display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:11px}
+.scanRow+.scanRow{border-top:1px solid var(--line)}
+.scanRow .when{flex:1;min-width:0;font-family:var(--mono);color:var(--dim);font-size:10px}
+.scanRow .peak{font-family:var(--mono);font-size:10px}
+
+.tag{
+  display:inline-block;padding:0 5px;border-radius:8px;font-size:9.5px;
+  border:1px solid var(--line2);color:var(--dim);white-space:nowrap;
+}
+.tag.ok{border-color:var(--acc2);color:var(--acc2)}
+.tag.warn{border-color:var(--warn);color:var(--warn)}
+.miniBtn{
+  border:1px solid var(--line2);background:transparent;color:var(--dim);
+  border-radius:3px;padding:1px 6px;font-size:10px;cursor:pointer;
+}
+.miniBtn:hover{border-color:var(--acc2);color:var(--acc2)}
+.miniBtn[disabled]{opacity:.4;pointer-events:none}
+.eyeBtn{
+  border:0;background:transparent;cursor:pointer;font-size:12px;padding:0;
+  color:var(--dim2);line-height:1;
+}
+.eyeBtn.on{color:var(--acc2)}
+
+/* ---- coverage panel over the viewport ---- */
+.coverPanel{
+  position:absolute; left:12px; top:96px; z-index:12; width:270px;
+  max-height:calc(100% - 130px); overflow-y:auto; padding:0;
+  /* .hud is a passive read-out and disables pointer events; this one is
+     interactive — it has a close button and clickable scan rows. */
+  pointer-events:auto;
+}
+.coverHead{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:7px 9px;border-bottom:1px solid #ffffff1f;position:sticky;top:0;
+  background:inherit;font-size:10px;font-weight:600;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.coverX{border:0;background:transparent;color:var(--dim);cursor:pointer;font-size:11px;padding:0}
+.coverX:hover{color:var(--fg)}
+#coverBody{padding:6px 9px 9px}
+.coverFolder{padding:6px 0}
+.coverFolder+.coverFolder{border-top:1px solid #ffffff14}
+.coverFolder .cf{font-size:11.5px;font-weight:600;color:var(--fg)}
+.coverFolder .cm{font-size:10px;color:var(--dim);margin-top:1px}
+.coverScan{
+  display:flex;align-items:baseline;gap:6px;margin-top:3px;font-size:10px;
+  font-family:var(--mono);color:var(--dim);cursor:pointer;padding:1px 3px;border-radius:2px;
+}
+.coverScan:hover{background:#ffffff14;color:var(--fg)}
+.coverScan.latest{color:var(--fg)}
+.coverScan .mm{margin-left:auto;font-weight:600}
+.coverEmpty{font-size:11px;color:var(--dim);line-height:1.5}
+
+/* Editable tie-point cells. Narrow and borderless until focused, so the table
+   still reads as a table rather than a wall of input boxes. */
+.grTable .tieIn{
+  width:100%; min-width:52px; padding:1px 3px; margin:0;
+  background:transparent; border:1px solid transparent; border-radius:2px;
+  font-family:var(--mono); font-size:11px; text-align:right;
+}
+.grTable .tieIn:hover{border-color:var(--line2)}
+.grTable .tieIn:focus{border-color:var(--acc2);background:var(--bg);outline:none}
+.grTable td.bad{color:var(--bad);font-weight:600;text-align:center}

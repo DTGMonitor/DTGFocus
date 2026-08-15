@@ -181,6 +181,11 @@ var Viewer = (function () {
     this.lines = [];
     this.points = [];
     this.grid = null;
+    /* Georeferenced radar deformation drapes, drawn after the terrain. Each
+       carries its own GL buffers because they are uploaded once and then only
+       toggled, unlike the line batches which are re-streamed every frame. */
+    this.scans = [];
+    this._scanGL = {};
     this._drag = null;
     /* clip box, in unscaled local coordinates (world minus this.off) */
     this.clip = {
@@ -514,7 +519,9 @@ var Viewer = (function () {
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    if (!this.grid) return;
+    /* A drape can stand on its own — a scan may be georeferenced and reviewed
+       before any survey surface has been loaded. */
+    if (!this.grid && !this.scans.length) return;
     var M = this.matrices();
     this._mvp = M.mvp;
 
@@ -540,6 +547,40 @@ var Viewer = (function () {
       gl.drawElements(gl.TRIANGLES, this.nIdx, this.idxType, 0);
       gl.disable(gl.BLEND);
     }
+
+    /* ---- radar deformation drapes ----
+       Drawn after the terrain so they win the depth test where they coincide:
+       the scan is the measurement and the survey surface is the backdrop. */
+    /* The drape and the survey surface describe the SAME wall and will sit
+       within a metre of each other, so without a depth bias they z-fight and
+       the deformation comes out speckled with terrain. Pulling the drape
+       toward the camera makes the measurement win wherever the two coincide,
+       which is the way round it has to be. */
+    if (this.scans.length) {
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(-1.5, -3);
+    }
+    for (var si = 0; si < this.scans.length; si++) {
+      var sc = this.scans[si], sg = this._scanGL[sc.id];
+      if (!sc.visible || !sg || !sg.n) continue;
+      gl.useProgram(this.pMesh);
+      var SP = this.pMesh;
+      gl.uniformMatrix4fv(gl.getUniformLocation(SP, 'uMVP'), false, M.mvp);
+      gl.uniform1f(gl.getUniformLocation(SP, 'uZS'), o.zScale);
+      gl.uniform1f(gl.getUniformLocation(SP, 'uShade'), sc.shade);
+      gl.uniform1f(gl.getUniformLocation(SP, 'uAlpha'), sc.alpha);
+      gl.uniform3fv(gl.getUniformLocation(SP, 'uSun'), new Float32Array(sun));
+      this._clipUniforms(SP, this.clip.on);
+      if (sc.alpha < 0.999) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+      else gl.disable(gl.BLEND);
+      this._attr(SP, 'aPos', sg.pos, 3);
+      this._attr(SP, 'aNorm', sg.norm, 3);
+      this._attr(SP, 'aCol', sg.col, 3);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sg.idx);
+      gl.drawElements(gl.TRIANGLES, sg.n, sg.type, 0);
+      gl.disable(gl.BLEND);
+    }
+    if (this.scans.length) gl.disable(gl.POLYGON_OFFSET_FILL);
 
     /* ---- overlays ---- */
     gl.useProgram(this.pLine);
@@ -755,6 +796,99 @@ var Viewer = (function () {
 
   /* --------------------------------------------- overlay helper */
   Viewer.prototype.setLines = function (batches) { this.lines = batches || []; };
+
+  /* --------------------------------------------------- radar drapes */
+
+  /**
+   * Upload (or replace) one georeferenced deformation drape.
+   *
+   * `mesh.pos` arrives in mine-grid metres as float64, which is the only frame
+   * the georeference is meaningful in — but a northing of 7,458,000 has barely
+   * a metre of resolution left in float32, so it is rebased onto this.off
+   * before it ever reaches the GPU. When no terrain is loaded the first drape
+   * sets that origin itself, otherwise every scan would collapse into
+   * quantised steps.
+   */
+  Viewer.prototype.setScan = function (id, mesh, colours, normals, opts) {
+    var gl = this.gl;
+    opts = opts || {};
+
+    if (!this.grid && !this.scans.length) {
+      var b = mesh.bounds || null;
+      if (b) this.off = { x: (b.xmin + b.xmax) / 2, y: (b.ymin + b.ymax) / 2, z: (b.zmin + b.zmax) / 2 };
+    }
+
+    var w = mesh.pos, n = w.x.length;
+    var pos = new Float32Array(n * 3);
+    for (var i = 0; i < n; i++) {
+      pos[i * 3] = w.x[i] - this.off.x;
+      pos[i * 3 + 1] = w.y[i] - this.off.y;
+      pos[i * 3 + 2] = w.z[i] - this.off.z;
+    }
+
+    var g = this._scanGL[id];
+    if (!g) {
+      g = this._scanGL[id] = {
+        pos: gl.createBuffer(), norm: gl.createBuffer(),
+        col: gl.createBuffer(), idx: gl.createBuffer()
+      };
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.pos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.norm); gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.col); gl.bufferData(gl.ARRAY_BUFFER, colours, gl.STATIC_DRAW);
+
+    /* A drape indexes every pixel it owns, so anything past a 40x40 scan
+       already needs 32-bit indices. */
+    var idx = this.u32 ? new Uint32Array(mesh.index) : new Uint16Array(mesh.index);
+    g.type = this.u32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.idx);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    g.n = idx.length;
+
+    var rec = null;
+    for (var k = 0; k < this.scans.length; k++) if (this.scans[k].id === id) rec = this.scans[k];
+    if (!rec) { rec = { id: id }; this.scans.push(rec); }
+    rec.visible = opts.visible !== false;
+    rec.alpha = opts.alpha == null ? 1 : opts.alpha;
+    /* Shading is a light touch by default: the colour IS the measurement, so
+       relief is a hint at the form rather than a full lambert wash. */
+    rec.shade = opts.shade == null ? 0.25 : opts.shade;
+  };
+
+  /* Recolour in place. Rebuilding the whole drape to change a colour stop
+     would re-triangulate and re-upload the geometry on every drag of a colour
+     picker, for a buffer that has not moved. */
+  Viewer.prototype.setScanColours = function (id, colours) {
+    var g = this._scanGL[id];
+    if (!g) return;
+    var gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.col);
+    gl.bufferData(gl.ARRAY_BUFFER, colours, gl.STATIC_DRAW);
+  };
+
+  Viewer.prototype.removeScan = function (id) {
+    var gl = this.gl, g = this._scanGL[id];
+    if (g) {
+      gl.deleteBuffer(g.pos); gl.deleteBuffer(g.norm);
+      gl.deleteBuffer(g.col); gl.deleteBuffer(g.idx);
+      delete this._scanGL[id];
+    }
+    this.scans = this.scans.filter(function (s) { return s.id !== id; });
+  };
+
+  Viewer.prototype.clearScans = function () {
+    var ids = Object.keys(this._scanGL);
+    for (var i = 0; i < ids.length; i++) this.removeScan(ids[i]);
+  };
+
+  Viewer.prototype.setScanOpts = function (id, patch) {
+    for (var i = 0; i < this.scans.length; i++) {
+      if (this.scans[i].id !== id) continue;
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) this.scans[i][k] = patch[k];
+      }
+    }
+  };
 
   /** convenience builders (world coords in, local floats out) */
   Viewer.prototype.seg = function (arr, x1, y1, z1, x2, y2, z2) {
