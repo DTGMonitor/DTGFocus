@@ -439,10 +439,472 @@ var Grid = (function () {
     return j * g.nx + i;
   }
 
+  /* ============================================================
+     Measurement — the numbers a ruler has to produce.
+
+     Kept here rather than in the panel that shows them because they are raster
+     geometry like everything else above, and because a figure used to CHECK
+     the slope model has to be testable without a browser in the way.
+     ============================================================ */
+
+  /**
+   * One leg of a measurement, between two points in survey coordinates.
+   *
+   * `bearing` is degrees from grid north clockwise, `incline` is degrees above
+   * the horizontal and keeps its sign — a leg measured downhill reads negative,
+   * which is what tells you the direction was taken down the wall rather than
+   * up it. `slope` is the straight line through the air; the distance along the
+   * ground is `groundLength`, and the two differ by every bench in between.
+   */
+  function legStats(x1, y1, z1, x2, y2, z2) {
+    var dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+    var plan = Math.sqrt(dx * dx + dy * dy);
+    var bearing = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    return {
+      plan: plan, dz: dz, slope: Math.sqrt(plan * plan + dz * dz),
+      bearing: bearing,
+      /* a purely vertical leg has no bearing to speak of, and its inclination
+         is ±90 by definition rather than by an atan2 of two zeros */
+      incline: plan < 1e-9 ? (dz >= 0 ? 90 : -90) : Math.atan2(dz, plan) * 180 / Math.PI
+    };
+  }
+
+  /**
+   * Distance from A to B measured over the terrain instead of through it.
+   *
+   * Walked at `step` cells so it follows benches and berms; a gap in the survey
+   * is bridged by carrying the last known level forward rather than dropping
+   * the leg, so a hole in the data shortens the answer instead of voiding it.
+   * `nGaps` reports how many samples were bridged, because a ground length with
+   * a hundred bridged samples is not a measurement anyone should quote.
+   */
+  function groundLength(g, x1, y1, x2, y2, step) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var plan = Math.sqrt(dx * dx + dy * dy);
+    if (plan < 1e-9) return { length: 0, nGaps: 0, n: 0 };
+    var cell = Math.min(g.dx, g.dy) * (step || 0.5);
+    var n = Math.max(1, Math.ceil(plan / cell));
+    var total = 0, gaps = 0, pz = sampleZ(g, x1, y1);
+    if (pz !== pz) { pz = g.zmin; gaps++; }
+    var px = x1, py = y1;
+    for (var k = 1; k <= n; k++) {
+      var t = k / n, qx = x1 + dx * t, qy = y1 + dy * t;
+      var qz = sampleZ(g, qx, qy);
+      if (qz !== qz) { qz = pz; gaps++; }
+      total += Math.sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py) + (qz - pz) * (qz - pz));
+      px = qx; py = qy; pz = qz;
+    }
+    return { length: total, nGaps: gaps, n: n };
+  }
+
+  /** signed shoelace area of a ring of [x,y]; the sign is the winding */
+  function ringArea(ring) {
+    var a = 0, m = ring.length;
+    for (var i = 0, j = m - 1; i < m; j = i++) {
+      a += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+    }
+    return a / 2;
+  }
+
+  /**
+   * What a closed measurement covers, in plan and over the actual ground.
+   *
+   * The true surface area is the plan area of each cell divided by the cosine
+   * of its slope — the standard raster identity, and the reason a steep wall
+   * has far more rock face than its plan outline suggests. `equivSlope` inverts
+   * that over the whole polygon: the dip a single uniform plane would need to
+   * have this much surface over this much plan. It is NOT the arithmetic mean
+   * of the cell slopes (`meanSlope` is), and on mixed ground the two differ —
+   * comparing them is a quick read on how uniform the wall really is.
+   *
+   * `inside(x, y)` is the polygon test, supplied by the caller so this stays
+   * free of any opinion about how the ring is stored.
+   */
+  function surfaceStats(g, der, inside) {
+    var cellA = g.dx * g.dy;
+    var cells = 0, surface = 0, sumSlope = 0, maxSlope = -Infinity, minSlope = Infinity;
+    var zmin = Infinity, zmax = -Infinity, noData = 0;
+    for (var j = 0; j < g.ny; j++) {
+      var y = g.y0 + j * g.dy;
+      for (var i = 0; i < g.nx; i++) {
+        var x = g.x0 + i * g.dx;
+        if (!inside(x, y)) continue;
+        var id = j * g.nx + i, z = g.z[id];
+        if (z !== z) { noData++; continue; }
+        var s = der.slope[id];
+        if (s !== s) { noData++; continue; }
+        cells++;
+        surface += cellA / Math.cos(s);
+        sumSlope += s;
+        if (s > maxSlope) maxSlope = s;
+        if (s < minSlope) minSlope = s;
+        if (z < zmin) zmin = z;
+        if (z > zmax) zmax = z;
+      }
+    }
+    var D = 180 / Math.PI;
+    /* the plan area of the cells counted, not of the drawn ring: they differ by
+       the raster's own stair-stepping, and the ratio has to compare like with
+       like or a small polygon on a coarse grid reports a nonsense slope */
+    var planCells = cells * cellA;
+    var ratio = surface > 0 ? planCells / surface : NaN;
+    return {
+      cells: cells, noData: noData,
+      planCells: planCells, surface: surface,
+      meanSlope: cells ? sumSlope / cells * D : NaN,
+      maxSlope: cells ? maxSlope * D : NaN,
+      minSlope: cells ? minSlope * D : NaN,
+      equivSlope: cells ? Math.acos(Math.max(-1, Math.min(1, ratio))) * D : NaN,
+      zmin: cells ? zmin : NaN, zmax: cells ? zmax : NaN
+    };
+  }
+
+  /* ============================================================
+     Turning a set of cells back into a boundary.
+
+     A block worked out cell by cell — the ground a wedge would release, say —
+     has to come back as a polygon before anything else in the tool can use it:
+     domains, statistics and the saved project all speak in rings. These three
+     do that, and they live here because they are raster geometry and can be
+     tested without a browser anywhere near them.
+     ============================================================ */
+
+  /**
+   * The connected run of cells reachable from a seed, four-ways.
+   *
+   * Connectivity matters: a wedge test satisfied on the far side of the pit is
+   * not part of this wedge, and taking every cell that passes would drag it in.
+   * The seed is forced in whatever `test` says of it, because it is the point
+   * the operator pointed at and an off-by-one on a cell edge should not turn
+   * one click into nothing at all.
+   */
+  function floodFill(g, seed, test) {
+    var n = g.nx * g.ny, mask = new Uint8Array(n);
+    if (seed < 0 || seed >= n) return mask;
+    var stack = [seed], nx = g.nx;
+    mask[seed] = 1;
+    while (stack.length) {
+      var id = stack.pop();
+      var i = id % nx, j = (id - i) / nx;
+      /* west, east, south, north */
+      if (i > 0) push(id - 1);
+      if (i < nx - 1) push(id + 1);
+      if (j > 0) push(id - nx);
+      if (j < g.ny - 1) push(id + nx);
+    }
+    return mask;
+
+    function push(q) {
+      if (mask[q] || !test(q)) return;
+      mask[q] = 1;
+      stack.push(q);
+    }
+  }
+
+  /**
+   * The outline of a cell mask, as closed rings in survey coordinates.
+   *
+   * Built by walking the cell boundaries rather than by contouring: every
+   * inside cell contributes the edges of its own square that face an outside
+   * cell, directed so the inside stays on the left, and the edges are then
+   * stitched end to end. The result is blocky — it is the cell set, exactly, in
+   * the same stair-steps the shading draws — and it is right by construction
+   * for any shape at all, including one with holes or a one-cell isthmus, which
+   * is more than can be said for a marching-squares table with its saddles.
+   *
+   * Rings come back largest first, so the caller can take the block and leave
+   * the specks. Each is closed implicitly: the last point joins the first.
+   */
+  function maskRings(g, mask) {
+    var nx = g.nx, ny = g.ny;
+    /* an edge keyed by its start corner, in half-cell lattice units so the
+       coordinates are integers and can be compared exactly */
+    var edges = {}, key = function (u, v) { return u + ',' + v; };
+    function inside(i, j) {
+      return i >= 0 && j >= 0 && i < nx && j < ny && !!mask[j * nx + i];
+    }
+    for (var j = 0; j < ny; j++) {
+      for (var i = 0; i < nx; i++) {
+        if (!mask[j * nx + i]) continue;
+        var l = 2 * i - 1, r = 2 * i + 1, b = 2 * j - 1, t = 2 * j + 1;
+        if (!inside(i, j - 1)) add(l, b, r, b);      // bottom, heading east
+        if (!inside(i + 1, j)) add(r, b, r, t);      // right, heading north
+        if (!inside(i, j + 1)) add(r, t, l, t);      // top, heading west
+        if (!inside(i - 1, j)) add(l, t, l, b);      // left, heading south
+      }
+    }
+
+    var rings = [], k;
+    for (k in edges) {
+      if (!Object.prototype.hasOwnProperty.call(edges, k) || !edges[k]) continue;
+      rings.push(walk(k));
+    }
+    /* half-lattice units to survey coordinates */
+    var out = rings.map(function (ring) {
+      return ring.map(function (p) {
+        return [g.x0 + p[0] / 2 * g.dx, g.y0 + p[1] / 2 * g.dy];
+      });
+    }).filter(function (ring) { return ring.length >= 3; });
+    out.sort(function (a, b2) { return Math.abs(ringArea(b2)) - Math.abs(ringArea(a)); });
+    return out;
+
+    function add(u0, v0, u1, v1) {
+      var kk = key(u0, v0);
+      /* one start corner can carry two outgoing edges where the region pinches
+         to a point; keep them in a list so neither is lost */
+      (edges[kk] || (edges[kk] = [])).push([u1, v1]);
+    }
+    function walk(startKey) {
+      var parts = startKey.split(','), u = +parts[0], v = +parts[1];
+      var ring = [], guard = 0, limit = 4 * nx * ny + 16;
+      while (guard++ < limit) {
+        var list = edges[key(u, v)];
+        if (!list || !list.length) break;
+        var nxt = list.shift();
+        if (!list.length) delete edges[key(u, v)];
+        ring.push([u, v]);
+        u = nxt[0]; v = nxt[1];
+        if (u === +parts[0] && v === +parts[1]) break;   // closed
+      }
+      return dropCollinear(ring);
+    }
+  }
+
+  /** a stair-stepped ring carries three points per step; only the turns matter */
+  function dropCollinear(ring) {
+    var out = [];
+    for (var i = 0; i < ring.length; i++) {
+      var a = ring[(i - 1 + ring.length) % ring.length], b = ring[i], c = ring[(i + 1) % ring.length];
+      var cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+      if (cross !== 0) out.push(b);
+    }
+    return out.length >= 3 ? out : ring;
+  }
+
+  /**
+   * The `level` contour of a scalar field, as loose line segments.
+   *
+   * Marching squares with linear interpolation along each cell edge, which is
+   * what makes the line smooth rather than stair-stepped — the opposite choice
+   * from `maskRings` above, and the right one here: a fault trace is a line
+   * across the ground, not the edge of a set of cells.
+   *
+   * Segments come back unordered and unjoined, as `[x1,y1,x2,y2, …]`. Nothing
+   * that draws them needs them stitched — a line batch is a list of segments
+   * anyway — and stitching would only add a way to get it wrong.
+   *
+   * A NaN anywhere in a cell's four corners skips that cell, so the caller can
+   * blank the field outside the region it cares about and get a contour
+   * clipped to it for free.
+   */
+  function contourSegments(field, nx, ny, x0, y0, dx, dy, level) {
+    var out = [];
+    level = level || 0;
+    for (var j = 0; j < ny - 1; j++) {
+      for (var i = 0; i < nx - 1; i++) {
+        var v00 = field[j * nx + i], v10 = field[j * nx + i + 1];
+        var v11 = field[(j + 1) * nx + i + 1], v01 = field[(j + 1) * nx + i];
+        if (v00 !== v00 || v10 !== v10 || v11 !== v11 || v01 !== v01) continue;
+        var code = (v00 > level ? 1 : 0) | (v10 > level ? 2 : 0) |
+          (v11 > level ? 4 : 0) | (v01 > level ? 8 : 0);
+        if (code === 0 || code === 15) continue;
+        var xa = x0 + i * dx, ya = y0 + j * dy, xb = xa + dx, yb = ya + dy;
+        /* where the level crosses each edge, by linear interpolation */
+        var e0 = [lerp(xa, xb, v00, v10), ya];                 // bottom
+        var e1 = [xb, lerp(ya, yb, v10, v11)];                 // right
+        var e2 = [lerp(xa, xb, v01, v11), yb];                 // top
+        var e3 = [xa, lerp(ya, yb, v00, v01)];                 // left
+        switch (code) {
+          case 1: case 14: seg(e3, e0); break;
+          case 2: case 13: seg(e0, e1); break;
+          case 3: case 12: seg(e3, e1); break;
+          case 4: case 11: seg(e1, e2); break;
+          case 6: case 9: seg(e0, e2); break;
+          case 7: case 8: seg(e2, e3); break;
+          default:
+            /* the two saddles. Which way the contour turns is genuinely
+               ambiguous from the corners alone, so it is settled by the value
+               at the middle of the cell — the usual resolution, and the one
+               that keeps a trace connected the way the surface actually is. */
+            var mid = (v00 + v10 + v11 + v01) / 4;
+            if ((mid > level) === (code === 5)) { seg(e3, e2); seg(e1, e0); }
+            else { seg(e3, e0); seg(e1, e2); }
+        }
+      }
+    }
+    return out;
+
+    function lerp(a, b, va, vb) {
+      var t = (level - va) / (vb - va);
+      return a + (b - a) * (t < 0 ? 0 : t > 1 ? 1 : t);
+    }
+    /* A corner sitting exactly ON the level puts both of its edge crossings at
+       that corner, and the segment between them has no length. It is not a
+       contour, and stitching would trip over it, so it never gets emitted. */
+    function seg(p, q) {
+      if (p[0] === q[0] && p[1] === q[1]) return;
+      out.push(p[0], p[1], q[0], q[1]);
+    }
+  }
+
+  /**
+   * Loose contour segments joined end to end into polylines.
+   *
+   * `contourSegments` hands back an unordered pile, which is all a line batch
+   * needs; a POLYGON needs them in order. Endpoints are matched on a quantised
+   * key rather than by distance, because marching squares emits the shared
+   * endpoint of two neighbouring cells from identical arithmetic — the values
+   * are bit-for-bit equal, so exact matching is both correct and quick.
+   *
+   * Each result carries `closed`. An open one means the contour ran off the
+   * edge of the field, which for a block boundary means the block is not
+   * bounded there — worth knowing rather than papering over.
+   */
+  function stitchSegments(segs, tol) {
+    var q = tol || 1e-9;
+    var k = function (x, y) { return Math.round(x / q) + ',' + Math.round(y / q); };
+    var ends = {}, used = new Uint8Array(segs.length / 4), i;
+    for (i = 0; i < segs.length; i += 4) {
+      push(k(segs[i], segs[i + 1]), i / 4);
+      push(k(segs[i + 2], segs[i + 3]), i / 4);
+    }
+    var out = [];
+    for (i = 0; i < used.length; i++) {
+      if (used[i]) continue;
+      out.push(walk(i));
+    }
+    return out;
+
+    function push(key, si) { (ends[key] || (ends[key] = [])).push(si); }
+
+    /** the end of segment `si` that is not the one at `key` */
+    function other(si, key) {
+      var a = [segs[si * 4], segs[si * 4 + 1]], b = [segs[si * 4 + 2], segs[si * 4 + 3]];
+      return k(a[0], a[1]) === key ? b : a;
+    }
+    function next(key, from) {
+      var list = ends[key] || [];
+      for (var m = 0; m < list.length; m++) if (!used[list[m]] && list[m] !== from) return list[m];
+      return -1;
+    }
+
+    function walk(si) {
+      used[si] = 1;
+      var a = [segs[si * 4], segs[si * 4 + 1]], b = [segs[si * 4 + 2], segs[si * 4 + 3]];
+      var line = [a, b], startKey = k(a[0], a[1]);
+      /* forwards from b, then backwards from a */
+      var cur = b, guard = 0;
+      while (guard++ < used.length + 2) {
+        var key = k(cur[0], cur[1]);
+        if (key === startKey) return { pts: line, closed: true };
+        var nx2 = next(key, -1);
+        if (nx2 < 0) break;
+        used[nx2] = 1;
+        cur = other(nx2, key);
+        line.push(cur);
+      }
+      cur = a; guard = 0;
+      while (guard++ < used.length + 2) {
+        var key2 = k(cur[0], cur[1]);
+        var pv = next(key2, -1);
+        if (pv < 0) break;
+        used[pv] = 1;
+        cur = other(pv, key2);
+        line.unshift(cur);
+      }
+      var f = line[0], l = line[line.length - 1];
+      return { pts: line, closed: k(f[0], f[1]) === k(l[0], l[1]) };
+    }
+  }
+
+  /**
+   * The rock between the surface and a floor, cell by cell.
+   *
+   * `floorAt(id, x, y)` returns the level of the base under that cell, or NaN
+   * where there is none. Thickness is measured VERTICALLY, which is what makes
+   * `plan area × thickness` a volume; a cell whose floor is above the surface
+   * contributes nothing rather than a negative.
+   *
+   * `maxThickness` comes back alongside the total because it is the honesty
+   * check on it: a wedge bounded by two near-vertical planes is arbitrarily
+   * deep, and a volume quoted without knowing that is a number with no
+   * geometry behind it.
+   */
+  function volumeUnder(g, mask, floorAt) {
+    var cellA = g.dx * g.dy;
+    var vol = 0, sumT = 0, maxT = 0, cells = 0;
+    for (var j = 0; j < g.ny; j++) {
+      for (var i = 0; i < g.nx; i++) {
+        var id = j * g.nx + i;
+        if (mask && !mask[id]) continue;
+        var z = g.z[id];
+        if (z !== z) continue;
+        var f = floorAt(id, g.x0 + i * g.dx, g.y0 + j * g.dy);
+        if (f !== f) continue;
+        var t = z - f;
+        if (!(t > 0)) continue;
+        vol += cellA * t; sumT += t; cells++;
+        if (t > maxT) maxT = t;
+      }
+    }
+    return {
+      volume: vol, cells: cells,
+      meanThickness: cells ? sumT / cells : NaN,
+      maxThickness: cells ? maxT : NaN
+    };
+  }
+
+  /**
+   * Douglas–Peucker on a closed ring.
+   *
+   * A cell-by-cell outline is a staircase with a vertex every cell, which is
+   * unusable as a boundary anyone has to edit afterwards. This keeps the shape
+   * to within `tol` metres and throws the rest away. The ring is split at the
+   * vertex furthest from the first before simplifying, so the answer does not
+   * depend on where the walk happened to start.
+   */
+  function simplifyRing(ring, tol) {
+    if (!ring || ring.length < 4) return ring ? ring.slice() : ring;
+    var far = 0, fd = -1;
+    for (var i = 1; i < ring.length; i++) {
+      var d = Math.hypot(ring[i][0] - ring[0][0], ring[i][1] - ring[0][1]);
+      if (d > fd) { fd = d; far = i; }
+    }
+    var a = dp(ring.slice(0, far + 1), tol);
+    var b = dp(ring.slice(far).concat([ring[0]]), tol);
+    var out = a.concat(b.slice(1, b.length - 1));
+    return out.length >= 3 ? out : ring.slice();
+
+    function dp(pts, t) {
+      if (pts.length < 3) return pts.slice();
+      var first = pts[0], last = pts[pts.length - 1];
+      var worst = 0, wi = 0;
+      for (var k = 1; k < pts.length - 1; k++) {
+        var dd = perp(pts[k], first, last);
+        if (dd > worst) { worst = dd; wi = k; }
+      }
+      if (worst <= t) return [first, last];
+      return dp(pts.slice(0, wi + 1), t).concat(dp(pts.slice(wi), t).slice(1));
+    }
+    function perp(p, a2, b2) {
+      var dx = b2[0] - a2[0], dy = b2[1] - a2[1];
+      var L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) return Math.hypot(p[0] - a2[0], p[1] - a2[1]);
+      var u = ((p[0] - a2[0]) * dx + (p[1] - a2[1]) * dy) / L2;
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      return Math.hypot(p[0] - (a2[0] + dx * u), p[1] - (a2[1] + dy * u));
+    }
+  }
+
   return {
     merge: merge, bbox: bbox, build: build, derive: derive,
+    floodFill: floodFill, maskRings: maskRings, simplifyRing: simplifyRing,
+    contourSegments: contourSegments, stitchSegments: stitchSegments,
+    volumeUnder: volumeUnder,
     sampleZ: sampleZ, losClear: losClear, losBlocker: losBlocker,
     rayHit: rayHit, nodeIndex: nodeIndex,
-    fillHoles: fillHoles
+    fillHoles: fillHoles,
+    legStats: legStats, groundLength: groundLength,
+    ringArea: ringArea, surfaceStats: surfaceStats
   };
 })();

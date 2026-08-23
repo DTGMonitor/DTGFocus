@@ -54,8 +54,52 @@ var Sens = (function () {
   }
 
   /* -------------------------------------------------- AOI mask */
-  function aoiMask(g, der, aoi) {
+  /** Even-odd ray crossing against a closed ring of [x, y] pairs — the closing
+      edge is implied, so the caller never repeats the first vertex. A cell
+      sitting exactly on an edge may fall either way, which is well inside the
+      accuracy of a boundary drawn by clicking on a rendered surface. */
+  function pointInPoly(ring, x, y) {
+    var inside = false, m = ring.length;
+    for (var i = 0, j = m - 1; i < m; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  /** The drawn boundary, normalised. `aoi.polys` is the current shape — one
+      entry per region — and `aoi.poly` is a single ring from a project saved
+      before regions could be joined. Anything under three vertices is not a
+      boundary and is dropped rather than half-applied. */
+  function aoiRings(aoi) {
+    var src = aoi && (aoi.polys || (aoi.poly ? [aoi.poly] : null));
+    if (!src) return null;
+    var out = [];
+    for (var i = 0; i < src.length; i++) if (src[i] && src[i].length >= 3) out.push(src[i]);
+    return out.length ? out : null;
+  }
+
+  /** Index of the first ring containing the point, -1 for none. Regions are
+      joined as a union: overlapping them adds nothing and never punches a hole,
+      and a shared cell is attributed to the first ring that claims it, so the
+      per-region tallies always add up to the joined total. */
+  function ringAt(rings, x, y) {
+    for (var i = 0; i < rings.length; i++) if (pointInPoly(rings[i], x, y)) return i;
+    return -1;
+  }
+
+  /** aoi.polys/aoi.poly, when present, is the real XY boundary; the xmin…ymax
+      box stays as a cheap reject in front of it (the UI keeps it on the rings'
+      combined bounds). `regionsOut`, if given, is filled with the masked cell
+      count per ring — free, since the pass already knows which ring took each
+      cell, and it is the same population the joined statistics describe. */
+  function aoiMask(g, der, aoi, regionsOut) {
     var n = g.nx * g.ny, mask = new Uint8Array(n);
+    var rings = (aoi && aoi.on) ? aoiRings(aoi) : null;
+    if (regionsOut) {
+      regionsOut.length = 0;
+      for (var r = 0; r < (rings ? rings.length : 0); r++) regionsOut.push(0);
+    }
     if (!aoi || !aoi.on) { mask.fill(1); return mask; }
     var smin = (aoi.slopeMin || 0) * DEG, smax = (aoi.slopeMax == null ? 90 : aoi.slopeMax) * DEG;
     for (var j = 0; j < g.ny; j++) {
@@ -64,22 +108,92 @@ var Sens = (function () {
       for (var i = 0; i < g.nx; i++) {
         var x = g.x0 + i * g.dx;
         if (x < aoi.xmin || x > aoi.xmax) continue;
+        var hit = 0;
+        if (rings) { hit = ringAt(rings, x, y); if (hit < 0) continue; }
         var id = j * g.nx + i, z = g.z[id];
         if (z !== z) continue;
         if (z < aoi.zmin || z > aoi.zmax) continue;
         var s = der.slope[id];
         if (s === s && (s < smin - 1e-9 || s > smax + 1e-9)) continue;
         mask[id] = 1;
+        /* counted only here, after every other filter, so a region's tally is
+           what it actually contributes to the statistics */
+        if (regionsOut && rings) regionsOut[hit]++;
       }
     }
     return mask;
+  }
+
+  /* --------------------------------------------- structural domains
+     A structural domain is a drawn polygon that carries its OWN movement
+     vector — the line of intersection of a mapped wedge, say — and overrides
+     the global assumption inside its own footprint. That is the difference
+     between "assume the whole wall creeps down the steepest line" and "this
+     block releases along 042 → 38, everything else keeps the default".
+
+     The polygons are resolved to one index per cell up front rather than
+     tested inside the sensitivity loop: the point-in-polygon walk costs about
+     as much per cell as the rest of the loop, and the answer cannot change
+     between sensors. Later domains win where two overlap, so a small detailed
+     block drawn on top of a broad one behaves the way the drawing order reads.
+  */
+  function domainIndex(g, domains) {
+    var n = g.nx * g.ny, out = new Int16Array(n);
+    out.fill(-1);
+    if (!domains || !domains.length) return out;
+    /* a bounding box per domain, so most cells are rejected on two compares */
+    var boxes = domains.map(function (d) {
+      var ring = d.ring || [], b = { x1: Infinity, x2: -Infinity, y1: Infinity, y2: -Infinity };
+      for (var k = 0; k < ring.length; k++) {
+        if (ring[k][0] < b.x1) b.x1 = ring[k][0];
+        if (ring[k][0] > b.x2) b.x2 = ring[k][0];
+        if (ring[k][1] < b.y1) b.y1 = ring[k][1];
+        if (ring[k][1] > b.y2) b.y2 = ring[k][1];
+      }
+      return b;
+    });
+    for (var j = 0; j < g.ny; j++) {
+      var y = g.y0 + j * g.dy;
+      for (var i = 0; i < g.nx; i++) {
+        var x = g.x0 + i * g.dx, id = j * g.nx + i;
+        for (var d = domains.length - 1; d >= 0; d--) {
+          var D = domains[d], b = boxes[d];
+          if (D.on === false || !D.ring || D.ring.length < 3) continue;
+          if (x < b.x1 || x > b.x2 || y < b.y1 || y > b.y2) continue;
+          if (!pointInPoly(D.ring, x, y)) continue;
+          out[id] = d;
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** the movement vectors of a domain list, flattened for the inner loop */
+  function domainVectors(domains) {
+    var v = new Float64Array(3 * (domains ? domains.length : 0));
+    for (var i = 0; domains && i < domains.length; i++) {
+      var d = domains[i];
+      var u = d.vec || customVec(d.trend || 0, d.plunge || 0);
+      var L = Math.sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]) || 1;
+      v[3 * i] = u[0] / L; v[3 * i + 1] = u[1] / L; v[3 * i + 2] = u[2] / L;
+    }
+    return v;
+  }
+
+  /** cells belonging to one domain, as a mask the statistics can be run over */
+  function domainMask(domIdx, which) {
+    var m = new Uint8Array(domIdx.length);
+    for (var i = 0; i < domIdx.length; i++) if (domIdx[i] === which) m[i] = 1;
+    return m;
   }
 
   /* ------------------------------------------------- main compute */
   /**
    * radars: [{x,y,z, az, apAz, apEl, rmin, rmax, on, name, color}]
    * opts  : {mode, custAz, custPl, custRel, custOff, occlusion, occStep, occTol,
-   *          grazing, grazMax, threshold, combine, mask}
+   *          grazing, grazMax, threshold, combine, mask,
+   *          domains: [{ring, trend, plunge | vec, on}], domIdx}
    */
   async function compute(g, der, radars, opts, onProgress) {
     var n = g.nx * g.ny, nx = g.nx, ny = g.ny;
@@ -92,6 +206,12 @@ var Sens = (function () {
     var custRel = !!opts.custRel, custOff = (+opts.custOff || 0) * DEG;
     var occ = !!opts.occlusion, occStep = +opts.occStep || 1, occTol = +opts.occTol || 0.5;
     var grazOn = !!opts.grazing, grazCos = Math.cos((opts.grazMax == null ? 85 : opts.grazMax) * DEG);
+    /* structural domains override the mode inside their own footprint */
+    var doms = (opts.domains || []).filter(function (d) {
+      return d && d.on !== false && d.ring && d.ring.length >= 3;
+    });
+    var domIdx = doms.length ? (opts.domIdx || domainIndex(g, doms)) : null;
+    var domVec = doms.length ? domainVectors(doms) : null;
     var perRadar = [], total = active.length * n, done = 0;
     var CHUNK = occ ? 6000 : 60000;
 
@@ -128,7 +248,9 @@ var Sens = (function () {
           /* --- movement vector --- */
           var fx = der.fx[id], fy = der.fy[id];
           var mx, my, mz, mag2 = fx * fx + fy * fy, mag = Math.sqrt(mag2);
-          if (mode === 'vertical') { mx = 0; my = 0; mz = -1; }
+          var dm = domIdx ? domIdx[id] : -1;
+          if (dm >= 0) { mx = domVec[3 * dm]; my = domVec[3 * dm + 1]; mz = domVec[3 * dm + 2]; }
+          else if (mode === 'vertical') { mx = 0; my = 0; mz = -1; }
           else if (mode === 'custom') {
             if (!custRel) { mx = cust[0]; my = cust[1]; mz = cust[2]; }
             else if (mag < 1e-9) { mx = 0; my = 0; mz = -1; }
@@ -194,7 +316,10 @@ var Sens = (function () {
     }
     var cstats = summarise(combined, mask, opts.threshold, g);
 
-    return { perRadar: perRadar, combined: combined, stats: cstats, mode: mode, VIS: VIS };
+    return {
+      perRadar: perRadar, combined: combined, stats: cstats, mode: mode, VIS: VIS,
+      domains: doms, domIdx: domIdx
+    };
   }
 
   /* --------------------------------------------------- combine */
@@ -269,7 +394,8 @@ var Sens = (function () {
       mean: nVis ? sumS / nVis : NaN,
       meanAmp: nVis ? sumA / nVis : NaN,
       meanRange: nVis ? sumR / nVis : NaN,
-      p10: pct(0.10), p50: pct(0.50), p90: pct(0.90),
+      p10: pct(0.10), p20: pct(0.20), p50: pct(0.50),
+      p80: pct(0.80), p90: pct(0.90),
       min: vals.length ? vals[0] : NaN, max: vals.length ? vals[vals.length - 1] : NaN,
       hist: histogram(vals, 25)
     };
@@ -335,7 +461,9 @@ var Sens = (function () {
   }
 
   return {
-    VIS: VIS, compute: compute, aoiMask: aoiMask, layer: layer,
+    VIS: VIS, compute: compute, aoiMask: aoiMask,
+    pointInPoly: pointInPoly, aoiRings: aoiRings, ringAt: ringAt, layer: layer,
+    domainIndex: domainIndex, domainVectors: domainVectors, domainMask: domainMask,
     customVec: customVec, slopeRelVec: slopeRelVec, range: range, summarise: summarise
   };
 })();

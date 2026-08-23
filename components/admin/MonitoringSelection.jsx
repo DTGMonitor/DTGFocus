@@ -42,8 +42,8 @@ const MonitoringSelection = () => {
     },
     {
       id: 3,
-      key: "SENSITIVITY",
-      title: "SENSITIVITY TOOLS",
+      key: "SENSIMAP",
+      title: "SENSI MAP",
       url: `/images/home/Sensitivity.svg`,
       Description:
         "Radar line-of-sight sensitivity maps and slope monitoring position planning",

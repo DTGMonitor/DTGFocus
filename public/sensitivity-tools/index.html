@@ -9,68 +9,427 @@
 </head>
 <body>
 
+<!-- ══════════════════════════════════════════════════════════════════════
+     Icon sprite. Stroke-based, 24×24, painted in currentColor so a single
+     definition serves toolbar, tree, menus and either theme. Inline rather
+     than a font or an image set, because the tool has to run from a folder
+     with no server and no network.
+     ══════════════════════════════════════════════════════════════════════ -->
+<svg id="iconSprite" aria-hidden="true"><defs>
+  <symbol id="ic-adddata" viewBox="0 0 24 24"><path d="M3 19V6a1 1 0 011-1h5.2l1.8 2.2H20a1 1 0 011 1V19a1 1 0 01-1 1H4a1 1 0 01-1-1z"/><path d="M12 11.5v5M9.5 14h5"/></symbol>
+  <symbol id="ic-pit" viewBox="0 0 24 24"><path d="M2 5h20M5.5 9.5h13M9 14h6M11 18.5h2"/></symbol>
+  <symbol id="ic-save" viewBox="0 0 24 24"><path d="M4 4h12l4 4v12H4z"/><path d="M8 4v6h7V4M7.5 20v-6h9v6"/></symbol>
+  <symbol id="ic-openproj" viewBox="0 0 24 24"><path d="M3 19V6a1 1 0 011-1h5.2l1.8 2.2H20a1 1 0 011 1V19a1 1 0 01-1 1H4a1 1 0 01-1-1z"/><path d="M12 16.5v-6M9.5 13l2.5-2.5 2.5 2.5"/></symbol>
+  <symbol id="ic-grid" viewBox="0 0 24 24"><path d="M3.5 3.5h17v17h-17z"/><path d="M9.2 3.5v17M14.8 3.5v17M3.5 9.2h17M3.5 14.8h17"/></symbol>
+  <symbol id="ic-extent" viewBox="0 0 24 24"><path d="M3 8.5V3h5.5M15.5 3H21v5.5M21 15.5V21h-5.5M8.5 21H3v-5.5"/><path d="M8 8h8v8H8z"/></symbol>
+  <symbol id="ic-plan" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M12 4v16M4 12h16"/></symbol>
+  <symbol id="ic-iso" viewBox="0 0 24 24"><path d="M12 2.8l8.5 4.8v8.8L12 21.2 3.5 16.4V7.6z"/><path d="M12 12v9.2M12 12l8.5-4.4M12 12L3.5 7.6"/></symbol>
+  <symbol id="ic-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.2 10-6.2S22 12 22 12s-3.6 6.2-10 6.2S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="ic-eyeoff" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M9.6 6.2A9.9 9.9 0 0112 6c6.4 0 10 6 10 6a18 18 0 01-3.2 3.9M6.4 8.3A18 18 0 002 12s3.6 6.2 10 6.2c1 0 1.9-.1 2.7-.4"/><path d="M9.8 9.9a3 3 0 004.3 4.2"/></symbol>
+  <symbol id="ic-pan" viewBox="0 0 24 24"><path d="M12 2.5v19M2.5 12h19"/><path d="M12 2.5L9.4 5.4M12 2.5l2.6 2.9M12 21.5l-2.6-2.9M12 21.5l2.6-2.9M2.5 12l2.9-2.6M2.5 12l2.9 2.6M21.5 12l-2.9-2.6M21.5 12l-2.9 2.6"/></symbol>
+  <symbol id="ic-identify" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M12 2v3.4M12 18.6V22M2 12h3.4M18.6 12H22"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M12 21V10.5M8 21h8"/><circle cx="12" cy="7.8" r="2.6"/><path d="M4.6 6.6a10.4 10.4 0 0114.8 0M7.6 9.3a6.2 6.2 0 018.8 0"/></symbol>
+  <symbol id="ic-polygon" viewBox="0 0 24 24"><path d="M12 3.2l8.2 6-3.1 10.1H6.9L3.8 9.2z"/><circle cx="12" cy="3.2" r="1.6" fill="currentColor" stroke="none"/><circle cx="20.2" cy="9.2" r="1.6" fill="currentColor" stroke="none"/><circle cx="3.8" cy="9.2" r="1.6" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="ic-mask" viewBox="0 0 24 24"><path d="M3.5 3.5h17v17h-17z" stroke-dasharray="3 2.4"/><path d="M6 17.5L17.5 6M6 12.2L12.2 6M11.8 17.9L17.9 11.8"/></symbol>
+  <symbol id="ic-compute" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 11-2.6-6.1"/><path d="M20.6 4.2v4.6H16"/></symbol>
+  <symbol id="ic-clipbox" viewBox="0 0 24 24"><path d="M12 2.8l8.5 4.8v8.8L12 21.2 3.5 16.4V7.6z"/><path d="M3.5 7.6L12 12l8.5-4.4" stroke-dasharray="2.6 2"/><path d="M12 12v9.2" stroke-dasharray="2.6 2"/><path d="M2 15.5l20-7" stroke-dasharray="1.6 2.2"/></symbol>
+  <symbol id="ic-section" viewBox="0 0 24 24"><path d="M2 9.5h20v5H2z"/><path d="M6.5 3.5v17M17.5 3.5v17" stroke-dasharray="2.6 2"/></symbol>
+  <symbol id="ic-back" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+  <symbol id="ic-fwd" viewBox="0 0 24 24"><path d="M9.5 5.5L16 12l-6.5 6.5"/></symbol>
+  <symbol id="ic-image" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 16.2l5-4.8 3.6 3.4 3-2.8L21 17"/><circle cx="8.4" cy="9" r="1.5"/></symbol>
+  <symbol id="ic-table" viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 9.6h18M3 14.4h18M9 5v14M15 5v14"/></symbol>
+  <symbol id="ic-raster" viewBox="0 0 24 24"><path d="M3.5 3.5h17v17h-17z"/><path d="M9.2 3.5v17M14.8 3.5v17M3.5 9.2h17M3.5 14.8h17"/><path d="M3.5 9.2h5.7v5.6H3.5zM14.8 3.5h5.7v5.7h-5.7z" fill="currentColor" stroke="none" opacity=".45"/></symbol>
+  <symbol id="ic-layers" viewBox="0 0 24 24"><path d="M12 2.8l9 4.8-9 4.8-9-4.8z"/><path d="M3 12.2l9 4.8 9-4.8M3 16.6l9 4.8 9-4.8"/></symbol>
+  <symbol id="ic-trash" viewBox="0 0 24 24"><path d="M4 6.5h16M9.5 6.5V3.8h5v2.7M6.2 6.5l1 13.7h9.6l1-13.7M10.2 10.4v6M13.8 10.4v6"/></symbol>
+  <symbol id="ic-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="ic-copy" viewBox="0 0 24 24"><path d="M8.5 8.5h11v11h-11z"/><path d="M4.5 15.5v-11h11"/></symbol>
+  <symbol id="ic-ramp" viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M5.5 20v-3.5M9.5 20v-7M13.5 20v-10M17.5 20v-13"/></symbol>
+  <symbol id="ic-stats" viewBox="0 0 24 24"><path d="M3.5 20h17"/><path d="M6.5 20V11M11 20V4.5M15.5 20v-6M20 20v-9"/></symbol>
+  <symbol id="ic-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2L5.4 5.4"/></symbol>
+  <symbol id="ic-scan" viewBox="0 0 24 24"><path d="M12 20.5a3 3 0 100-6 3 3 0 000 6z"/><path d="M6.6 15.6a8 8 0 0110.8 0M3 11.6a13.4 13.4 0 0118 0"/></symbol>
+  <symbol id="ic-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 015.2 1c0 1.8-2.6 2.2-2.6 4"/><circle cx="12" cy="17.4" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="ic-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="ic-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></symbol>
+  <symbol id="ic-wire" viewBox="0 0 24 24"><path d="M12 2.8l9.2 5.4L12 13.6 2.8 8.2z"/><path d="M2.8 8.2v7.6L12 21.2l9.2-5.4V8.2M12 13.6v7.6M7.4 5.5l9.2 5.4M16.6 5.5L7.4 10.9"/></symbol>
+  <symbol id="ic-axes" viewBox="0 0 24 24"><path d="M5 19V4M5 19h15M5 19l6.5 4"/><path d="M5 4l-2 3M5 4l2 3M20 19l-3-2M20 19l-3 2"/></symbol>
+  <symbol id="ic-vector" viewBox="0 0 24 24"><path d="M4 20L18 6"/><path d="M18 6h-5.5M18 6v5.5"/><path d="M4 20l4.5-1.5L6.5 16z" fill="currentColor" stroke="none" opacity=".5"/></symbol>
+  <symbol id="ic-fan" viewBox="0 0 24 24"><path d="M12 20L4.5 7.5a14 14 0 0115 0z"/><path d="M12 20V7.6"/></symbol>
+  <symbol id="ic-folder" viewBox="0 0 24 24"><path d="M3 19V6a1 1 0 011-1h5.2l1.8 2.2H20a1 1 0 011 1V19a1 1 0 01-1 1H4a1 1 0 01-1-1z"/></symbol>
+  <symbol id="ic-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3"/><path d="M12 1.6v3.2M12 19.2v3.2M1.6 12h3.2M19.2 12h3.2"/></symbol>
+  <symbol id="ic-chevron" viewBox="0 0 24 24"><path d="M9 5.5l6.5 6.5L9 18.5"/></symbol>
+  <symbol id="ic-crs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c4 4.6 4 13.4 0 18M12 3C8 7.6 8 16.4 12 21"/></symbol>
+  <!-- a boundary with one corner being pulled out of place -->
+  <symbol id="ic-stretch" viewBox="0 0 24 24"><path d="M4.5 19.5V7.5l7-3.5 8 6.5-4 9z"/><rect x="2.5" y="17.5" width="4" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="9.5" y="2.5" width="4" height="4" rx="1"/><rect x="17.5" y="8.5" width="4" height="4" rx="1"/><rect x="13.5" y="17.5" width="4" height="4" rx="1"/></symbol>
+  <!-- a ruler laid across the slope, with its graduations -->
+  <symbol id="ic-ruler" viewBox="0 0 24 24"><path d="M2.8 15.4L15.4 2.8l5.8 5.8L8.6 21.2z"/><path d="M6.6 11.6l2.4 2.4M9.8 8.4l2.4 2.4M13 5.2l2.4 2.4"/></symbol>
+  <!-- a dipping plane, with the dip vector down its steepest line -->
+  <symbol id="ic-plane" viewBox="0 0 24 24"><path d="M2.5 8.5L14 4.5l7.5 5.5L10 15z"/><path d="M12.6 8.2l-3.7 9.6"/><path d="M8.9 17.8l2.6-1.4M8.9 17.8l-.2-2.9"/></symbol>
+  <!-- stereonet: the disc, its cross hairs and one great circle -->
+  <symbol id="ic-net" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18" stroke-dasharray="2.4 2.2"/><path d="M6.5 4.6a12 12 0 000 14.8"/></symbol>
+  <!-- two planes meeting in a wedge, with an arrow down the intersection -->
+  <symbol id="ic-wedge" viewBox="0 0 24 24"><path d="M3 4.5L12 20 21 4.5"/><path d="M3 4.5h18"/><path d="M12 8.5v8.5"/><path d="M9.6 14.4L12 17.4l2.4-3"/></symbol>
+</defs></svg>
+
+
+<!-- ══════════════════════════ TITLE BAR + MENUS ══════════════════════════ -->
 <header id="topbar">
   <div class="brand">
     <span class="logo">◈</span>
-    <div>
+    <div class="brandText">
       <div class="title">SensiMap</div>
-      <div class="subtitle">Slope Monitoring Radar — Line-of-Sight Sensitivity &amp; Planning Tool</div>
+      <div class="subtitle">Radar Line-of-Sight Sensitivity</div>
     </div>
   </div>
+
+  <!-- filled by commands.js from the command registry -->
+  <nav id="menubar" role="menubar"></nav>
+
   <div class="topActions">
     <span id="modeBadge" class="badge">no data</span>
-    <button id="btnHelp" class="ghost" title="Quick help">?</button>
+    <button class="ghost" data-cmd="help.show" title="Quick help and full parameter reference (F1)">
+      <svg class="ic"><use href="#ic-help"></use></svg>
+    </button>
   </div>
 </header>
 
+<!-- filled by commands.js -->
+<div id="toolbar" role="toolbar"></div>
+
+
 <div id="app">
 
-  <!-- ══════════════════════════ SIDEBAR ══════════════════════════ -->
-  <aside id="sidebar">
+  <!-- ═══════════════════════════ LEFT DOCK ═══════════════════════════ -->
+  <aside id="dockLeft" class="dock">
 
-    <!-- ── 1. DATA ── -->
-    <details open>
-      <summary><span class="num">1</span> Terrain Data</summary>
-      <div class="body">
+    <!-- ── Data sources ── -->
+    <section class="panel" id="panelSources" data-panel="sources">
+      <header class="panelHead">
+        <button class="panelTwist" title="Collapse / expand"><svg class="ic"><use href="#ic-chevron"></use></svg></button>
+        <svg class="ic panelIcon"><use href="#ic-folder"></use></svg>
+        <span class="panelTitle">Data Sources</span>
+        <span class="panelTools">
+          <button class="iconBtn" data-cmd="project.open" title="Add terrain data…"><svg class="ic"><use href="#ic-adddata"></use></svg></button>
+          <button class="iconBtn" data-cmd="project.demo" title="Load the demo open pit"><svg class="ic"><use href="#ic-pit"></use></svg></button>
+        </span>
+      </header>
+      <div class="panelBody">
         <div id="dropZone">
-          <div class="dzIcon">⬆</div>
+          <svg class="ic dzIcon"><use href="#ic-adddata"></use></svg>
           <div class="dzText"><b>Drop DTM / DXF here</b><br><span class="dim">.dtm · .dxf · .str · .xyz · .csv · .txt · .asc</span></div>
           <input type="file" id="fileInput" multiple accept=".dtm,.dxf,.str,.xyz,.csv,.txt,.asc,.grd,.pts,.dat">
         </div>
-        <div class="row">
-          <button id="btnBrowse" class="primary wide">Browse files…</button>
-        </div>
-        <div class="row">
-          <button id="btnDemo" class="wide">Load demo open pit</button>
-        </div>
         <div id="fileList" class="fileList"></div>
+        <div id="gridInfo" class="info"></div>
+      </div>
+    </section>
 
-        <!-- ASCII column mapping -->
-        <div id="asciiPanel" class="subpanel hidden">
-          <div class="subhead">ASCII column mapping</div>
-          <div id="asciiNote" class="info hidden"></div>
-          <div class="grid2">
-            <label title="Character separating the columns. Auto inspects the first rows and usually gets it right.">Delimiter
-              <select id="selDelim">
-                <option value="auto">Auto detect</option>
-                <option value=",">Comma</option>
-                <option value=" ">Whitespace</option>
-                <option value="\t">Tab</option>
-                <option value=";">Semicolon</option>
-              </select>
-            </label>
-            <label title="Header or preamble lines to ignore before the data starts.">Skip rows <input type="number" id="inpSkip" value="0" min="0" step="1"></label>
-            <label title="Column holding the easting. Check it against the preview table below.">X column <select id="selX"></select></label>
-            <label title="Column holding the northing.">Y column <select id="selY"></select></label>
-            <label title="Column holding the elevation / RL.">Z column <select id="selZ"></select></label>
-            <label class="chk" title="Quick fix when the model comes out mirrored or rotated 90°: Surpac and some survey exports write northing before easting."><input type="checkbox" id="chkSwapXY"> Swap X / Y</label>
+    <div class="hgutter" data-hsplit="left"></div>
+
+    <!-- ── Layer tree ── -->
+    <section class="panel grow" id="panelLayers" data-panel="layers">
+      <header class="panelHead">
+        <button class="panelTwist" title="Collapse / expand"><svg class="ic"><use href="#ic-chevron"></use></svg></button>
+        <svg class="ic panelIcon"><use href="#ic-layers"></use></svg>
+        <span class="panelTitle">Layers</span>
+        <span class="panelTools">
+          <button class="iconBtn" data-cmd="sensor.add" title="Add a radar position"><svg class="ic"><use href="#ic-plus"></use></svg></button>
+          <button class="iconBtn" data-cmd="sensor.dup" title="Duplicate the selected radar position"><svg class="ic"><use href="#ic-copy"></use></svg></button>
+          <button class="iconBtn" data-cmd="layer.remove" title="Remove the selected item"><svg class="ic"><use href="#ic-trash"></use></svg></button>
+          <button class="iconBtn" data-cmd="view.fit" title="Zoom to full extent"><svg class="ic"><use href="#ic-extent"></use></svg></button>
+        </span>
+      </header>
+      <div class="panelBody noPad">
+        <div id="layerTree" class="tree" role="tree"></div>
+      </div>
+    </section>
+  </aside>
+
+  <div class="vgutter" id="gutterLeft"></div>
+
+  <!-- ═══════════════════════════ MAP VIEW ═══════════════════════════ -->
+  <main id="main">
+    <div id="viewport">
+      <canvas id="glcanvas"></canvas>
+
+      <div id="hudTL" class="hud">
+        <div id="hudTitle" class="hudTitle">—</div>
+        <div id="hudSub" class="hudSub"></div>
+      </div>
+
+      <div id="hudReadout" class="hud readout hidden"></div>
+
+      <!-- Wall folders covering the clicked point, newest scan first -->
+      <div id="coverPanel" class="hud coverPanel hidden">
+        <div class="coverHead">
+          <span id="coverTitle">Wall folders here</span>
+          <button id="coverClose" class="coverX" aria-label="Close"><svg class="ic"><use href="#ic-close"></use></svg></button>
+        </div>
+        <div id="coverBody"></div>
+      </div>
+
+      <!-- Ruler read-out. Stays up after the tool is put away: taking the
+           measurement and reading it are two separate moments. -->
+      <div id="measurePanel" class="hud measurePanel hidden">
+        <div class="coverHead">
+          <span>Measure <span id="measureCount" class="dim"></span></span>
+          <button id="measureClose" class="coverX" aria-label="Clear and close"><svg class="ic"><use href="#ic-close"></use></svg></button>
+        </div>
+        <div id="measureBody"></div>
+      </div>
+
+      <div id="legend" class="hidden">
+        <div id="legendTitle">Sensitivity</div>
+        <canvas id="cbCanvas" width="76" height="300"></canvas>
+        <div id="legendMask" class="legendMask"></div>
+      </div>
+
+      <!-- map furniture -->
+      <div id="mapFurniture">
+        <div id="northArrow" title="Grid north">
+          <!-- The dial FIRST, the needle over it. SVG paints in document order,
+               and the dial is 80% opaque: with the needle underneath it showed
+               through at a fifth of its colour, so the compass read as a dark
+               disc that never appeared to move however the view was orbited. -->
+          <svg viewBox="0 0 40 40"><g id="northRose">
+            <circle cx="20" cy="20" r="16" class="ring"/>
+            <path d="M20 3 L26 30 L20 25 L14 30 Z"/>
+          </g></svg>
+          <span class="nLabel">N</span>
+        </div>
+        <div id="scaleBar"><div class="sbBar"><i></i><i></i><i></i><i></i></div><span id="scaleBarText">—</span></div>
+      </div>
+
+      <div id="viewHint" class="hud hint2">
+        drag = orbit · right/middle drag = pan · wheel = zoom · click = identify
+      </div>
+
+      <div id="pickBanner" class="pickBanner hidden"></div>
+      <div id="progWrap" class="progWrap hidden"><div id="progBar"></div><span id="progText"></span></div>
+    </div>
+
+    <div id="statusbar">
+      <span class="sbCell" id="sbTool" title="Active map tool">Navigate</span>
+      <span class="sbCell mono" id="sbCoord" title="Cursor position in survey coordinates">E —   N —   RL —</span>
+      <span class="sbCell mono" id="sbValue" title="Value of the active layer under the cursor">—</span>
+      <span class="sbCell mono" id="sbCell2" title="Raster cell size">cell —</span>
+      <span class="sbGap"></span>
+      <span class="sbCell" id="statusText">Ready — add terrain data or load the demo pit.</span>
+      <span class="sbCell mono" id="statusRight"></span>
+      <span class="sbCell crs" id="sbCrs" title="Coordinates are plain mine-grid metres — the tool never reprojects"><svg class="ic"><use href="#ic-crs"></use></svg> mine grid (m)</span>
+    </div>
+  </main>
+
+  <div class="vgutter" id="gutterRight"></div>
+
+  <!-- ═══════════════════════════ RIGHT DOCK ═══════════════════════════ -->
+  <aside id="dockRight" class="dock">
+    <nav class="dockTabs" id="dockTabs" role="tablist">
+      <button class="dockTab on" data-tab="props" title="Properties of the selected layer"><svg class="ic"><use href="#ic-ramp"></use></svg><span>Properties</span></button>
+      <button class="dockTab" data-tab="proc" title="Gridding and the sensitivity model"><svg class="ic"><use href="#ic-gear"></use></svg><span>Processing</span></button>
+      <button class="dockTab" data-tab="struct" title="Mapped discontinuities, kinematic failure analysis and the structural domains it feeds"><svg class="ic"><use href="#ic-net"></use></svg><span>Structure</span></button>
+      <button class="dockTab" data-tab="stats" title="Statistics, histogram, position ranking and export"><svg class="ic"><use href="#ic-stats"></use></svg><span>Statistics</span></button>
+      <button class="dockTab" data-tab="view" title="3D view and clipping"><svg class="ic"><use href="#ic-iso"></use></svg><span>View</span></button>
+    </nav>
+
+    <div class="dockBody">
+
+      <!-- ══════════════ PROPERTIES ══════════════ -->
+      <div class="tabPane on" id="tabProps" data-pane="props">
+        <div id="propHead" class="propHead">
+          <svg class="ic" id="propIcon"><use href="#ic-layers"></use></svg>
+          <div>
+            <div class="propName" id="propName">No layer selected</div>
+            <div class="propKind" id="propKind">Pick a layer in the tree</div>
           </div>
-          <div class="previewWrap"><table id="previewTable"></table></div>
-          <button id="btnApplyAscii" class="primary wide">Apply mapping</button>
         </div>
 
-        <!-- Gridding -->
-        <div class="subpanel">
+        <!-- placeholder -->
+        <div class="propSection" id="propNone">
+          <p class="hint">Select a layer on the left to edit its properties here — a raster
+            layer shows its colour scale, a radar position its coordinates and scan geometry,
+            the area of interest its bounds, a wall folder its deformation scale and georeference.</p>
+        </div>
+
+        <!-- ───────── raster layer symbology ───────── -->
+        <div class="propSection hidden" id="propSymbology">
+          <div class="subhead">Colour ramp <span id="cmName" class="dim"></span></div>
+          <select id="selPreset" class="wide"></select>
+          <div id="stopsEditor" class="stops"></div>
+          <div class="row">
+            <button id="btnAddStop">+ Stop</button>
+            <button id="btnEvenStops">Distribute</button>
+            <button id="btnRevStops">Reverse</button>
+          </div>
+          <div class="grid2">
+            <label title="Value mapped to the bottom of the colour scale. Keep 0 for sensitivity so maps stay comparable between sites and dates.">Scale min<input type="number" id="inpVmin" value="0" step="0.05"></label>
+            <label title="Value mapped to the top of the colour scale. Keep 1 for sensitivity.">Scale max<input type="number" id="inpVmax" value="1" step="0.05"></label>
+            <label title="0 = continuous gradient. Any other number quantises the scale into that many flat bands — useful for classified maps like 4 × 0.25 sensitivity classes.">Bands (0=cont.)<input type="number" id="inpBands" value="0" min="0" max="32" step="1"></label>
+            <label title="Bends the scale without moving the end points. Below 1 stretches the top of the range, above 1 stretches the bottom. Use it to bring out detail where the values cluster.">Gamma<input type="number" id="inpGamma" value="1" min="0.2" max="4" step="0.1"></label>
+          </div>
+          <div class="row">
+            <button id="btnAutoRange" title="Stretch the scale to the range actually present in this layer.">Auto range</button>
+            <button data-cmd="scale.export">Export ramp</button>
+            <button data-cmd="scale.import">Import ramp</button>
+          </div>
+
+          <div class="subpanel">
+            <div class="subhead">Mask colours <span class="dim">shared by every layer</span></div>
+            <div class="grid2">
+              <label title="Cells with no elevation — holes inside the surveyed area.">No-data<input type="color" id="colNoData" value="#525252"></label>
+              <label title="Cells hidden from the sensor by the terrain itself. Amplitude and sensitivity are meaningless there.">Shadowed<input type="color" id="colOccluded" value="#6b7280"></label>
+              <label title="Cells outside the scan sector, the elevation cone, or the min/max range gates.">Out of scan<input type="color" id="colOutside" value="#404040"></label>
+              <label title="Cells whose sensitivity is under the alarm threshold, when the grey-out option is on.">Below thr.<input type="color" id="colBelow" value="#9ca3af"></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───────── radar position ───────── -->
+        <div class="propSection hidden" id="propSensor">
+          <div class="grid2">
+            <label title="Label for this position — it appears in the ranking table, the legend and exported reports.">Name<input type="text" id="rName" value="Radar 1"></label>
+            <label title="Colour of this sensor's marker, mast and scan footprint in the 3D view.">Colour<input type="color" id="rColor" value="#FFC000"></label>
+            <label title="Sensor easting in your mine grid. Or arm the “Place radar” tool and click the model.">Easting X<input type="number" id="rX" step="0.1"></label>
+            <label title="Sensor northing in your mine grid.">Northing Y<input type="number" id="rY" step="0.1"></label>
+            <label title="Antenna level (RL). Locked while “Z = terrain + antenna height” is ticked, because it then follows the surface.">Level Z<input type="number" id="rZ" step="0.1"></label>
+            <label title="Height of the antenna above ground in metres — mast, trailer or vehicle. Added to the terrain level when snapping.">Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
+          </div>
+          <label class="chk" title="Keeps the antenna a fixed height above the terrain, so moving X/Y automatically re-levels it. Untick to type an absolute RL."><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
+          <div id="rNote" class="info hidden"></div>
+          <div class="row">
+            <button data-cmd="tool.sensor" class="wide"><svg class="ic"><use href="#ic-sensor"></use></svg> Place on model</button>
+          </div>
+
+          <div class="subpanel">
+            <div class="subhead">Scan geometry <span class="dim">— total widths, as quoted in radar specs</span></div>
+            <div class="grid2">
+              <label title="Direction the antenna faces: degrees from grid north, clockwise. 0 = north, 90 = east, 180 = south. Ignored while Auto-aim is on.">Boresight az °<input type="number" id="rAz" value="0" min="0" max="360" step="5"></label>
+              <label title="TOTAL horizontal scan width, centred on the boresight — enter the number from the radar datasheet (e.g. 90). Internally that is ±45° either side. 360 = no azimuth limit.">Az scan width °<input type="number" id="rApAz" value="180" min="2" max="360" step="5"></label>
+              <label title="Antenna TILT: the elevation the boresight points at, in degrees. Positive = aimed upwards. A radar on a pit floor watching a high wall is tilted up, so the elevation cone must follow it — leave 0 only for a level shot. Auto-aim sets this at the model centre.">Boresight el °<input type="number" id="rEl" value="0" min="-90" max="90" step="1"></label>
+              <label title="TOTAL vertical scan width, centred on the boresight elevation above. 90 means 45° above and below the tilt direction. Cells outside this cone are flagged “out of scan”.">El scan width °<input type="number" id="rApEl" value="90" min="2" max="180" step="5"></label>
+              <label title="Minimum measurable range in metres. Cells closer than this are excluded — this is what creates a blind wedge right under the antenna.">Range min m<input type="number" id="rRmin" value="30" min="0" step="10"></label>
+              <label title="Maximum measurable range in metres. Cells beyond it are flagged “out of scan”. Set it to the instrument's rated range.">Range max m<input type="number" id="rRmax" value="4000" min="10" step="50"></label>
+              <label class="chk" title="Points the boresight at the centre of the model automatically. Untick to type your own azimuth."><input type="checkbox" id="chkAutoAim" checked> Auto-aim at model</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───────── selection mask / AOI ───────── -->
+        <div class="propSection hidden" id="propAOI">
+          <label class="chk" title="Limits statistics, the histogram and the position ranking to the cells inside the mask. Cells outside are dimmed in the view, not deleted. It does not change the gridding extent."><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
+          <div class="grid2">
+            <label title="Western edge of the box of interest, in grid eastings.">X min<input type="number" id="aoiXmin" step="1"></label>
+            <label title="Eastern edge of the box of interest.">X max<input type="number" id="aoiXmax" step="1"></label>
+            <label title="Southern edge of the box of interest, in grid northings.">Y min<input type="number" id="aoiYmin" step="1"></label>
+            <label title="Northern edge of the box of interest.">Y max<input type="number" id="aoiYmax" step="1"></label>
+            <label title="Lowest bench level to include — e.g. exclude the pit floor from wall statistics.">Z min<input type="number" id="aoiZmin" step="1"></label>
+            <label title="Highest level to include — e.g. exclude the plateau above the crest.">Z max<input type="number" id="aoiZmax" step="1"></label>
+            <label title="Excludes ground flatter than this. Set to about 25° to score only the steep wall and ignore roads, berms and the floor.">Slope min °<input type="number" id="aoiSlopeMin" value="0" min="0" max="90"></label>
+            <label title="Excludes ground steeper than this.">Slope max °<input type="number" id="aoiSlopeMax" value="90" min="0" max="90"></label>
+          </div>
+          <div class="row">
+            <button data-cmd="aoi.full">Full extent</button>
+            <button data-cmd="tool.aoi" title="Click vertex after vertex on the model to trace the boundary. Enter, a double-click or a click back on the first vertex closes it; Backspace removes the last vertex; Esc cancels. Draw again to add another region.">Draw region</button>
+            <button data-cmd="aoi.clear" title="Discards every drawn region and goes back to the plain X/Y rectangle.">Clear regions</button>
+          </div>
+          <div id="aoiRegionBox" class="subpanel hidden">
+            <div class="subhead">Selected region</div>
+            <label title="What this region is called. It appears in the layer tree, in the status messages and in the saved project.">Name<input type="text" id="aoiRegionName" placeholder="Region 1"></label>
+            <div id="aoiRegionInfo" class="info"></div>
+            <div class="row">
+              <button data-cmd="tool.edit" title="Grab a vertex and stretch the boundary, or its centre handle to move the whole thing. Click to pick up, move the pointer, click again to drop; click an edge to add a vertex there; Delete removes the one you are holding.">Stretch / move</button>
+              <button data-cmd="region.dup" title="Copy this region, offset so it can be moved into place with the stretch tool.">Duplicate</button>
+              <button data-cmd="layer.remove">Remove region</button>
+            </div>
+          </div>
+          <div id="aoiPolyList" class="polyList hidden"></div>
+          <p class="hint">Boundary: <b id="aoiShape">rectangle</b>. Drawn regions take over the X/Y test — the four boxes above then show their combined bounding box, and Z and slope still apply on top. Draw as many as you need: they are <b>joined</b>, so one set of statistics covers all of them, and a cell in two overlapping regions is counted once.</p>
+        </div>
+
+        <!-- ───────── radar deformation ───────── -->
+        <div class="propSection hidden" id="propScan">
+          <div id="radarIntro" class="info">
+            Drop a radar deformation export (<span class="dim">…_DDMMYYYY_HHMM_DDMMYYYY_HHMM.csv</span>)
+            anywhere on this window. The first scan of a wall folder has to be
+            <b>georeferenced</b> by hand; every later scan of the same folder is placed automatically.
+          </div>
+
+          <div class="subpanel">
+            <div class="subhead">Colour scale <span class="dim">deformation, mm</span></div>
+            <div class="row">
+              <label title="The scale is symmetric about zero: this sets both ends at once, so the middle colour always means no movement.">
+                Limit ±<input type="number" id="radarLimit" value="5" min="0" step="1" style="width:64px"> mm
+                <span class="dim">(0 = auto)</span>
+              </label>
+              <button id="radarAuto" class="miniBtn" title="Fit the limit to the loaded scans, ignoring the wildest 0.5% so one noisy pixel cannot flatten everything else.">Auto</button>
+            </div>
+            <canvas id="radarBar" class="radarBar" height="18"></canvas>
+            <div class="radarBarAxis">
+              <span id="radarBarMin">−5</span><span>0</span><span id="radarBarMax">+5</span>
+            </div>
+            <div id="radarStops" class="stops"></div>
+            <div class="row">
+              <button id="radarAddStop" class="miniBtn">+ Stop</button>
+              <button id="radarEvenStops" class="miniBtn">Distribute</button>
+              <button id="radarRevStops" class="miniBtn">Reverse</button>
+              <button id="radarResetStops" class="miniBtn">Reset</button>
+            </div>
+            <div class="grid2">
+              <label title="0 = continuous gradient. Any other number quantises the scale into that many flat classes.">Bands (0=cont.)<input type="number" id="radarBands" value="0" min="0" max="32" step="1"></label>
+              <label title="Bends the scale without moving the ends. Below 1 brings out the small movements near zero.">Gamma<input type="number" id="radarGamma" value="1" min="0.2" max="4" step="0.1"></label>
+            </div>
+            <div class="row">
+              <label title="Draw the drape semi-transparent so the survey surface stays readable underneath.">
+                Opacity <input type="range" id="radarAlpha" min="20" max="100" value="100" style="width:110px">
+              </label>
+            </div>
+            <label class="chk" title="Slide every pixel down its line of sight until it meets the survey surface, so the image cannot float above or sink into the terrain. The offset it absorbs is reported per folder — a large one means the georeference itself is out."><input type="checkbox" id="radarDrape" checked> Follow the terrain surface</label>
+          </div>
+
+          <div id="radarFolders"></div>
+
+          <!-- georeference workflow -->
+          <div id="georefPanel" class="subpanel hidden">
+            <div class="subhead">Georeference <span id="grFolder" class="dim"></span></div>
+            <div id="grHelp" class="info">
+              Click a recognisable feature in the radar image below — a crest, a toe, a berm
+              corner — then click the same feature on the survey surface in the 3&nbsp;D view.
+              Repeat for at least <b>two</b> well-separated points.
+            </div>
+            <canvas id="grCanvas" class="grCanvas"></canvas>
+            <div id="grCanvasNote" class="dim" style="font-size:11px;margin:4px 0 8px">
+              Front view as the radar sees it — colour is deformation.
+            </div>
+            <div class="grid2">
+              <label title="Rotation about the vertical only. Correct for a levelled sensor and needs just two points.">
+                Fit
+                <select id="grMode">
+                  <option value="yaw">Bearing only (2+ points)</option>
+                  <option value="rigid">Full 3-D (3+ points)</option>
+                </select>
+              </label>
+              <label title="How far a tied point may sit from the fitted surface before it is called a blunder.">
+                <span class="dim">Points</span>
+                <span id="grCount" class="mono">0</span>
+              </label>
+            </div>
+            <table id="grTable" class="grTable"></table>
+            <div class="row" style="margin-top:4px">
+              <button id="grAddTie" class="miniBtn" title="Add a row and type the numbers, instead of clicking the image. Every cell below is editable either way.">+ Tie by typing</button>
+            </div>
+            <div id="grResult" class="info hidden"></div>
+            <div class="row" style="margin-top:8px">
+              <button id="grSave" class="primary" disabled>Save georeference</button>
+              <button id="grUndo" disabled>Undo point</button>
+              <button id="grCancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════ PROCESSING ══════════════ -->
+      <div class="tabPane" id="tabProc" data-pane="proc">
+
+        <div class="propSection">
           <div class="subhead">Model gridding</div>
           <div class="grid2">
             <label title="Raster cell size in metres. Leave blank to derive it from Target cells. Rule of thumb: about one third of your berm width, otherwise benches get averaged into a smooth ramp and steepest sensitivity is biased.">Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
@@ -91,98 +450,41 @@
             <label class="chk" title="Averages the elevations before computing slopes. Off by default — it removes real bench edges. Only use it on noisy photogrammetry or laser data."><input type="checkbox" id="chkSmooth"> Smooth normals</label>
             <label title="Number of smoothing passes when the option above is on. Each pass is a weighted 3×3 average.">Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
           </div>
-          <button id="btnBuild" class="primary wide">Build / rebuild model</button>
-          <div id="gridInfo" class="info"></div>
-        </div>
-      </div>
-    </details>
-
-    <!-- ── 2. RADAR ── -->
-    <details open>
-      <summary><span class="num">2</span> Radar Positions</summary>
-      <div class="body">
-        <table id="radarTable" class="dataTable">
-          <thead><tr><th></th><th>Name</th><th>X</th><th>Y</th><th>Z</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-        <div class="row">
-          <button id="btnAddRadar">+ Add</button>
-          <button id="btnDupRadar">Duplicate</button>
-          <button id="btnDelRadar" class="danger">Delete</button>
+          <button data-cmd="model.build" class="primary wide"><svg class="ic"><use href="#ic-grid"></use></svg> Build / rebuild model</button>
         </div>
 
-        <div class="subpanel">
-          <div class="subhead">Selected sensor</div>
-          <div class="grid2">
-            <label title="Label for this position — it appears in the ranking table, the legend and exported reports.">Name<input type="text" id="rName" value="Radar 1"></label>
-            <label title="Colour of this sensor's marker, mast and scan footprint in the 3D view.">Colour<input type="color" id="rColor" value="#FFC000"></label>
-            <label title="Sensor easting in your mine grid. Or use “Pick position on model” and click.">Easting X<input type="number" id="rX" step="0.1"></label>
-            <label title="Sensor northing in your mine grid.">Northing Y<input type="number" id="rY" step="0.1"></label>
-            <label title="Antenna level (RL). Locked while “Z = terrain + antenna height” is ticked, because it then follows the surface.">Level Z<input type="number" id="rZ" step="0.1"></label>
-            <label title="Height of the antenna above ground in metres — mast, trailer or vehicle. Added to the terrain level when snapping.">Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
+        <div class="propSection">
+          <div class="subhead">Assumed movement vector</div>
+          <div class="modeList">
+            <label class="mode" title="Movement straight down the steepest line of the local surface — recomputed per cell from the surface gradient. The usual planning default."><input type="radio" name="smode" value="steepest" checked>
+              <span class="sw" style="background:#E63946"></span>
+              <b>Steepest</b><i>down the steepest direction of the slope</i></label>
+            <label class="mode" title="Movement in the horizontal plane along the dip direction — also per cell. Suits toppling and horizontal translation."><input type="radio" name="smode" value="horizontal">
+              <span class="sw" style="background:#00B050"></span>
+              <b>Horizontal</b><i>along the horizontal plane (dip direction)</i></label>
+            <label class="mode" title="Movement straight down (0,0,−1) everywhere — one global direction. Suits subsidence, sinkholes and undercutting."><input type="radio" name="smode" value="vertical">
+              <span class="sw" style="background:#05CAC8"></span>
+              <b>Vertical</b><i>vertically downwards</i></label>
+            <label class="mode" title="Movement straight out of the face along the local surface normal — recomputed per cell. Suits bulging, buckling and rockfall off a steep wall. Sensitivity then equals the amplitude proxy."><input type="radio" name="smode" value="normal">
+              <span class="sw" style="background:#ff9800"></span>
+              <b>Normal</b><i>perpendicular to each surface</i></label>
+            <label class="mode" title="Your own trend and plunge, applied globally — use it when the failure mechanism is known (a wedge, a planar slide on a mapped joint set). Tick “flatter than the steepest line” to take the trend from each cell instead of typing one."><input type="radio" name="smode" value="custom">
+              <span class="sw" style="background:#8B5CF6"></span>
+              <b>Custom vector</b><i>user defined failure mechanism</i></label>
           </div>
-          <label class="chk" title="Keeps the antenna a fixed height above the terrain, so moving X/Y automatically re-levels it. Untick to type an absolute RL."><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
-          <div id="rNote" class="info hidden"></div>
-          <div class="row">
-            <button id="btnPickRadar" class="wide">⊕ Pick position on model</button>
-          </div>
-          <div class="subhead">Scan geometry <span class="dim">— total widths, as quoted in radar specs</span></div>
-          <div class="grid2">
-            <label title="Direction the antenna faces: degrees from grid north, clockwise. 0 = north, 90 = east, 180 = south. Ignored while Auto-aim is on.">Boresight az °<input type="number" id="rAz" value="0" min="0" max="360" step="5"></label>
-            <label title="TOTAL horizontal scan width, centred on the boresight — enter the number from the radar datasheet (e.g. 90). Internally that is ±45° either side. 360 = no azimuth limit.">Az scan width °<input type="number" id="rApAz" value="180" min="2" max="360" step="5"></label>
-            <label title="Antenna TILT: the elevation the boresight points at, in degrees. Positive = aimed upwards. A radar on a pit floor watching a high wall is tilted up, so the elevation cone must follow it — leave 0 only for a level shot. Auto-aim sets this at the model centre.">Boresight el °<input type="number" id="rEl" value="0" min="-90" max="90" step="1"></label>
-            <label title="TOTAL vertical scan width, centred on the boresight elevation above. 90 means 45° above and below the tilt direction. Cells outside this cone are flagged “out of scan”.">El scan width °<input type="number" id="rApEl" value="90" min="2" max="180" step="5"></label>
-            <label title="Minimum measurable range in metres. Cells closer than this are excluded — this is what creates a blind wedge right under the antenna.">Range min m<input type="number" id="rRmin" value="30" min="0" step="10"></label>
-            <label title="Maximum measurable range in metres. Cells beyond it are flagged “out of scan”. Set it to the instrument's rated range.">Range max m<input type="number" id="rRmax" value="4000" min="10" step="50"></label>
-            <label class="chk" title="Points the boresight at the centre of the model automatically. Untick to type your own azimuth."><input type="checkbox" id="chkAutoAim" checked> Auto-aim at model</label>
-          </div>
-        </div>
-        <div class="subpanel">
-          <div class="subhead">Multi-sensor combination</div>
-          <select id="selCombine" class="wide" title="How several enabled sensors are merged into one map. Best of all = the highest sensitivity available at each cell, i.e. what a combined installation would achieve.">
-            <option value="selected">Show selected sensor only</option>
-            <option value="max">Best of all sensors (max)</option>
-            <option value="mean">Average of all sensors</option>
-            <option value="which">Which sensor is best</option>
-          </select>
-        </div>
-      </div>
-    </details>
-
-    <!-- ── 3. SENSITIVITY ── -->
-    <details open>
-      <summary><span class="num">3</span> Sensitivity Model</summary>
-      <div class="body">
-        <div class="subhead">Assumed movement vector</div>
-        <div class="modeList">
-          <label class="mode" title="Movement straight down the steepest line of the local surface — recomputed per cell from the surface gradient. The usual planning default."><input type="radio" name="smode" value="steepest" checked>
-            <span class="sw" style="background:#E63946"></span>
-            <b>Steepest</b><i>down the steepest direction of the slope</i></label>
-          <label class="mode" title="Movement in the horizontal plane along the dip direction — also per cell. Suits toppling and horizontal translation."><input type="radio" name="smode" value="horizontal">
-            <span class="sw" style="background:#00B050"></span>
-            <b>Horizontal</b><i>along the horizontal plane (dip direction)</i></label>
-          <label class="mode" title="Movement straight down (0,0,−1) everywhere — one global direction. Suits subsidence, sinkholes and undercutting."><input type="radio" name="smode" value="vertical">
-            <span class="sw" style="background:#05CAC8"></span>
-            <b>Vertical</b><i>vertically downwards</i></label>
-          <label class="mode" title="Movement straight out of the face along the local surface normal — recomputed per cell. Suits bulging, buckling and rockfall off a steep wall. Sensitivity then equals the amplitude proxy."><input type="radio" name="smode" value="normal">
-            <span class="sw" style="background:#ff9800"></span>
-            <b>Normal</b><i>perpendicular to each surface</i></label>
-          <label class="mode" title="Your own trend and plunge, applied globally — use it when the failure mechanism is known (a wedge, a planar slide on a mapped joint set). Tick “flatter than the steepest line” to take the trend from each cell instead of typing one."><input type="radio" name="smode" value="custom">
-            <span class="sw" style="background:#8B5CF6"></span>
-            <b>Custom vector</b><i>user defined failure mechanism</i></label>
-        </div>
-        <div id="customVec">
-          <label class="chk" title="Keeps each cell's own dip direction and only shifts the plunge, so no azimuth has to be typed — the vector follows the wall wherever it faces. Use it for a failure that daylights a fixed angle flatter than the face, typically 10–15°."><input type="checkbox" id="chkCustRel"> Flatter than the steepest line (per cell)</label>
-          <div class="grid2" id="customAbs">
-            <label title="Direction the mass is expected to move, in degrees from grid north, clockwise. 180 = due south.">Trend az °<input type="number" id="inpCustAz" value="180" min="0" max="360" step="5"></label>
-            <label title="Angle below the horizontal, in degrees. 0 = horizontal, 90 = straight down (identical to Vertical mode).">Plunge °<input type="number" id="inpCustPl" value="45" min="-90" max="90" step="5"></label>
-          </div>
-          <div class="grid2 hidden" id="customOff">
-            <label title="Degrees shallower than the steepest line, applied per cell. 0 reproduces Steepest; an offset as large as the local slope angle reproduces Horizontal. Cells flatter than the offset are clamped to horizontal rather than tipped uphill.">Flatter by °<input type="number" id="inpCustOff" value="12" min="0" max="90" step="1"></label>
+          <div id="customVec">
+            <label class="chk" title="Keeps each cell's own dip direction and only shifts the plunge, so no azimuth has to be typed — the vector follows the wall wherever it faces. Use it for a failure that daylights a fixed angle flatter than the face, typically 10–15°."><input type="checkbox" id="chkCustRel"> Flatter than the steepest line (per cell)</label>
+            <div class="grid2" id="customAbs">
+              <label title="Direction the mass is expected to move, in degrees from grid north, clockwise. 180 = due south.">Trend az °<input type="number" id="inpCustAz" value="180" min="0" max="360" step="5"></label>
+              <label title="Angle below the horizontal, in degrees. 0 = horizontal, 90 = straight down (identical to Vertical mode).">Plunge °<input type="number" id="inpCustPl" value="45" min="-90" max="90" step="5"></label>
+            </div>
+            <div class="grid2 hidden" id="customOff">
+              <label title="Degrees shallower than the steepest line, applied per cell. 0 reproduces Steepest; an offset as large as the local slope angle reproduces Horizontal. Cells flatter than the offset are clamped to horizontal rather than tipped uphill.">Flatter by °<input type="number" id="inpCustOff" value="12" min="0" max="90" step="1"></label>
+            </div>
           </div>
         </div>
 
-        <div class="subpanel">
+        <div class="propSection">
           <div class="subhead">Line of sight</div>
           <label class="chk" title="Walks the straight line from sensor to cell over the terrain and flags anything hidden behind a crest, ridge or bench as “shadowed”. Turn it off to see the pure geometric cosine map ignoring visibility."><input type="checkbox" id="chkOcclusion" checked> Terrain occlusion (shadow) test</label>
           <div class="grid2">
@@ -196,7 +498,17 @@
           <label class="chk" title="Discards cells the beam only grazes. 90° incidence means the line of sight is parallel to the surface — strong geometry on paper, no usable return in practice."><input type="checkbox" id="chkGrazing"> Reject grazing incidence &gt;<input type="number" id="inpGraz" value="85" min="10" max="90" step="1" class="inline"> °</label>
         </div>
 
-        <div class="subpanel">
+        <div class="propSection">
+          <div class="subhead">Multi-sensor combination</div>
+          <select id="selCombine" class="wide" title="How several enabled sensors are merged into one map. Best of all = the highest sensitivity available at each cell, i.e. what a combined installation would achieve.">
+            <option value="selected">Show selected sensor only</option>
+            <option value="max">Best of all sensors (max)</option>
+            <option value="mean">Average of all sensors</option>
+            <option value="which">Which sensor is best</option>
+          </select>
+        </div>
+
+        <div class="propSection">
           <div class="subhead">Alarm calibration</div>
           <div class="grid2">
             <label title="Sensitivity below which you consider a cell unreliable for alarming. Drives the “usable area” statistic, the position ranking and the white marker on the colour bar. 0.5 means the radar measures at least half of any real movement.">Threshold<input type="number" id="inpThresh" value="0.5" min="0" max="1" step="0.05"></label>
@@ -205,80 +517,170 @@
           <label class="chk" title="Paints every cell below the threshold in the flat “below thr.” colour, so only the reliably measurable ground keeps its colour."><input type="checkbox" id="chkMaskBelow"> Grey-out cells below threshold</label>
         </div>
 
-        <button id="btnCompute" class="primary wide big">⟳ Compute sensitivity map</button>
-        <div id="progWrap" class="progWrap hidden"><div id="progBar"></div><span id="progText"></span></div>
+        <button data-cmd="analysis.compute" class="primary wide big"><svg class="ic"><use href="#ic-compute"></use></svg> Compute sensitivity map</button>
       </div>
-    </details>
 
-    <!-- ── 4. AOI ── -->
-    <details>
-      <summary><span class="num">4</span> Selection Mask / AOI</summary>
-      <div class="body">
-        <label class="chk" title="Limits statistics, the histogram and the position ranking to the cells inside the mask. Cells outside are dimmed in the view, not deleted. It does not change the gridding extent."><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
-        <div class="grid2">
-          <label title="Western edge of the box of interest, in grid eastings.">X min<input type="number" id="aoiXmin" step="1"></label>
-          <label title="Eastern edge of the box of interest.">X max<input type="number" id="aoiXmax" step="1"></label>
-          <label title="Southern edge of the box of interest, in grid northings.">Y min<input type="number" id="aoiYmin" step="1"></label>
-          <label title="Northern edge of the box of interest.">Y max<input type="number" id="aoiYmax" step="1"></label>
-          <label title="Lowest bench level to include — e.g. exclude the pit floor from wall statistics.">Z min<input type="number" id="aoiZmin" step="1"></label>
-          <label title="Highest level to include — e.g. exclude the plateau above the crest.">Z max<input type="number" id="aoiZmax" step="1"></label>
-          <label title="Excludes ground flatter than this. Set to about 25° to score only the steep wall and ignore roads, berms and the floor.">Slope min °<input type="number" id="aoiSlopeMin" value="0" min="0" max="90"></label>
-          <label title="Excludes ground steeper than this.">Slope max °<input type="number" id="aoiSlopeMax" value="90" min="0" max="90"></label>
+      <!-- ══════════════ STRUCTURE ══════════════ -->
+      <div class="tabPane" id="tabStruct" data-pane="struct">
+
+        <div class="propSection">
+          <div class="subhead">Slope face &amp; strength</div>
+          <div class="grid2">
+            <label title="Dip of the wall being assessed, in degrees below horizontal. The kinematic test asks whether a wedge can escape from THIS face — get it wrong and every answer below is wrong.">Face dip °<input type="number" id="stFaceDip" value="60" min="0" max="90" step="1"></label>
+            <label title="Direction the wall faces, in degrees from grid north, clockwise. A wall you look at towards the east faces west: 270.">Face dip dir °<input type="number" id="stFaceDir" value="90" min="0" max="360" step="5"></label>
+            <label title="Friction angle of the joint surfaces, in degrees. Both planes of a wedge are assumed to share it. A wedge whose line of intersection plunges flatter than this cannot slide on both planes.">Friction φ °<input type="number" id="stPhi" value="30" min="0" max="89" step="1"></label>
+            <label title="Which failure mechanism the planes are tested against."><span>Failure mode</span><select id="stMode">
+                <option value="wedge">Wedge sliding</option>
+              </select></label>
+          </div>
+          <div class="row">
+            <button id="stFaceProbe" title="Take the face orientation from the cell last clicked with the Identify tool — the survey already knows how the wall is oriented there.">From probed cell</button>
+            <button id="stFaceMask" title="Average the surface orientation over every cell in the selection mask. Restrict the mask to one wall first: a mask spanning two walls has no single face orientation, and the read-out says so.">From selection mask</button>
+          </div>
+        </div>
+
+        <div class="propSection">
+          <div class="subhead">Discontinuities <span class="dim">dip / dip direction</span></div>
+          <div class="grid2">
+            <label title="Dip of the discontinuity, degrees below horizontal.">Dip °<input type="number" id="stNewDip" value="60" min="0" max="90" step="1"></label>
+            <label title="Dip direction of the discontinuity, degrees from grid north, clockwise.">Dip dir °<input type="number" id="stNewDir" value="120" min="0" max="360" step="5"></label>
+            <label title="Label used in the results table and on the stereonet.">Name<input type="text" id="stNewName" placeholder="J1"></label>
+            <label class="btnCell"><span>&nbsp;</span><button id="stAddPlane" class="primary">Add plane</button></label>
+          </div>
+          <div class="row">
+            <button data-cmd="tool.plane" title="Click three or more points along the structure where it outcrops on the surface. A plane is least-squares fitted through them and the scatter about the fit is reported, so you can see whether the trace really was planar.">Pick on model</button>
+            <button id="stPasteToggle" title="Paste a column of mapped orientations instead of typing them one at a time.">Paste list…</button>
+            <button id="stClearPlanes" title="Discard every mapped plane.">Clear all</button>
+          </div>
+          <div id="stPasteWrap" class="hidden subpanel">
+            <div class="subhead">Paste mapped data <span class="dim">dip · dip dir · name</span></div>
+            <textarea id="stPaste" class="pasteBox" rows="5"
+              placeholder="70 040 J1&#10;60 140 J2&#10;35, 285, Fault A"></textarea>
+            <p class="hint">One record per line: <b>dip</b>, then <b>dip direction</b>, then an optional name.
+              Commas, tabs, semicolons or spaces all work, and a header row is skipped.</p>
+            <div class="row"><button id="stPasteApply" class="primary">Add these</button></div>
+          </div>
+          <div id="stPlaneList" class="structList"></div>
+          <div class="subpanel">
+            <div class="subhead">How they are drawn <span class="dim">3D view</span></div>
+            <p class="hint">A plane picked off the surface is drawn where it was picked, as a
+              rectangle lying in the structure: the long edges follow the <b>strike</b>, the
+              short ones run down the <b>dip</b>, and the tick points down-dip. Each row's
+              swatch above sets its colour.</p>
+            <div class="grid2">
+              <label title="How much of each plane to draw. The RECTANGLE is a symbol standing in the air where the structure lies; the TRACE is the line where it actually cuts the ground — what a geologist would walk and flag, and the only part of a structure a surface really shows."><span>Draw as</span><select id="stPlaneDraw">
+                  <option value="both">Rectangle + trace</option>
+                  <option value="patch">Rectangle only</option>
+                  <option value="trace">Trace on the surface only</option>
+                </select></label>
+              <label title="Strike length of the drawn rectangle, in metres. Leave blank to scale it to the model — about a tenth of the extent. It is a symbol, not a measurement: nothing in the analysis depends on it.">Plane size m<input type="number" id="stPlaneSize" placeholder="auto" min="1" step="5"></label>
+              <label title="Opacity of the plane rectangles, 0–100 %. At 0 they are outlines only.">Plane fill %<input type="number" id="stPlaneAlpha" value="26" min="0" max="100" step="5"></label>
+            </div>
+            <label class="chk"><input type="checkbox" id="stPlaneClip"> Hide everything in front of the face</label>
+          </div>
+        </div>
+
+        <div class="propSection">
+          <div class="subhead">Stereonet <span class="dim">lower hemisphere</span></div>
+          <div class="netWrap"><canvas id="netCanvas"></canvas></div>
+          <div id="netReadout" class="netReadout mono"></div>
+          <div class="segBtns wrap" id="stNetOpts">
+            <button data-net="planes" title="Each discontinuity as a great circle">Planes</button>
+            <button data-net="poles" title="Each discontinuity as a single pole — its normal">Poles</button>
+            <button data-net="ints" title="The line of intersection of every plane pair — the wedge axes">Wedges</button>
+            <button data-net="zones" title="Shade the critical zones: red where a wedge slides on both planes, amber where it releases on one">Zones</button>
+            <button data-net="cone" title="The friction cone — a circle at plunge φ, measured in from the rim">φ cone</button>
+            <button data-net="faceGC" title="The slope face as a great circle">Face</button>
+            <button data-net="net" title="The underlying Wulff/Schmidt graticule at 10° spacing">Net</button>
+          </div>
+          <label class="chk" title="Equal-angle (Wulff) is what Dips uses for kinematic analysis and is the default. Equal-area (Schmidt) preserves the area of each patch of the hemisphere, which is the honest projection for pole density work.">
+            <input type="checkbox" id="stEqualArea"> Equal-area (Schmidt) projection</label>
+          <label class="chk" title="Leave out pairs that bound no rock: the ones whose planes never touch, and the ones that do touch but only out in front of the face, above the ground. A stereonet knows orientations and nothing else, so it will rank both as critical. A pair that is buried in the rock is kept — there IS rock there — and so is one that cannot be tested because a plane has no location.">
+            <input type="checkbox" id="stOnlyContact"> Only wedges with rock in them</label>
+          <div id="stSummary" class="info"></div>
+        </div>
+
+        <div class="propSection">
+          <div class="subhead">Kinematic results <span class="dim">every plane pair</span></div>
+          <div class="previewWrap"><div id="stPairList"></div></div>
+          <p class="hint">Hover a row to pick it out on the stereonet. <b>→</b> loads that
+            wedge's movement direction into the domain builder below.</p>
+          <div class="row">
+            <button data-cmd="export.kin"><svg class="ic"><use href="#ic-table"></use></svg> Results CSV</button>
+            <button data-cmd="export.net"><svg class="ic"><use href="#ic-image"></use></svg> Stereonet PNG</button>
+          </div>
+        </div>
+
+        <div class="propSection">
+          <div class="subhead">Structural domains <span class="dim">movement vector by area</span></div>
+          <p class="hint">A domain is a drawn block that carries its <b>own</b> movement vector.
+            Cells inside it are modelled as moving that way instead of down the vector chosen in
+            <b>Processing</b> — so a mapped wedge and the wall around it can be assessed in the
+            same run, each against the direction it would really move.</p>
+          <div id="stDomainBuilder">
+          <div class="subhead">Build one <span id="stDomReady" class="stChip">no direction chosen yet</span></div>
+          <div class="grid2">
+            <label title="Direction of movement, degrees from grid north, clockwise. Filled in for you when you press Use on a result above.">Trend °<input type="number" id="stDomTrend" min="0" max="360" step="1"></label>
+            <label title="Angle below the horizontal, in degrees. 90 is straight down.">Plunge °<input type="number" id="stDomPlunge" min="-90" max="90" step="1"></label>
+            <label title="Label for this domain, shown in the tree, the 3D view and the CSV export.">Name<input type="text" id="stDomName" placeholder="Wedge 1"></label>
+            <label title="Free text carried through to the project file and the domain card — what the mechanism is and where it came from.">Note<input type="text" id="stDomNote" placeholder="J1 × J2 wedge"></label>
+          </div>
+          <div id="stAutoWrap">
+            <label class="chk" title="Click once where the wedge daylights and the block is worked out from the two planes, the survey surface and the height below — instead of tracing it by hand."><input type="checkbox" id="stAutoBlock" checked disabled> Build the block automatically</label>
+            <div class="grid2">
+              <label title="How far the block reaches above the point you click, in metres. On a uniform face the wedge never closes off upslope by itself — the terrain rises faster than the line of intersection does, which is what daylighting means — so this is what decides how much of the wall it takes. Blank scales it to a quarter of the model's relief.">Block height m<input type="number" id="stBlockH" placeholder="auto" min="1" step="5"></label>
+            </div>
+            <label class="chk"><input type="checkbox" id="stBlockAoi" disabled> Stop it at the area of interest</label>
+          </div>
+          <div class="row">
+            <button id="stDrawDomain" class="primary wide" disabled><svg class="ic"><use href="#ic-wedge"></use></svg> Draw the block on the model</button>
+          </div>
+          </div>
+          <div class="row">
+            <label title="Opacity of the shading painted inside each domain, 0–100 %. At 0 the domains are outlines and arrows only. Each card's swatch below sets its colour.">
+              Domain fill <input type="number" id="stDomAlpha" value="32" min="0" max="100" step="5" class="inline"> %
+            </label>
+            <button id="stClearDomains" title="Every cell goes back to the global movement vector.">Clear all domains</button>
+          </div>
+          <div id="stDomainList" class="domList"></div>
+        </div>
+      </div>
+
+      <!-- ══════════════ STATISTICS ══════════════ -->
+      <div class="tabPane" id="tabStats" data-pane="stats">
+        <div id="statsBox" class="info"></div>
+        <div class="histWrap">
+          <canvas id="histCanvas" height="110"></canvas>
+          <div id="histTip" class="histTip hidden"></div>
+        </div>
+        <div class="subhead">Position ranking <span class="dim">(installation planning)</span></div>
+        <div class="previewWrap"><table id="rankTable" class="dataTable"></table></div>
+        <div class="subhead" style="margin-top:14px">Export</div>
+        <div class="row">
+          <button data-cmd="export.png"><svg class="ic"><use href="#ic-image"></use></svg> PNG view</button>
+          <button data-cmd="export.csv"><svg class="ic"><use href="#ic-table"></use></svg> CSV</button>
+          <button data-cmd="export.asc"><svg class="ic"><use href="#ic-raster"></use></svg> ASCII grid</button>
         </div>
         <div class="row">
-          <button id="btnAoiFull">Full extent</button>
-          <button id="btnAoiPick">⊕ Pick 2 corners</button>
+          <button data-cmd="project.save"><svg class="ic"><use href="#ic-save"></use></svg> Save project</button>
+          <button data-cmd="project.load"><svg class="ic"><use href="#ic-openproj"></use></svg> Load project</button>
         </div>
-        <p class="hint">The mask keeps the analysis focused on the slope that matters — cells outside are excluded from statistics and planning scores.</p>
       </div>
-    </details>
 
-    <!-- ── 5. DISPLAY ── -->
-    <details open>
-      <summary><span class="num">5</span> Layer &amp; Colour Scale</summary>
-      <div class="body">
-        <label title="Which quantity to drape on the terrain. Sensitivity is the main product; Amplitude proxy shows reflection strength; Visibility shows what is shadowed; Measurable displacement converts sensitivity into millimetres.">Displayed layer
-          <select id="selLayer" class="wide">
-            <option value="sens">Sensitivity (cos θ)</option>
-            <option value="amp">Amplitude proxy (incidence)</option>
-            <option value="vis">Visibility (LOS shadow)</option>
-            <option value="range">Range to sensor</option>
-            <option value="slope">Slope angle</option>
-            <option value="aspect">Aspect / dip direction</option>
-            <option value="elev">Elevation</option>
-            <option value="which">Best sensor index</option>
-            <option value="mmres">Measurable displacement</option>
-          </select>
-        </label>
-
-        <div class="subpanel">
-          <div class="subhead">Colour scale <span id="cmName" class="dim"></span></div>
-          <select id="selPreset" class="wide"></select>
-          <div id="stopsEditor" class="stops"></div>
-          <div class="row">
-            <button id="btnAddStop">+ Stop</button>
-            <button id="btnEvenStops">Distribute</button>
-            <button id="btnRevStops">Reverse</button>
-          </div>
+      <!-- ══════════════ VIEW ══════════════ -->
+      <div class="tabPane" id="tabView" data-pane="view">
+        <div class="propSection">
+          <div class="subhead">Terrain surface</div>
+          <label class="chk" title="Hide the terrain mesh without unloading it. Everything drawn on top — structures, domains, sensors, a measurement, the wireframe — keeps drawing, so you can read the geometry against nothing at all."><input type="checkbox" id="chkSurface" checked> Show terrain surface</label>
+          <label class="chk" title="Paint the whole surface one colour instead of the active layer's scale, so the terrain becomes a backdrop rather than a map competing with what is drawn on it. Hill shading still applies, so the relief stays readable. Untick to go back to the layer's colours."><input type="checkbox" id="chkFlat"> Single flat colour</label>
           <div class="grid2">
-            <label title="Value mapped to the bottom of the colour scale. Keep 0 for sensitivity so maps stay comparable between sites and dates.">Scale min<input type="number" id="inpVmin" value="0" step="0.05"></label>
-            <label title="Value mapped to the top of the colour scale. Keep 1 for sensitivity.">Scale max<input type="number" id="inpVmax" value="1" step="0.05"></label>
-            <label title="0 = continuous gradient. Any other number quantises the scale into that many flat bands — useful for classified maps like 4 × 0.25 sensitivity classes.">Bands (0=cont.)<input type="number" id="inpBands" value="0" min="0" max="32" step="1"></label>
-            <label title="Bends the scale without moving the end points. Below 1 stretches the top of the range, above 1 stretches the bottom. Use it to bring out detail where the values cluster.">Gamma<input type="number" id="inpGamma" value="1" min="0.2" max="4" step="0.1"></label>
-            <label title="Cells with no elevation — holes inside the surveyed area.">No-data<input type="color" id="colNoData" value="#525252"></label>
-            <label title="Cells hidden from the sensor by the terrain itself. Amplitude and sensitivity are meaningless there.">Shadowed<input type="color" id="colOccluded" value="#6b7280"></label>
-            <label title="Cells outside the scan sector, the elevation cone, or the min/max range gates.">Out of scan<input type="color" id="colOutside" value="#404040"></label>
-            <label title="Cells whose sensitivity is under the alarm threshold, when the grey-out option in panel 3 is on.">Below thr.<input type="color" id="colBelow" value="#9ca3af"></label>
-          </div>
-          <div class="row">
-            <button id="btnAutoRange">Auto range</button>
-            <button id="btnCmSave">Export scale</button>
-            <button id="btnCmLoad">Import scale</button>
+            <label title="The flat colour. Only used while “Single flat colour” is ticked.">Colour<input type="color" id="colFlat" value="#8d949c"></label>
+            <label class="btnCell"><span>&nbsp;</span><button id="btnRevertColour" title="Turn the flat colour off and go back to the active layer's colour scale.">Revert to layer colours</button></label>
           </div>
         </div>
 
-        <div class="subpanel">
-          <div class="subhead">3D view</div>
+        <div class="propSection">
+          <div class="subhead">Rendering</div>
           <div class="grid2">
             <label title="Surface transparency. Lower it to see the sensor mast and line-of-sight rays through the terrain.">Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
             <label title="Vertical exaggeration for display only. It never affects the computed sensitivity — the maths always uses true coordinates.">Z exagg.<input type="range" id="inpZScale" min="0.5" max="4" step="0.1" value="1"></label>
@@ -290,246 +692,131 @@
                 <option value="ortho">Orthographic</option>
               </select></label>
           </div>
-          <label class="chk" title="Draws the raster mesh over the surface, so you can judge whether the cell size resolves your benches."><input type="checkbox" id="chkWire"> Wireframe</label>
-          <label class="chk" title="Shows the model extent box plus a north arrow and axis triad at the south-west corner."><input type="checkbox" id="chkBox" checked> Bounding box &amp; axes</label>
-          <label class="chk" title="Draws the selected sensor's scan sector draped on the terrain, and the line of sight to the probed cell."><input type="checkbox" id="chkFan" checked> Scan footprint / LOS rays</label>
-          <label class="chk" title="At the probed cell, draws the steepest (red), horizontal (green), vertical (blue), normal (orange) and custom (magenta) movement vectors, plus the white line of sight."><input type="checkbox" id="chkVec" checked> Movement vectors at cursor</label>
-          <div class="row">
-            <button id="btnViewIso">Iso</button>
-            <button id="btnViewTop">Plan</button>
-            <button id="btnViewLOS">Radar eye</button>
-            <button id="btnResetView">Fit</button>
-          </div>
+          <p class="hint">Layer visibility — wireframe, bounding box, scan footprint, movement vectors —
+            lives in the <b>Layers</b> tree under <i>Annotations</i>.</p>
         </div>
-      </div>
-    </details>
 
-    <!-- ── 6. CLIPPING ── -->
-    <details>
-      <summary><span class="num">6</span> Clipping &amp; Cross-section</summary>
-      <div class="body">
-        <div class="segBtns" id="clipModes">
-          <button data-mode="off" class="on">Off</button>
-          <button data-mode="box">Clip box</button>
-          <button data-mode="slab">Cross-section</button>
-        </div>
-        <div id="clipOpts" class="hidden">
-          <div class="row">
-            <label class="chk" title="Shows a draggable coloured arrow on each face of the box. Drag one in the 3D view to slide that face; orbiting is suspended while you do."><input type="checkbox" id="chkClipHandles" checked> Drag handles</label>
-            <button id="btnClipReset">Reset</button>
+        <div class="propSection">
+          <div class="subhead">Clipping &amp; cross-section</div>
+          <div class="segBtns" id="clipModes">
+            <button data-clip="off" class="on">Off</button>
+            <button data-clip="box">Clip box</button>
+            <button data-clip="slab">Cross-section</button>
           </div>
-
-          <!-- box mode -->
-          <div id="clipBoxPane" class="subpanel">
-            <div class="subhead">Box limits <span class="dim">survey coordinates</span></div>
-            <div id="clipSliders"></div>
-            <p class="hint">Drag the coloured arrows in the view to move a face, or use the
-              sliders. Red = easting, green = northing, blue = elevation.</p>
-          </div>
-
-          <!-- slab mode -->
-          <div id="clipSlabPane" class="subpanel hidden">
-            <div class="subhead">Section plane</div>
-            <div class="segBtns" id="clipAxes">
-              <button data-axis="0">Easting</button>
-              <button data-axis="1">Northing</button>
-              <button data-axis="2" class="on">Elevation</button>
-            </div>
-            <label title="Where the slab sits along the chosen axis, in survey coordinates.">Position
-              <input type="range" id="clipPos" step="0.1"></label>
-            <div class="grid2">
-              <label>Position value<input type="number" id="clipPosNum" step="0.1"></label>
-              <label title="How thick the retained slice is, in metres. A thin slab reads as a cross-section line; a thick one as a slice.">Thickness m<input type="number" id="clipThick" min="0.01" step="0.5"></label>
-            </div>
-            <label title="Slab thickness as a fraction of the model extent."><input type="range" id="clipThickRange" step="0.1"></label>
+          <div id="clipOpts" class="hidden">
             <div class="row">
-              <button id="btnClipStepBack">← back</button>
-              <button id="btnClipStepFwd">forward →</button>
+              <label class="chk" title="Draws the cage and its arrows. Untick it once the section is where you want it: the cut carries on exactly as it is, with nothing drawn around it to read past. The sliders below still move the faces."><input type="checkbox" id="chkClipBox" checked> Show the box</label>
+              <label class="chk" title="Shows a draggable coloured arrow on each face of the box. Drag one in the 3D view to slide that face; orbiting is suspended while you do."><input type="checkbox" id="chkClipHandles" checked> Drag handles</label>
+              <button id="btnClipReset">Reset</button>
             </div>
-            <div id="clipSlabInfo" class="info"></div>
-            <p class="hint">Step moves the slab by one thickness, so repeated clicks walk
-              through the model section by section.</p>
-          </div>
 
-          <div class="row">
-            <button id="btnClipToAOI" title="Copies the current box into the Selection Mask, so statistics and position ranking cover exactly what you are looking at.">Use box as AOI</button>
-            <button id="btnClipFromAOI" title="Sets the clip box to the current Selection Mask bounds.">Box from AOI</button>
-          </div>
-        </div>
-      </div>
-    </details>
+            <div id="clipBoxPane" class="subpanel">
+              <div class="subhead">Box limits <span class="dim">survey coordinates</span></div>
+              <div id="clipSliders"></div>
+            </div>
 
-    <!-- ── 7. STATS ── -->
-    <details open>
-      <summary><span class="num">7</span> Statistics, Planning &amp; Export</summary>
-      <div class="body">
-        <div id="statsBox" class="info"></div>
-        <canvas id="histCanvas" height="110"></canvas>
-        <div class="subhead">Position ranking <span class="dim">(installation planning)</span></div>
-        <div class="previewWrap"><table id="rankTable" class="dataTable"></table></div>
-        <div class="row">
-          <button id="btnExportPNG">PNG view</button>
-          <button id="btnExportCSV">CSV</button>
-          <button id="btnExportASC">ASCII grid</button>
-        </div>
-        <div class="row">
-          <button id="btnSaveProj">Save project</button>
-          <button id="btnLoadProj">Load project</button>
-        </div>
-      </div>
-    </details>
+            <div id="clipSlabPane" class="subpanel hidden">
+              <div class="subhead">Section plane</div>
+              <div class="segBtns" id="clipAxes">
+                <button data-axis="0">Easting</button>
+                <button data-axis="1">Northing</button>
+                <button data-axis="2" class="on">Elevation</button>
+              </div>
+              <label title="Slide the section through the model.">Position
+                <input type="range" id="clipPos" step="0.1"></label>
+              <div class="grid2">
+                <label>Position value<input type="number" id="clipPosNum" step="0.1"></label>
+                <label title="How thick the retained slice is, in metres. A thin slab reads as a cross-section line; a thick one as a slice.">Thickness m<input type="number" id="clipThick" min="0.01" step="0.5"></label>
+              </div>
+              <label title="Slab thickness as a fraction of the model extent."><input type="range" id="clipThickRange" step="0.1"></label>
+              <div class="row">
+                <button data-cmd="clip.back"><svg class="ic"><use href="#ic-back"></use></svg> back</button>
+                <button data-cmd="clip.fwd">forward <svg class="ic"><use href="#ic-fwd"></use></svg></button>
+              </div>
+              <div id="clipSlabInfo" class="info"></div>
+            </div>
 
-    <!-- ── 8. RADAR DEFORMATION ── -->
-    <details id="secRadar">
-      <summary><span class="num">8</span> Radar Deformation</summary>
-      <div class="body">
-        <div id="radarIntro" class="info">
-          Drop a radar deformation export (<span class="dim">…_DDMMYYYY_HHMM_DDMMYYYY_HHMM.csv</span>)
-          anywhere on this window. The first scan of a wall folder has to be
-          <b>georeferenced</b> by hand; every later scan of the same folder is placed automatically.
-        </div>
-
-        <div id="radarFolders"></div>
-
-        <!-- ---- colour scale ---- -->
-        <div class="subpanel">
-          <div class="subhead">Colour scale <span class="dim">deformation, mm</span></div>
-
-          <div class="row">
-            <label title="The scale is symmetric about zero: this sets both ends at once, so the middle colour always means no movement.">
-              Limit ±<input type="number" id="radarLimit" value="5" min="0" step="1" style="width:64px"> mm
-              <span class="dim">(0 = auto)</span>
-            </label>
-            <button id="radarAuto" class="miniBtn" title="Fit the limit to the loaded scans, ignoring the wildest 0.5% so one noisy pixel cannot flatten everything else.">Auto</button>
-          </div>
-
-          <canvas id="radarBar" class="radarBar" height="18"></canvas>
-          <div class="radarBarAxis">
-            <span id="radarBarMin">−5</span><span>0</span><span id="radarBarMax">+5</span>
-          </div>
-
-          <div id="radarStops" class="stops"></div>
-          <div class="row">
-            <button id="radarAddStop" class="miniBtn">+ Stop</button>
-            <button id="radarEvenStops" class="miniBtn">Distribute</button>
-            <button id="radarRevStops" class="miniBtn">Reverse</button>
-            <button id="radarResetStops" class="miniBtn">Reset</button>
-          </div>
-          <div class="grid2">
-            <label title="0 = continuous gradient. Any other number quantises the scale into that many flat classes.">Bands (0=cont.)<input type="number" id="radarBands" value="0" min="0" max="32" step="1"></label>
-            <label title="Bends the scale without moving the ends. Below 1 brings out the small movements near zero.">Gamma<input type="number" id="radarGamma" value="1" min="0.2" max="4" step="0.1"></label>
-          </div>
-          <div class="row">
-            <label title="Draw the drape semi-transparent so the survey surface stays readable underneath.">
-              Opacity <input type="range" id="radarAlpha" min="20" max="100" value="100" style="width:110px">
-            </label>
-          </div>
-          <label class="chk" title="Slide every pixel down its line of sight until it meets the survey surface, so the image cannot float above or sink into the terrain. The offset it absorbs is reported per folder — a large one means the georeference itself is out."><input type="checkbox" id="radarDrape" checked> Follow the terrain surface</label>
-        </div>
-
-        <!-- ---- georeference workflow ---- -->
-        <div id="georefPanel" class="subpanel hidden">
-          <div class="subhead">Georeference <span id="grFolder" class="dim"></span></div>
-          <div id="grHelp" class="info">
-            Click a recognisable feature in the radar image below — a crest, a toe, a berm
-            corner — then click the same feature on the survey surface in the 3&nbsp;D view.
-            Repeat for at least <b>two</b> well-separated points.
-          </div>
-
-          <canvas id="grCanvas" class="grCanvas"></canvas>
-          <div id="grCanvasNote" class="dim" style="font-size:11px;margin:4px 0 8px">
-            Front view as the radar sees it — colour is deformation.
-          </div>
-
-          <div class="grid2">
-            <label title="Rotation about the vertical only. Correct for a levelled sensor and needs just two points.">
-              Fit
-              <select id="grMode">
-                <option value="yaw">Bearing only (2+ points)</option>
-                <option value="rigid">Full 3-D (3+ points)</option>
-              </select>
-            </label>
-            <label title="How far a tied point may sit from the fitted surface before it is called a blunder.">
-              <span class="dim">Points</span>
-              <span id="grCount" class="mono">0</span>
-            </label>
-          </div>
-
-          <table id="grTable" class="grTable"></table>
-          <div class="row" style="margin-top:4px">
-            <button id="grAddTie" class="miniBtn" title="Add a row and type the numbers, instead of clicking the image. Every cell below is editable either way.">+ Tie by typing</button>
-          </div>
-          <div id="grResult" class="info hidden"></div>
-
-          <div class="row" style="margin-top:8px">
-            <button id="grSave" class="primary" disabled>Save georeference</button>
-            <button id="grUndo" disabled>Undo point</button>
-            <button id="grCancel">Cancel</button>
+            <div class="row">
+              <button data-cmd="clip.toAoi" title="Copies the current box into the Selection Mask, so statistics and position ranking cover exactly what you are looking at.">Use box as AOI</button>
+              <button data-cmd="clip.fromAoi" title="Sets the clip box to the current Selection Mask bounds.">Box from AOI</button>
+            </div>
+            <p class="hint">Once the section is where you want it, untick <b>Show the box</b>:
+              the cut carries on exactly as it is, with no cage drawn around it to read past.
+              The sliders still move the faces; only the arrows go, since there is nothing on
+              screen left to drag.
+              Cutting is display only — statistics and rankings are untouched.
+              Everything belonging to the <b>ground</b> is cut with it: mapped planes and
+              their traces, the lines where they intersect, structural domains, drawn
+              regions and a measurement. The <b>instruments</b> are not — a radar, its line
+              of sight and the axis triad stay whole, because cutting them away would defeat
+              the reason for cutting anything. Edit handles stay too, so what the stretch
+              tool says you can grab, you can.</p>
           </div>
         </div>
       </div>
-    </details>
 
-    <div class="foot">SensiMap · offline single-folder tool · v1.0</div>
+    </div><!-- /dockBody -->
   </aside>
-
-  <!-- ══════════════════════════ VIEWPORT ══════════════════════════ -->
-  <main id="main">
-    <div id="viewport">
-      <canvas id="glcanvas"></canvas>
-
-      <div id="hudTL" class="hud">
-        <div id="hudTitle" class="hudTitle">—</div>
-        <div id="hudSub" class="hudSub"></div>
-      </div>
-
-      <div id="hudReadout" class="hud readout hidden"></div>
-
-      <!-- Wall folders covering the clicked point, newest scan first -->
-      <div id="coverPanel" class="hud coverPanel hidden">
-        <div class="coverHead">
-          <span id="coverTitle">Wall folders here</span>
-          <button id="coverClose" class="coverX" aria-label="Close">✕</button>
-        </div>
-        <div id="coverBody"></div>
-      </div>
-
-      <div id="legend">
-        <div id="legendTitle">Sensitivity</div>
-        <canvas id="cbCanvas" width="76" height="300"></canvas>
-        <div id="legendMask" class="legendMask"></div>
-      </div>
-
-      <div id="viewHint" class="hud hint2">
-        drag = orbit · right/middle drag = pan · wheel = zoom · click = probe
-      </div>
-
-      <div id="pickBanner" class="pickBanner hidden"></div>
-    </div>
-    <div id="statusbar">
-      <span id="statusText">Ready — load a DTM/DXF or the demo pit.</span>
-      <span id="statusRight"></span>
-    </div>
-  </main>
 </div>
 
-<!-- Help modal -->
+
+<!-- ══════════════════════ ASCII column mapping dialog ══════════════════════ -->
+<div id="asciiPanel" class="modal hidden">
+  <div class="modalBox narrow">
+    <h2>ASCII column mapping</h2>
+    <div id="asciiNote" class="info hidden"></div>
+    <div class="grid2">
+      <label title="Character separating the columns. Auto inspects the first rows and usually gets it right.">Delimiter
+        <select id="selDelim">
+          <option value="auto">Auto detect</option>
+          <option value=",">Comma</option>
+          <option value=" ">Whitespace</option>
+          <option value="\t">Tab</option>
+          <option value=";">Semicolon</option>
+        </select>
+      </label>
+      <label title="Header or preamble lines to ignore before the data starts.">Skip rows <input type="number" id="inpSkip" value="0" min="0" step="1"></label>
+      <label title="Column holding the easting. Check it against the preview table below.">X column <select id="selX"></select></label>
+      <label title="Column holding the northing.">Y column <select id="selY"></select></label>
+      <label title="Column holding the elevation / RL.">Z column <select id="selZ"></select></label>
+      <label class="chk" title="Quick fix when the model comes out mirrored or rotated 90°: Surpac and some survey exports write northing before easting."><input type="checkbox" id="chkSwapXY"> Swap X / Y</label>
+    </div>
+    <div class="previewWrap"><table id="previewTable"></table></div>
+    <div class="row">
+      <button id="btnApplyAscii" class="primary">Apply mapping</button>
+      <button id="btnCancelAscii">Cancel</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════ Help ══════════════════════════════ -->
 <div id="helpModal" class="modal hidden">
   <div class="modalBox">
     <h2>SensiMap quick guide</h2>
     <ol>
-      <li><b>Load terrain</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
-      <li><b>Place the sensor</b> — type coordinates or use <b>Pick position on model</b>. Antenna height is added to the terrain level when snapping.</li>
-      <li><b>Choose the movement vector</b> — steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
+      <li><b>Add terrain data</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code> onto the window, or use <b>Data Sources ▸ Add terrain data</b>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
+      <li><b>Place a radar</b> — pick <i>Radar positions ▸ Radar 1</i> in the <b>Layers</b> tree, type coordinates in <b>Properties</b>, or arm the <b>Place radar</b> tool and click the model.</li>
+      <li><b>Choose the movement vector</b> — <b>Processing</b> tab: steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
+      <li><b>Or let the structure choose it</b> — <b>Structure</b> tab: type the mapped dips and dip directions (or pick three points off the surface), set the slope face and friction angle, and the wedge analysis intersects every pair of planes. Press <b>→</b> on a critical wedge and trace the block it would release: inside that polygon the model uses the wedge's own line of intersection instead of the global assumption.</li>
       <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar.</li>
-      <li><b>Plan</b> — add several sensor positions and read the ranking table to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
+      <li><b>Plan</b> — add several radar positions and read the ranking table in <b>Statistics</b> to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
     </ol>
     <p class="hint">Remember: the sensitivity map is a starting point — it does not know the real failure mechanism.</p>
+
+    <h3>Getting around the window</h3>
+    <table class="helpTable">
+      <tr><td>Layers tree</td><td>Left, below <i>Data Sources</i>. <b>Analysis</b> and <b>Terrain</b> hold the raster layers — the radio button picks which one is painted on the surface. <b>Radar positions</b>, <b>Area of interest</b>, <b>Discontinuities</b>, <b>Structural domains</b>, <b>Deformation scans</b> and <b>Annotations</b> have tick boxes: they draw on top of whatever raster is active. <b>Annotations ▸ Shade drawn areas</b> paints the inside of every drawn polygon onto the terrain instead of only outlining it. Clicking a row selects it and its settings appear in <b>Properties</b>.</td></tr>
+      <tr><td>Map tools</td><td>The second toolbar group. Only one is armed at a time: <b>Navigate</b> (orbit / pan / zoom), <b>Identify</b> (probe a cell), <b>Place radar</b>, <b>Draw region</b>, <b>Pick a plane</b>, <b>Stretch vertices</b>, <b>Measure</b>. <b>Esc</b> always returns to Navigate.</td></tr>
+      <tr><td>Right dock</td><td><b>Properties</b> follows the tree selection · <b>Processing</b> holds gridding and the sensitivity model · <b>Structure</b> holds mapped discontinuities, the kinematic analysis and the structural domains it feeds · <b>Statistics</b> holds the summary, histogram, ranking and exports · <b>View</b> holds rendering and clipping.</td></tr>
+      <tr><td>Status bar</td><td>Cursor easting / northing / RL, the active layer's value under the cursor, the cell size, and what the tool is doing. Coordinates are plain mine-grid metres — nothing is ever reprojected.</td></tr>
+      <tr><td>Keyboard</td><td><b>Esc</b> cancel tool · <b>Enter</b> close the region being drawn, accept the plane being fitted, or finish a measurement · <b>Backspace</b> undo a vertex, a pick or a measured point · <b>F1</b> this help.</td></tr>
+    </table>
 
     <h3>Parameter reference</h3>
     <p class="hint">Every field also shows this on hover.</p>
 
-    <h4>1 · Terrain data</h4>
+    <h4>Data sources &amp; gridding</h4>
     <table class="helpTable">
       <tr><td>Cell size</td><td>Raster resolution in metres. Blank = derived from <i>Target cells</i>. Aim for <b>≈ ⅓ of your berm width</b> — coarser than that and benches average into a smooth ramp, which biases steepest sensitivity.</td></tr>
       <tr><td>Target cells</td><td>Cells along the longer side when <i>Cell size</i> is blank. 320 fast · 1000 detailed · ceiling ≈ 2.2 M nodes.</td></tr>
@@ -539,9 +826,9 @@
       <tr><td>Smooth normals</td><td><b>Off by default</b> — it averages elevations and erases real bench edges. Only for noisy photogrammetry/laser data.</td></tr>
     </table>
 
-    <h4>2 · Radar positions</h4>
+    <h4>Radar positions</h4>
     <table class="helpTable">
-      <tr><td>Easting / Northing / Level</td><td>Sensor coordinates in your mine grid. <i>Pick position on model</i> sets X/Y by clicking.</td></tr>
+      <tr><td>Easting / Northing / Level</td><td>Sensor coordinates in your mine grid. The <i>Place radar</i> tool sets X/Y by clicking.</td></tr>
       <tr><td>Ant. height</td><td>Metres added to the terrain when <i>Z = terrain + antenna height</i> is ticked — mast or vehicle height.</td></tr>
       <tr><td>Boresight az</td><td>Where the antenna faces: degrees from grid north, clockwise (0 = N, 90 = E). Ignored while <i>Auto-aim</i> is on.</td></tr>
       <tr><td>Boresight el</td><td><b>Antenna tilt.</b> The elevation the boresight points at; positive = aimed up. A sensor on a pit floor watching a high wall is tilted <b>up</b>, and the elevation cone follows it. Leaving this at 0 with a narrow <i>El scan width</i> is the usual reason a whole wall reads <i>out of scan</i>. <i>Auto-aim</i> sets it at the model centre.</td></tr>
@@ -550,9 +837,9 @@
       <tr><td>Multi-sensor combination</td><td><b>Selected</b> = one sensor · <b>Best of all</b> = max sensitivity per cell · <b>Average</b> · <b>Which is best</b> = colour by winning sensor.</td></tr>
     </table>
 
-    <h4>3 · Sensitivity model</h4>
+    <h4>Sensitivity model</h4>
     <table class="helpTable">
-      <tr><td>Movement vector</td><td><b>Steepest</b>/<b>Horizontal</b>/<b>Normal</b> are recomputed per cell from the local surface; <b>Vertical</b>/<b>Custom</b> apply one global direction to the whole model. <b>Normal</b> assumes each facet moves straight out of itself (bulging, buckling, rockfall), so its sensitivity map is identical to the amplitude proxy.</td></tr>
+      <tr><td>Movement vector</td><td>Whatever is chosen here is the assumption <b>outside</b> any structural domain — a domain drawn in the <b>Structure</b> tab overrides it inside its own polygon. <b>Steepest</b>/<b>Horizontal</b>/<b>Normal</b> are recomputed per cell from the local surface; <b>Vertical</b>/<b>Custom</b> apply one global direction to the whole model. <b>Normal</b> assumes each facet moves straight out of itself (bulging, buckling, rockfall), so its sensitivity map is identical to the amplitude proxy.</td></tr>
       <tr><td>Trend az / Plunge</td><td>Custom vector only: azimuth from north clockwise, plunge below horizontal. Plunge 90 = straight down.</td></tr>
       <tr><td>Flatter by</td><td>Custom vector only, and the alternative to typing a trend: the vector keeps each cell's dip direction and plunges this many degrees less than the local steepest line — the common case of a failure daylighting 10–15° flatter than the face. 0° is identical to <b>Steepest</b>, and an offset that reaches the local slope angle is identical to <b>Horizontal</b>; nothing tips above the horizontal. Being per cell, it is the one custom vector that is not a single global direction.</td></tr>
       <tr><td>Occlusion test</td><td>Marches the sight line over the terrain and flags hidden cells as <i>shadowed</i>. A finer grid finds <b>more</b> shadow — resolved bench crests really do block the beam.</td></tr>
@@ -562,12 +849,87 @@
       <tr><td>Displ. factor</td><td>A hypothetical true movement in mm. The probe and the <i>Measurable displacement</i> layer show sensitivity × this value — what the radar would actually register.</td></tr>
     </table>
 
-    <h4>4 · Selection mask</h4>
+    <h4>Stretch — reshaping a boundary you already drew</h4>
+    <p class="hint">The first trace is never quite right. One tool reshapes all three kinds of
+      boundary — selection regions, structural domains and the measurement — because from
+      your side they are the same gesture on the same kind of thing.</p>
     <table class="helpTable">
-      <tr><td>X/Y/Z bounds, slope band</td><td>Restrict statistics and position ranking to the slope you care about. Outside cells are dimmed, not deleted. <i>Pick 2 corners</i> draws the box by clicking. Note it masks the analysis, not the gridding.</td></tr>
+      <tr><td>Moving the whole thing</td><td>Every ring also carries a <b>centre handle</b> at its centroid. Grab that and the whole boundary follows the pointer, keeping its shape exactly — which is what makes a duplicated polygon useful. Escape puts every vertex back, not just one. It is not a vertex, so Delete does not apply to it.</td></tr>
+      <tr><td>What has handles</td><td>Selection regions, structural domains and the measurement have one handle per <b>vertex</b>, plus the centre handle above. A mapped plane is not a polygon — it is an anchor, an orientation and a size — so it gets five handles instead: the four <b>corners resize</b> it and the <b>centre moves</b> it. Resizing scales by how far the pointer travels out from the centre, exactly like a scale handle anywhere else, so it needs no ground under it and feels the same however the plane is oriented. The centre is the one handle that has to land on the surface — drop it over the sky and the plane stays where it was. A plane that was typed rather than picked has an orientation but no location, so nothing is drawn for it and there is nothing to grab; use <b>⌖</b> on its row in the Structure tab to place it on the model first.</td></tr>
+      <tr><td>Aiming</td><td>Handles are picked <b>on screen</b>, not on the ground: a plane's corner stands clear of the terrain, so the ray under your cursor lands somewhere else entirely and a distance measured in survey coordinates would look for it in the wrong place. Point at the handle you can see. A corner silhouetted against the sky, with no terrain behind it at all, still picks up.</td></tr>
+      <tr><td>The gesture</td><td><b>Click–move–click</b>, not drag: dragging already means orbit in the 3D view, and a tool that fights the camera for the left button fights you. Click a vertex to pick it up, move the pointer and watch the boundary follow, click again to drop it there.</td></tr>
+      <tr><td>Adding and removing</td><td>Click the <b>middle of an edge</b> to insert a vertex there and pick it straight up. <b>Delete</b> or <b>Backspace</b> while holding one takes it out. A boundary is never whittled below three points — remove the whole thing instead.</td></tr>
+      <tr><td>Putting it back</td><td><b>Esc</b> returns a held vertex to where it came from and leaves you in the tool; a second <b>Esc</b> leaves the tool. Switching tools with a vertex in hand drops it where it is rather than leaving it stuck to the pointer.</td></tr>
+      <tr><td>What updates when</td><td>The outline follows the pointer live; the shading, the mask, the domain's cell index and the statistics are all rebuilt on the <b>drop</b>. Both are passes over the raster, so doing them at pointer rate would make the stretch crawl. That is why the shading briefly disappears while you are holding a vertex — showing the old shape under the new outline would read as a bug.</td></tr>
+      <tr><td>Renaming</td><td>A region is renamed in <b>Properties</b> when it is the selected tree node; a domain, in the name field on its card in the <b>Structure</b> tab. Both names carry into the layer tree, the status messages and the saved project. Clear one and it falls back to its position in the list.</td></tr>
     </table>
 
-    <h4>5 · Layer &amp; colour scale</h4>
+    <h4>Measure — checking the model against itself</h4>
+    <p class="hint">The ruler answers the question every slope engineer asks of a new surface:
+      <i>are these numbers right?</i> It measures nothing the model does not already know, which
+      is exactly why it is a check.</p>
+    <table class="helpTable">
+      <tr><td>Taking one</td><td>Arm <b>Measure</b> and click along the ground. <b>Enter</b> finishes the line; clicking back on the <b>first point</b> closes it and unlocks the areas; <b>Backspace</b> removes the last point; <b>Esc</b> abandons it. A finished measurement stays on screen until you clear it with the <b>×</b>, so you can orbit around and keep reading it.</td></tr>
+      <tr><td>Per leg</td><td>Bearing from grid north, plan distance, height difference (signed), slope distance and inclination — negative downhill, so the sign tells you which way the leg was taken.</td></tr>
+      <tr><td>Plan / slope /<br>ground length</td><td><b>Plan</b> ignores height. <b>Slope</b> is the straight line through the air. <b>Ground</b> is walked over the raster, so on a benched wall it is much longer than the chord — the <b>×</b> factor beside it is a direct read on how broken the ground is. In the 3D view the solid line is the ground walk and the faint straight one is the chord.</td></tr>
+      <tr><td>Plan / surface area</td><td>Close the measurement and it reports the plan area of the ring, and the true <b>surface area</b> of the cells inside it — each cell's plan area divided by the cosine of its slope. A steep face holds far more rock than its outline suggests, and the <b>×</b> factor is how much more.</td></tr>
+      <tr><td>The slope check</td><td>Two independent routes to the same figure. <b>From areas</b> is the dip a single uniform plane would need to have this much surface over this much plan. <b>Raster mean</b> is the arithmetic mean of the slope layer's own values over the same cells. When they agree, the slope layer is behaving over that patch; when they disagree by more than 5° the tool says so, because the ground in there is not one wall and no single slope figure describes it — measure a smaller patch.</td></tr>
+      <tr><td>Holes</td><td>A ground walk that crosses a gap in the survey carries the last known level across it and reports how many samples it bridged. That length is a floor, not a measurement.</td></tr>
+    </table>
+
+    <h4>Structure — mapped discontinuities and kinematic analysis</h4>
+    <p class="hint">A sensitivity map is only as good as the movement direction fed into it.
+      This tab derives that direction from the structure instead of assuming it.</p>
+    <table class="helpTable">
+      <tr><td>Slope face<br>dip / dip dir</td><td>The wall being assessed. Everything below asks whether a block can escape from <i>this</i> face, so it has to be right. <b>From probed cell</b> takes it off the survey at the point you last identified; <b>From selection mask</b> averages the surface orientation over the mask — vector mean of the normals, and it warns you when the mask spans more than one wall and no single face orientation exists.</td></tr>
+      <tr><td>Friction φ</td><td>Friction angle of the joint surfaces, degrees. Both planes of a wedge are assumed to share it, as in Dips. It is the only strength parameter in a kinematic test: nothing here is a factor of safety.</td></tr>
+      <tr><td>Placing and sizing</td><td><b>⌖</b> on a row places that plane on the model — required before a typed orientation is drawn at all, and the way to move a picked one somewhere else. Once placed, the <b>Stretch vertices</b> tool moves it by its centre and resizes it by any corner; a plane sized that way keeps its own size and <b>↺</b> hands it back to the panel default. None of it touches the analysis, which reads dip and dip direction only.</td></tr>
+      <tr><td>Rectangle or trace</td><td>Two different things, and <i>Draw as</i> chooses between them. The <b>rectangle</b> is a symbol standing in the air where the structure lies — useful for reading its orientation, but it hangs in front of the face and clutters the view. The <b>trace</b> is the line where the plane actually cuts the ground: what a geologist would walk and flag, and the only part of a structure a surface really shows. It is computed as the contour where the plane meets the survey, clipped to the rectangle's own extent so an unbounded plane cannot claim ground nobody mapped. <b>Trace on the surface only</b> gives you the line and nothing else. <b>Hide everything in front of the face</b> keeps the rectangle but cuts it back to the part inside the rock — <b>fill and outline both</b>, so nothing hangs in the air — and turning the surface down or off in the <b>View</b> tab is what lets you see what is left.</td></tr>
+      <tr><td>How planes are drawn</td><td>A plane picked off the surface is drawn where it was picked, as a <b>rectangle lying in the structure</b>: long edges along the <b>strike</b>, short edges down the <b>dip</b>, and a tick from the centre pointing down-dip so you can tell which way it falls. <i>Plane size</i> sets the strike length in metres (blank scales it to the model), <i>Plane fill %</i> its opacity — 0 leaves it as an outline — and each row's swatch its colour. All three are symbols only: nothing in the analysis reads them.</td></tr>
+      <tr><td>All in, all out</td><td>The tick box in the <b>header of the plane list</b> puts every discontinuity into the analysis or leaves them all out — without deleting any of them, so the set is still there to switch back on. It shows a middle state when only some are in. The domain list has the same switch above its cards, reading <i>n of m active</i>, and both groups in the <b>Layers</b> tree carry the same tick box with a <i>n / m</i> count beside it. All three drive the same thing, so they cannot disagree.</td></tr>
+      <tr><td>Renaming and copying</td><td>A plane's <b>name cell is the rename field</b> — click it and type. <b>Copy</b> on its row duplicates it, same orientation, offset so it can be seen and moved; one joint set outcrops in several places and each wants its own patch. The same two gestures apply everywhere: a domain is renamed in the name field on its card and copied with <b>Copy</b> in that card's action row; a region is renamed and duplicated in <b>Properties</b> once it is the selected tree node.</td></tr>
+      <tr><td>Discontinuities</td><td>Dip and dip direction per structure. Type them, <b>Paste list…</b> a column straight out of a mapping spreadsheet, or arm <b>Pick on model</b> and click three or more points where the structure outcrops — a plane is least-squares fitted through them and the <i>scatter</i> it reports is what tells you whether the trace really was planar. Untick a plane to leave it out of the analysis without deleting it.</td></tr>
+      <tr><td>Stereonet</td><td>Lower hemisphere, equal-angle (Wulff) by default because that is what Dips uses for kinematic analysis; equal-area (Schmidt) is there for pole density work. A <b>plane</b> is a great circle, a <b>pole</b> is one dot, and a <b>wedge</b> is the line of intersection of two planes. Hover for a read-out of the orientation under the cursor, or of the symbol you are pointing at.</td></tr>
+      <tr><td>Wedge sliding<br>critical zones</td><td><b>Red — sliding on both planes.</b> Inside the friction cone and outside the slope plane: the wedge axis daylights out of the face <i>and</i> plunges steeper than φ. <b>Amber — sliding on one plane.</b> Between the slope plane and a great circle inclined at φ: the wedge axis itself is flatter than φ, but one of the two joints dips steeper than φ and can release on its own, so the movement direction reported is that joint's dip vector rather than the wedge axis. No lateral limits are applied — the second plane frees the wedge to break out sideways.</td></tr>
+      <tr><td>Friction cone</td><td>A circle at plunge φ. The friction angle is measured in <b>from the rim</b>, so anything plotting inside the circle plunges more steeply than φ.</td></tr>
+      <tr><td>Is the wedge really there?</td><td>A stereonet knows orientations and nothing else. It will rank two structures mapped four hundred metres apart as a critical wedge, and be perfectly correct about a wedge that exists nowhere in the pit. Once planes have <b>locations</b>, the <b>Meets</b> column answers what the stereonet cannot, and it distinguishes four different ways of being no risk:
+        <table class="helpTable" style="margin-top:6px">
+          <tr><td><b>184 m</b></td><td>the real thing — that much rock behind the face, and the line reaches daylight, so it can release</td></tr>
+          <tr><td><b>buried</b></td><td>it bounds rock, but the line does not reach the face inside the extents these planes are drawn with. Stretch the patches down-plunge and look again</td></tr>
+          <tr><td><b>in air</b></td><td>the two do cross — out in front of the face, above the ground. There is no rock between them, so there is nothing to fail. <b>Only the survey can tell you this</b></td></tr>
+          <tr><td><b>apart</b></td><td>as mapped, the two never touch at all</td></tr>
+          <tr><td><b>—</b></td><td>a plane has no location, so none of it can be told. Place it with ⌖</td></tr>
+        </table>
+        The table is <b>sorted by that column first</b> and by the kinematic zone only within it, so everything that could fail sits above everything that cannot, with a divider where the two bands meet. <i>—</i> ranks above <i>in air</i> deliberately: not knowing is not the same as knowing there is nothing, and burying an untested pair under a ruled-out one would hide the very thing that needs a location adding.
+        <b>Only wedges with rock in them</b> drops <i>apart</i> and <i>in air</i>. A buried pair is kept — there <i>is</i> rock there — and so is an untestable one. The segment is drawn in the 3D view under <b>Annotations ▸ Plane intersections</b>: the part inside the rock in the zone colour (red on both planes, amber on one, grey stable) and the part standing in the air <b>faint</b>, which says why a critical pair was set aside faster than any table can.</td></tr>
+      <tr><td>Results table</td><td>Every plane pair, critical or not — the near misses matter, because a few degrees of change in the face orientation moves them. Hover a row to pick it out on the stereonet; press <b>→</b> to load its movement direction into the domain builder.</td></tr>
+      <tr><td>Export</td><td><b>Results CSV</b> is the sheet for the geotechnical review: every pair, its intersection, its zone and its movement direction, with the face and φ it was assessed against in the header. <b>Stereonet PNG</b> is the figure.</td></tr>
+    </table>
+
+    <h4>Structural domains</h4>
+    <table class="helpTable">
+      <tr><td>What it is</td><td>A drawn polygon that carries its <b>own</b> movement vector. Cells inside it are modelled as moving that way; everything outside keeps the vector chosen in <b>Processing</b>. That is what lets a mapped wedge and the wall around it be assessed in one run, each against the direction it would really move — and what turns "this wedge is critical" into "the radar would see 6.4 of every 10 mm this wedge moves".</td></tr>
+      <tr><td>Where its edge sits</td><td>The boundary is the <b>zero of one field</b>: how far inside the block a point is, taken as the closest of the three bounds — above plane A, above plane B, under the height cap. Where each bound is the binding one, that zero <i>is</i> that bound's own line, so along the flanks the block edge and the plane's trace are the same line computed the same way and cannot disagree. Ticking <b>Stop it at the area of interest</b> adds a fourth bound: a region you have drawn becomes the block's outer boundary too.</td></tr>
+      <tr><td>Area and volume</td><td>Each domain card reports its <b>plan area</b>, the <b>rock face</b> over it (each cell's plan area over the cosine of its slope, so a steep block holds far more face than its outline suggests) and, for a block built from two planes, its <b>volume</b> — measured from the surface down to whichever plane is higher at each cell, since the wedge is the rock above both. Mean and maximum thickness come with it, and they matter: a wedge bounded by two planes and a slope face has <b>no upper release surface</b>, so the rock above both planes keeps deepening away from the point it daylights at. The volume is therefore set partly by where you capped the block, not by the structure alone, and the card says so whenever that starts to dominate.</td></tr>
+      <tr><td>Built, not traced</td><td>With <b>Build the block automatically</b> ticked — the default for a wedge taken from the results table — you click <b>once</b>, at the point where the wedge daylights, and the footprint is worked out. Three things bound it, which is what a wedge is: the <b>two joint planes</b>, both passed through the point you clicked (the block is the rock standing above both of them, which puts their traces on the ground as its flanks); the <b>survey surface</b>, so it follows every bench and berm the wall actually has; and the <b>block height</b>, because on a face steep enough for the wedge to daylight the terrain rises faster than the line of intersection does, so the region never closes off upslope on its own. Only the run connected to the point you clicked is taken — the same test is satisfied on other walls, and those are different wedges. Untick it to trace by hand instead; a trend and plunge typed by hand cannot be built from, because it does not say which planes bound the block.</td></tr>
+      <tr><td>Making one</td><td>Two steps, and the first is easy to skip. <b>1.</b> Press <b>Use</b> on a wedge in the results table — its movement direction drops into the builder below, which flashes so you can see it happen — or type a trend and plunge yourself. Until a direction is chosen the draw button stays disabled and the chip beside it says so. <b>2.</b> Press <b>Draw the block on the model</b> and trace its footprint exactly like an AOI region: Enter, a double-click or a click back on the first vertex closes it.</td></tr>
+      <tr><td>Then compute</td><td>The domain is drawn on the terrain the moment it closes, but the <b>sensitivity does not change until you run the model again</b> — the badge turns to <i>recompute needed</i> and the status line says so. Until then the map on screen still describes the old assumption everywhere.</td></tr>
+      <tr><td>Reading one</td><td>Each card reports, after a compute, how many visible cells the block has, its ground area, the mean and p10 sensitivity over it, and how much of a given true displacement survives projection onto the line of sight. Those figures describe the <b>last compute</b>, so a domain edited since shows none rather than showing numbers that belong to a different shape.</td></tr>
+      <tr><td>Seeing one</td><td>The footprint is draped on the terrain and, with <b>Annotations ▸ Shade drawn areas</b> on, filled in the domain's colour — set by the swatch on its card, at the opacity given by <i>Domain fill %</i>. The shaded cells are precisely the ones the override applies to. An arrow from the centroid shows the movement direction. Mapped planes picked off the surface are drawn as filled rectangles at the same time, so a wedge reads as two planes meeting in the wall.</td></tr>
+      <tr><td>Copying one</td><td><b>Copy</b> on a domain card duplicates it — same movement direction, same shape — offset so it can be seen and grabbed. The same wedge often releases in two or three places along a wall, and re-deriving the direction each time is work for nothing. Arm <b>Stretch / move</b> and drag the copy's <b>centre handle</b> to put it where it belongs. Regions duplicate the same way, from <b>Duplicate</b> in their Properties strip.</td></tr>
+      <tr><td>Overlaps</td><td>Later domains win, so a small detailed block drawn over a broad one behaves the way the drawing order reads.</td></tr>
+      <tr><td>Not the AOI</td><td>Domains and the area of interest are different things. The AOI decides which cells the <i>statistics</i> describe; a domain decides which direction a cell is assumed to <i>move</i>. They can be used together and neither affects the other.</td></tr>
+    </table>
+
+    <h4>Area of interest</h4>
+    <table class="helpTable">
+      <tr><td>X/Y/Z bounds, slope band</td><td>Restrict statistics and position ranking to the slope you care about. Outside cells are dimmed, not deleted. The regions replace the X/Y rectangle (which then follows their combined bounding box); Z and slope keep applying on top. <i>Clear regions</i>, or editing an X/Y box by hand, returns to the rectangle. Note it masks the analysis, not the gridding.</td></tr>
+      <tr><td>Draw region</td><td>Traces a boundary by clicking vertex after vertex on the model — Enter, a double-click or a click back on the first vertex closes it, Backspace undoes a vertex, Esc cancels. Arm it again to add another region: two walls, a wall and a dump, whatever the analysis is about.</td></tr>
+      <tr><td>Shading</td><td>With <b>Annotations ▸ Shade drawn areas</b> on, a drawn region is painted onto the terrain as well as outlined. The shading is built from the raster, so what you see shaded is exactly the cells the statistics count — a region that clips a bench edge, or that loses cells to the Z or slope filters, looks clipped rather than smooth. The plain X/Y rectangle is never shaded: everything outside it is already dimmed.</td></tr>
+      <tr><td>Region list</td><td>One row per region under <b>Area of interest</b> in the tree, with its vertex count, masked cells and ground area. Hover a row to pick that region out in the 3D view, or use its <b>×</b> to remove it. Regions are <b>joined</b>, never subtracted — the statistics, histogram and position ranking describe every cell inside any of them, and a cell shared by two overlapping regions is counted once, against the first one drawn.</td></tr>
+    </table>
+
+    <h4>Raster layers &amp; colour ramps</h4>
     <table class="helpTable">
       <tr><td>Sensitivity</td><td>|cos θ| between line of sight and movement vector. <b>The main product.</b></td></tr>
       <tr><td>Amplitude proxy</td><td>|cos i| against the surface normal — how well the facet reflects back. Strong amplitude with low sensitivity is still useless.</td></tr>
@@ -575,7 +937,16 @@
       <tr><td>Measurable displacement</td><td>Millimetres of the <i>Displ. factor</i> that survive projection onto the line of sight.</td></tr>
       <tr><td>Scale min/max</td><td>Keep 0–1 for sensitivity so maps stay comparable between sites and dates.</td></tr>
       <tr><td>Bands / Gamma</td><td>Bands quantise into classes (0 = continuous). Gamma bends the ramp without moving the ends.</td></tr>
+      <tr><td>Terrain surface</td><td><b>View</b> tab. <i>Show terrain surface</i> hides the mesh outright — everything drawn on it keeps drawing, so the structures, domains, sensors and a measurement can be read against nothing at all. <i>Single flat colour</i> paints the whole surface one colour instead of the active layer's scale, turning the terrain into a backdrop rather than a map competing with what is on it; hill shading still applies, so the relief stays readable. Untick it, or press <i>Revert to layer colours</i>, to go back. While either is on the colour bar hides itself, because a scale nothing is being coloured by is worse than none.</td></tr>
       <tr><td>Mask colours</td><td><b>No-data</b> hole in the survey · <b>Shadowed</b> terrain in the way · <b>Out of scan</b> outside sector/range · <b>Below thr.</b> under the alarm threshold.</td></tr>
+    </table>
+
+    <h4>Statistics &amp; histogram</h4>
+    <table class="helpTable">
+      <tr><td>analysed / visible</td><td>Cells inside the selection mask, and how many of those the sensor actually sees. Every figure below describes the <b>visible</b> ones only.</td></tr>
+      <tr><td>mean / median</td><td>Average and middle sensitivity. A mean well above the median means a few excellent facets are carrying an otherwise poor position.</td></tr>
+      <tr><td>p10 / p90 · p20 / p80</td><td>Percentiles of the same distribution. p10 is the value a tenth of the wall falls below — the worst ground you still have to live with. p20 / p80 give the tighter middle band, far less swayed by a handful of outlying cells than p10 / p90, which is the pair to quote when comparing two candidate positions.</td></tr>
+      <tr><td>Histogram</td><td>The distribution those figures summarise. The dashed white line is the alarm threshold. Hover a bar for its sensitivity band, cell count, share of the visible cells, ground area and the cumulative share at or below it.</td></tr>
     </table>
     <button id="btnHelpClose" class="primary">Close</button>
   </div>
@@ -587,11 +958,32 @@
 <script src="js/parsers.js"></script>
 <script src="js/grid.js"></script>
 <script src="js/sensitivity.js"></script>
+<script src="js/structure.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/radar-scan.js"></script>
 <script src="js/georef.js"></script>
 <script src="js/georef-store.js"></script>
 <script src="js/scan-layer.js"></script>
+
+<!-- application layer — core first, it defines the SM namespace the rest extend -->
+<script src="js/ui/core.js"></script>
+<script src="js/ui/commands.js"></script>
+<script src="js/ui/shell.js"></script>
+<script src="js/ui/layertree.js"></script>
+<script src="js/ui/data.js"></script>
+<script src="js/ui/sensors.js"></script>
+<script src="js/ui/model.js"></script>
+<script src="js/ui/aoi.js"></script>
+<script src="js/ui/symbology.js"></script>
+<script src="js/ui/overlays.js"></script>
+<script src="js/ui/stereonet.js"></script>
+<script src="js/ui/structure.js"></script>
+<script src="js/ui/measure.js"></script>
+<script src="js/ui/editpoly.js"></script>
+<script src="js/ui/probe.js"></script>
+<script src="js/ui/stats.js"></script>
+<script src="js/ui/clip.js"></script>
+<script src="js/ui/io.js"></script>
 <script src="js/ui.js"></script>
 <!-- after ui.js: the radar module attaches through window.SensiMap -->
 <script src="js/radar-ui.js"></script>

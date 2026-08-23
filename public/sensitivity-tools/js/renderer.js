@@ -176,7 +176,10 @@ var Viewer = (function () {
     this.cam = { yaw: 35, pitch: 32, dist: 1000, target: [0, 0, 0], fov: 42, ortho: false };
     this.opt = {
       zScale: 1, shade: 0.55, alpha: 1, sunAz: 315, sunEl: 45,
-      wire: false, bg: [0.051, 0.063, 0.078]
+      /* `surface` hides the terrain mesh without unloading it, so the overlays
+         — structures, domains, sensors, a measurement — can be read against
+         nothing at all. The wireframe and every overlay keep drawing. */
+      wire: false, surface: true, bg: [0.051, 0.063, 0.078]
     };
     this.lines = [];
     this.points = [];
@@ -189,7 +192,11 @@ var Viewer = (function () {
     this._drag = null;
     /* clip box, in unscaled local coordinates (world minus this.off) */
     this.clip = {
-      on: false, handles: true,
+      /* `box` draws the cage and its arrows; `on` does the cutting. Two flags
+         rather than one because the cage is scaffolding: once a section is
+         where it should be, the wireframe is the only thing between the
+         operator and a clean look at what they cut. */
+      on: false, box: true, handles: true,
       min: [0, 0, 0], max: [0, 0, 0],
       bmin: [0, 0, 0], bmax: [0, 0, 0]      // model extent = drag limits
     };
@@ -320,6 +327,15 @@ var Viewer = (function () {
     this.draw();
   };
 
+  /** show or hide the cage without touching the cut it is making */
+  Viewer.prototype.setClipBoxVisible = function (on) {
+    this.clip.box = !!on;
+    /* nothing to hover once it is not drawn, or the pointer would keep
+       snagging on handles that are not there */
+    if (!this.clip.box) this._clipHover = -1;
+    this.draw();
+  };
+
   /** world-space box in; stored clamped to the model extent */
   Viewer.prototype.setClipWorld = function (wmin, wmax) {
     var o = [this.off.x, this.off.y, this.off.z];
@@ -388,9 +404,31 @@ var Viewer = (function () {
     };
   };
 
+  /**
+   * Where a survey point lands on screen, in CSS pixels, or null if it is
+   * behind the camera.
+   *
+   * Anything that has to be aimed at with a pointer needs this rather than a
+   * world-space distance: an overlay handle floating above the terrain is
+   * nowhere near, in plan, the ground the cursor's ray actually strikes, so
+   * comparing survey coordinates would put the grab radius in the wrong place
+   * entirely. No occlusion test — a handle behind a ridge still projects, which
+   * is what lets one be grabbed through the terrain.
+   */
+  Viewer.prototype.project = function (wx, wy, wz) {
+    var p = this._project(this.toLocal(wx, wy, wz));
+    return p ? [p.x, p.y] : null;
+  };
+
+  /** the pointer position in the same CSS pixels `project` returns */
+  Viewer.prototype.pointerAt = function (ev) {
+    var r = this.canvas.getBoundingClientRect();
+    return [ev.clientX - r.left, ev.clientY - r.top];
+  };
+
   /** which handle is under the pointer (screen space, forgiving) */
   Viewer.prototype.clipHandleAt = function (ev) {
-    if (!this.clip.on || !this.clip.handles || !this.grid) return -1;
+    if (!this.clip.on || !this.clip.box || !this.clip.handles || !this.grid) return -1;
     var r = this.canvas.getBoundingClientRect();
     var mx = ev.clientX - r.left, my = ev.clientY - r.top;
     var best = -1, tol = 16 * 16, bestZ = Infinity;
@@ -529,7 +567,7 @@ var Viewer = (function () {
     var sun = [Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el)];
 
     /* ---- mesh ---- */
-    if (this.nIdx) {
+    if (this.nIdx && this.opt.surface !== false) {
       gl.useProgram(this.pMesh);
       var P = this.pMesh;
       gl.uniformMatrix4fv(gl.getUniformLocation(P, 'uMVP'), false, M.mvp);
@@ -602,13 +640,20 @@ var Viewer = (function () {
       }
     }
 
-    /* overlays are never clipped — the sensor, its rays and the axes must stay
-       visible even when the terrain around them is cut away */
-    this._clipUniforms(L, false);
+    /* Clipping is decided PER BATCH, because the overlays are two different
+       kinds of thing. Anything that belongs to the ground — a structure, a
+       block, a drawn boundary — is part of what a section is cutting and has
+       to be cut with it. The instruments are not: a sensor, its line of sight
+       and the axis triad have to stay visible when the terrain around them is
+       taken away, which is most of the point of taking it away. A batch says
+       which it is with `clip`. */
+    var clipNow = null;
 
     for (var i = 0; i < this.lines.length; i++) {
       var b = this.lines[i];
       if (!b.verts || !b.verts.length) continue;
+      var wantClip = !!(this.clip.on && b.clip);
+      if (wantClip !== clipNow) { this._clipUniforms(L, wantClip); clipNow = wantClip; }
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.line);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(b.verts), gl.DYNAMIC_DRAW);
       var loc = gl.getAttribLocation(L, 'aPos');
@@ -616,13 +661,45 @@ var Viewer = (function () {
       gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
       gl.uniform4f(cLoc, b.color[0], b.color[1], b.color[2], b.color[3] == null ? 1 : b.color[3]);
       if (b.noDepth) gl.disable(gl.DEPTH_TEST);
+      /* A filled overlay is translucent and lies within a metre or two of the
+         terrain it covers. Letting it write depth would make it occlude its own
+         outline, and make two overlapping fills flicker depending on which was
+         submitted first — so it is depth-TESTED (terrain in front still hides
+         it) but not depth-WRITTEN. */
+      if (b.tris) gl.depthMask(false);
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      gl.drawArrays(b.points ? gl.POINTS : gl.LINES, 0, b.verts.length / 3);
+      gl.drawArrays(b.tris ? gl.TRIANGLES : b.points ? gl.POINTS : gl.LINES, 0, b.verts.length / 3);
       gl.disable(gl.BLEND);
+      if (b.tris) gl.depthMask(true);
       if (b.noDepth) gl.enable(gl.DEPTH_TEST);
     }
 
+    /* the box's own handles are furniture: never cut by the box they drive */
+    if (clipNow) this._clipUniforms(L, false);
     if (this.clip.on) this._drawClipBox(L, cLoc);
+
+    /* the shell hangs the north arrow and the scale bar off this — they can
+       only be right once the frame's matrices exist */
+    if (this.onDraw) this.onDraw();
+  };
+
+  /**
+   * CSS pixels per metre at the camera target.
+   *
+   * Measured along the screen-horizontal direction rather than derived from
+   * the projection, so it stays honest in perspective as well as orthographic
+   * and needs no separate case for either. 0 before the first frame.
+   */
+  Viewer.prototype.pixelsPerMetre = function () {
+    if (!this._mvp) return 0;
+    var t = this.cam.target, zs = this.opt.zScale || 1;
+    var y = this.cam.yaw * Math.PI / 180;
+    var rx = Math.cos(y), ry = -Math.sin(y);        // screen right, in local XY
+    var L = Math.max(1, this.cam.dist / 20);
+    var a = this._project([t[0], t[1], t[2] / zs]);
+    var b = this._project([t[0] + rx * L, t[1] + ry * L, t[2] / zs]);
+    if (!a || !b) return 0;
+    return Math.hypot(b.x - a.x, b.y - a.y) / L;
   };
 
   Viewer.prototype._clipUniforms = function (P, on) {
@@ -643,6 +720,7 @@ var Viewer = (function () {
     function corner(i) {
       return [(i & 1) ? mx[0] : mn[0], (i & 2) ? mx[1] : mn[1], (i & 4) ? mx[2] : mn[2]];
     }
+    if (!c.box) return;
     var box = [];
     /* 12 edges of the cuboid */
     for (var i = 0; i < 8; i++) {
@@ -731,7 +809,7 @@ var Viewer = (function () {
     });
     window.addEventListener('mousemove', function (e) {
       if (self._clipDrag) { self._clipDragMove(e); e.preventDefault(); return; }
-      if (!self._drag && self.clip.on && self.clip.handles) {
+      if (!self._drag && self.clip.on && self.clip.box && self.clip.handles) {
         var f = self.clipHandleAt(e);
         if (f !== self._clipHover) {
           self._clipHover = f;
@@ -795,6 +873,20 @@ var Viewer = (function () {
   };
 
   /* --------------------------------------------- overlay helper */
+  /**
+   * Replace the overlay batches.
+   *
+   * Each batch is `{verts, color:[r,g,b,a]}` plus one optional shape flag:
+   * nothing for line segments (the default), `points` for round dots, or
+   * `tris` for a filled surface — three vertices per triangle, painted flat in
+   * `color` with no shading, which is what a draped polygon or a plane disc
+   * wants. `noDepth` draws the batch through the terrain, and `clip` marks it
+   * as part of the ground, so a clip box or a cross-section cuts it the way it
+   * cuts the terrain. Instruments leave `clip` off and stay whole.
+   *
+   * Batches are drawn in the order given, so fills belong before the outlines
+   * that trace them.
+   */
   Viewer.prototype.setLines = function (batches) { this.lines = batches || []; };
 
   /* --------------------------------------------------- radar drapes */

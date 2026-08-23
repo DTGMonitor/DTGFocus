@@ -196,12 +196,11 @@ const CHROME = {
   "#000000aa": v("--sm-scrim"),
 };
 
-/* `#fff` carries five different jobs in the stylesheet, so each is matched
+/* `#fff` carries four different jobs in the stylesheet, so each is matched
    with enough surrounding text to tell them apart. #progText is not in the
    list on purpose: white text with a black shadow is legible over both the
    teal progress fill and either theme's trough, which is why upstream did it. */
 const WHITE_IN_CONTEXT = {
-  "details[open]>summary{color:#fff": "details[open]>summary{color:var(--sm-fg)",
   "background-color:#1f6fd0;color:#fff}":
     "background-color:var(--sm-primary);color:var(--sm-primary-fg)}",
   "border-color:#2f8ae0;color:#fff;font-weight:600":
@@ -280,18 +279,13 @@ export const RULES = [
     },
   },
 
+  /* The application layer is a folder of small modules, so each rule below is
+     scoped to the one file that actually owns those literals. An unmatched
+     entry is then a real signal that upstream moved something, rather than
+     noise from a colour that simply lives somewhere else now. */
   {
-    file: "js/ui.js",
-    // Scoped to the hexes ui.js actually contains rather than the whole chrome
-    // map, so an unmatched entry here is a real signal that upstream moved.
+    file: "js/ui/sensors.js",
     map: {
-      // Repaint the two canvases that cache theme colours. Hooked onto the
-      // resize binding because both helpers are in scope there and the tool
-      // exposes no globals of its own.
-      "window.addEventListener('resize', function () { V.resize(); layoutHist(); });":
-        "window.addEventListener('resize', function () { V.resize(); layoutHist(); });\n" +
-        "    window.addEventListener('platformtheme', function () { updateLegend(); layoutHist(); });",
-
       // default sensor palette — categorical, so the slots must stay distinct
       "#ffd400": DATA_COLOURS.sensor1,
       "#2f9bff": DATA_COLOURS.sensor2,
@@ -299,20 +293,50 @@ export const RULES = [
       "#12c2a0": DATA_COLOURS.sensor4,
       "#e040fb": DATA_COLOURS.sensor5,
       "#ff9800": DATA_COLOURS.sensor6,
+    },
+  },
 
+  {
+    file: "js/ui/data.js",
+    map: {
+      // the two sensors the demo pit drops in
+      "#ffd400": DATA_COLOURS.sensor1,
+      "#2f9bff": DATA_COLOURS.sensor2,
+    },
+  },
+
+  {
+    file: "js/ui/clip.js",
+    map: {
       // clip-plane axis swatches (Easting / Northing / Elevation)
       "#ff5959": DATA_COLOURS.axisE,
       "#59ff73": DATA_COLOURS.axisN,
       "#66aeff": DATA_COLOURS.axisRL,
+    },
+  },
 
+  {
+    file: "js/ui/probe.js",
+    map: {
       // inline markup in the line-of-sight readout — plain CSS, so var() works
       'style="color:#ffb300"': 'style="color:var(--sm-warn)"',
       "border-top:1px solid #2c3542": "border-top:1px solid var(--sm-line)",
+    },
+  },
 
-      // canvas: histogram
-      "g.fillStyle = '#5a6472'": `g.fillStyle = ${c("--sm-dim2")}`,
+  {
+    file: "js/ui/stats.js",
+    map: {
+      // The histogram's threshold marker. Every other colour in this file
+      // already resolves a token through SM.cssVar at draw time; this one is
+      // hardcoded white upstream, which vanishes on a light surface.
       "g.strokeStyle = '#fff'": `g.strokeStyle = ${c("--sm-fg")}`,
-      "g.fillStyle = '#8f9bab'": `g.fillStyle = ${c("--sm-dim")}`,
+    },
+  },
+
+  {
+    file: "js/ui/io.js",
+    map: {
       // canvas: PNG export title block
       "g.fillStyle = '#0d1014dd'": `g.fillStyle = ${c("--sm-hud-bg2")}`,
       "g.strokeStyle = '#2c3542'": `g.strokeStyle = ${c("--sm-line")}`,
@@ -357,7 +381,7 @@ export const RULES = [
  */
 export const DEFAULT_RULES = [
   {
-    file: "js/ui.js",
+    file: "js/ui/overlays.js",
     map: {
       // Pitch the scan footprint by the boresight elevation.
       //
@@ -395,7 +419,7 @@ export const DEFAULT_RULES = [
     },
   },
   {
-    file: "js/ui.js",
+    file: "js/ui/data.js",
     map: {
       // The fallback for an empty or unparseable field — same figure, so
       // clearing the box behaves like never having touched it.

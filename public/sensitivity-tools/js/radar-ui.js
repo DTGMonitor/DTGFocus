@@ -803,6 +803,35 @@ var RadarUI = (function () {
 
     host.innerHTML = out.join('');
     $('radarIntro').classList.toggle('hidden', S.order.length > 0);
+    /* the folders are also rows in the layer tree */
+    if (window.SensiMap && SensiMap.refreshTree) SensiMap.refreshTree();
+  }
+
+  /**
+   * The folder list, flattened for the layer tree.
+   *
+   * Deliberately a copy rather than the live records: the tree only needs to
+   * label and toggle them, and handing out `S.folders` would let it reach the
+   * scan buffers and the transforms.
+   */
+  function listFolders() {
+    var out = [];
+    for (var i = 0; i < S.order.length; i++) {
+      var f = S.folders[S.order[i]], scans = [];
+      for (var j = 0; j < f.scans.length; j++) {
+        var s = f.scans[j];
+        var peak = Math.max(Math.abs(s.scan.defMin), Math.abs(s.scan.defMax));
+        scans.push({
+          id: s.id, visible: !!s.visible,
+          when: fmtWindow(s.scan.meta), peak: num(peak, 0) + ' mm'
+        });
+      }
+      out.push({
+        key: f.key, name: f.meta.folder || f.key, radar: f.meta.radar || '',
+        placed: !!f.transform, scans: scans
+      });
+    }
+    return out;
   }
 
   /* ---------------------------------------------- coverage on click */
@@ -908,7 +937,11 @@ var RadarUI = (function () {
 
   /* ---------------------------------------------- wiring */
 
-  function open() { $('secRadar').open = true; }
+  /* The shell decides where the deformation panel lives; all this module
+     knows is that a scan just landed and the operator should be looking at it. */
+  function open() {
+    if (window.SensiMap && SensiMap.revealScans) SensiMap.revealScans();
+  }
 
   function bind() {
     S.booted = true;
@@ -1039,5 +1072,8 @@ var RadarUI = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 
-  return { acceptFile: acceptFile, _state: S };
+  return {
+    acceptFile: acceptFile, folders: listFolders,
+    toggleScan: toggleScan, georeference: startGeoref, _state: S
+  };
 })();
