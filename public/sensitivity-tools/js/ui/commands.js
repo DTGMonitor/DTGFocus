@@ -247,7 +247,7 @@ SM.Cmd = (function () {
       hint: 'One row per cell: coordinates, slope, sensitivity, visibility',
       enabled: hasGrid, run: function () { call('IO.exportCSV'); } },
     { id: 'export.kin', label: 'Export kinematic results', icon: 'table',
-      hint: 'One row per plane pair: intersection, critical zone and movement direction',
+      hint: 'Every result the failure mode tested: critical zone and movement direction',
       enabled: function () { return !!(S.kin && S.kin.total); },
       run: function () { call('IO.exportKinematics'); } },
     { id: 'export.net', label: 'Export stereonet PNG', icon: 'image',

@@ -8,7 +8,9 @@
      1. describe the wall            slope dip / dip direction / friction
      2. get the structure in         type dip & dip direction, or pick points
                                      off the surface and let it fit the plane
-     3. choose a failure mode        wedge sliding for now
+     3. choose a failure mode        all five Dips modes: wedge sliding,
+                                     planar sliding with and without lateral
+                                     limits, flexural and direct toppling
      4. read the stereonet           critical zone, poles, wedge axes
      5. push a result into the map   draw the block the wedge would release,
                                      and that polygon's cells switch from the
@@ -45,6 +47,9 @@ SM.Structure = (function () {
     return { dip: SM.clamp(num('stFaceDip', 60), 0, 90), dipDir: Struct.wrap360(num('stFaceDir', 90)) };
   }
   function phi() { return SM.clamp(num('stPhi', 30), 0, 89); }
+  /** the failure mode's own record, never just its id — the id alone says nothing */
+  function mode() { return Struct.modeOf($('stMode').value); }
+  function limit() { return SM.clamp(num('stLimit', Struct.LIMIT), 0, 90); }
 
   /** square metres up to a hectare, then hectares */
   function areaTxt(v) {
@@ -356,6 +361,7 @@ SM.Structure = (function () {
 
   function run() {
     S.kin = Struct.analyse(S.planes, face(), phi(), $('stMode').value, {
+      limit: limit(),
       patch: patchOf,
       /* the terrain, so the analysis can tell a wedge of rock from a wedge of
          sky — two patches can be in contact out in front of the face */
@@ -363,6 +369,47 @@ SM.Structure = (function () {
       onlyContact: !!($('stOnlyContact') && $('stOnlyContact').checked)
     });
     return S.kin;
+  }
+
+  /**
+   * Make the panel say what the chosen mode actually does.
+   *
+   * Three things move with the mode: the lateral limits are meaningless for
+   * wedge sliding and for planar sliding with the limits off, the results
+   * table counts a different population, and the stereonet has to be plotting
+   * that population or the shaded zones sit over nothing. The switches stay
+   * the operator's to set — they are only pre-set on a genuine change of mode,
+   * which is the moment the old choice stopped being about the same thing.
+   */
+  function syncMode(switched) {
+    var M = mode();
+    var cell = $('stLimitCell');
+    $('stLimit').disabled = !M.limits;
+    cell.classList.toggle('naCell', !M.limits);
+    cell.title = M.limits
+      ? 'Lateral limits, in degrees either side of the slope dip direction. Structure ' +
+        'striking further off square than this cannot break out of the wall, so it is ' +
+        'reported as a near miss — amber — rather than as critical. Dips suggests 20° to 30°.'
+      : (M.id === 'wedge'
+        ? 'Wedge sliding applies no lateral limits: the second plane releases the block ' +
+          'sideways by itself, which is exactly what distinguishes it from a planar slide.'
+        : 'This mode is the no-limits one — the whole daylight envelope counts.');
+    $('stModeHint').textContent = M.hint;
+    $('stResultsSub').textContent = M.plots === 'poles' ? 'every plane on its own'
+      : M.plots === 'both' ? 'block edges, and the base planes under them'
+        : 'every plane pair';
+    if (switched) {
+      show.ints = M.plots !== 'poles';
+      show.poles = M.plots !== 'intersections';
+      syncNetButtons();
+    }
+  }
+
+  /** the stereonet's overlay switches, redrawn from `show` */
+  function syncNetButtons() {
+    Array.prototype.forEach.call(document.querySelectorAll('#stNetOpts [data-net]'), function (b) {
+      b.classList.toggle('on', !!show[b.getAttribute('data-net')]);
+    });
   }
 
   /** everything downstream of a structural change, in one place */
@@ -383,7 +430,9 @@ SM.Structure = (function () {
    *
    * Three things bound it, which is exactly what a wedge IS:
    *
-   *   the two JOINT PLANES  both pass through the point the wedge daylights.
+   *   the JOINT PLANES      one or two of them, passing through the point the
+   *     structure daylights. Two is a wedge, one is a planar slab, and the
+   *     paragraph below describes the wedge; a slab is the same with one flank.
    *     The block is the rock standing above both of them — the quadrant of
    *     space around their line of intersection that contains "straight up",
    *     which with upward normals is simply the side where both signed
@@ -405,9 +454,15 @@ SM.Structure = (function () {
    */
   function wedgeBlock(planeA, planeB, anchor, height, aoi) {
     var g = S.grid;
-    if (!g || !planeA || !planeB || !anchor) return null;
+    if (!g || !planeA || !anchor) return null;
+    /* One plane or two. A wedge is the rock above BOTH of its joints; a planar
+       slide is the rock above its single one, and everything else about the
+       construction — the terrain, the height cap, the connected run, the zero
+       contour — is the same. So the second plane is optional rather than a
+       second function, and a slab's boundary comes out of the same code that
+       puts a wedge's flanks on its two traces. */
     var nA = Struct.planeNormal(Struct.clampDip(planeA.dip), planeA.dipDir);
-    var nB = Struct.planeNormal(Struct.clampDip(planeB.dip), planeB.dipDir);
+    var nB = planeB ? Struct.planeNormal(Struct.clampDip(planeB.dip), planeB.dipDir) : null;
     var zTop = anchor[2] + height;
     var cell = Math.max(g.dx, g.dy);
     /* Only when asked for. The selection mask is a statistics filter that is
@@ -435,10 +490,9 @@ SM.Structure = (function () {
          None on the height cap: that one is a number the operator typed, and a
          block that overshoots it by a metre and a half is not what was asked
          for. */
-      return Math.min(
-        nA[0] * dx + nA[1] * dy + nA[2] * dz + slack,
-        nB[0] * dx + nB[1] * dy + nB[2] * dz + slack,
-        zTop - z);
+      var d = Math.min(nA[0] * dx + nA[1] * dy + nA[2] * dz + slack, zTop - z);
+      if (nB) d = Math.min(d, nB[0] * dx + nB[1] * dy + nB[2] * dz + slack);
+      return d;
     }
 
     /* Connectivity first: the same three conditions hold on other walls, and
@@ -523,9 +577,10 @@ SM.Structure = (function () {
     /* volume needs the two planes, so only a block that was built from them
        has one — a hand-traced polygon is a footprint and nothing more */
     var w = d.wedge;
-    if (w && w.planes && w.planes.length === 2 && w.anchor) {
-      var nA = Struct.planeNormal(Struct.clampDip(w.planes[0].dip), w.planes[0].dipDir);
-      var nB = Struct.planeNormal(Struct.clampDip(w.planes[1].dip), w.planes[1].dipDir);
+    if (w && w.planes && w.planes.length && w.anchor) {
+      var ns = w.planes.map(function (p) {
+        return Struct.planeNormal(Struct.clampDip(p.dip), p.dipDir);
+      });
       var a = w.anchor;
       var mask = new Uint8Array(g.nx * g.ny);
       for (var j = 0; j < g.ny; j++) {
@@ -533,8 +588,12 @@ SM.Structure = (function () {
           if (inside(g.x0 + i * g.dx, g.y0 + j * g.dy)) mask[j * g.nx + i] = 1;
         }
       }
+      /* the floor is whichever plane is HIGHER here — the block is the rock
+         above all of them, so the highest one is what it stands on */
       out.vol = Grid.volumeUnder(g, mask, function (id, x, y) {
-        return Math.max(planeZ(nA, a, x, y), planeZ(nB, a, x, y));
+        var z = -Infinity;
+        for (var k = 0; k < ns.length; k++) z = Math.max(z, planeZ(ns[k], a, x, y));
+        return z;
       });
     }
     return out;
@@ -574,8 +633,13 @@ SM.Structure = (function () {
     var auto = !!S.stagedPlanes;
     $('stAutoBlock').disabled = !auto;
     $('stAutoWrap').title = auto
-      ? 'Click once where the wedge daylights and the block is worked out from the two planes, the survey and the height below.'
-      : 'Only available for a wedge taken from the results table — a typed trend and plunge does not say which planes bound the block.';
+      ? 'Click once where the structure daylights and the block is worked out from ' +
+        (S.stagedPlanes.length > 1 ? 'the two planes' : 'the plane') +
+        ', the survey and the height below.'
+      : 'Only available for a sliding result taken from the results table — a typed trend and ' +
+        'plunge does not say which planes bound the block, and a TOPPLING mass has no mapped ' +
+        'floor to build one from: its basal surface cuts across the layers rather than following ' +
+        'any of them. Trace the footprint instead.';
     $('stBlockH').disabled = !auto || !$('stAutoBlock').checked;
     var aoiOn = $('chkAOI').checked;
     $('stBlockAoi').disabled = !auto || !$('stAutoBlock').checked || !aoiOn;
@@ -590,10 +654,11 @@ SM.Structure = (function () {
       : ' Draw the block on the model';
     btn.title = ready
       ? (auto && $('stAutoBlock').checked
-        ? 'Click once where the wedge daylights; the block is built from the two planes.'
+        ? 'Click once where it daylights; the block is built from the ' +
+          (S.stagedPlanes.length > 1 ? 'two planes' : 'plane') + '.'
         : 'Trace the block this movement direction applies to.')
       : (S.grid
-        ? 'Set a trend and plunge first — press “Use” on a wedge in the results table above, or type them here.'
+        ? 'Set a trend and plunge first — press “Use” on a result in the table above, or type them here.'
         : 'Load a model first.');
     chip.className = 'stChip' + (ready ? ' crit' : '');
     chip.textContent = ready
@@ -626,17 +691,20 @@ SM.Structure = (function () {
   /**
    * One click, and the block is worked out from the structure.
    *
-   * The click says where the wedge daylights — the toe of it, the point the
-   * line of intersection reaches the surface — and everything else follows
-   * from the two planes and the survey.
+   * The click says where the structure daylights — the toe of it, the point
+   * the line of intersection (or, for a planar slide, the plane itself)
+   * reaches the surface — and everything else follows from the planes and the
+   * survey.
    */
   function autoBlockAt(hit) {
     var pend = S.pendingDomain;
-    if (!pend || !pend.planes) return false;
-    var built = wedgeBlock(pend.planes[0], pend.planes[1],
+    if (!pend || !pend.planes || !pend.planes.length) return false;
+    var one = pend.planes.length < 2;
+    var built = wedgeBlock(pend.planes[0], one ? null : pend.planes[1],
       [hit.x, hit.y, hit.z], blockHeight(), blockUsesAoi());
     if (!built) {
-      SM.status('No block came out there — the wedge does not daylight at that point. ' +
+      SM.status('No block came out there — the ' + (one ? 'plane' : 'wedge') +
+        ' does not daylight at that point. ' +
         'Click lower on the face, at the toe of it, or raise the block height.');
       return false;
     }
@@ -644,10 +712,9 @@ SM.Structure = (function () {
        and the block would then be reporting a volume against geometry that no
        longer exists */
     pend.wedge = {
-      planes: [
-        { name: pend.planes[0].name, dip: pend.planes[0].dip, dipDir: pend.planes[0].dipDir },
-        { name: pend.planes[1].name, dip: pend.planes[1].dip, dipDir: pend.planes[1].dipDir }
-      ],
+      planes: pend.planes.map(function (p) {
+        return { name: p.name, dip: p.dip, dipDir: p.dipDir };
+      }),
       anchor: [hit.x, hit.y, hit.z], height: blockHeight()
     };
     commitDomainRing(built.ring, built.cells, built);
@@ -671,7 +738,8 @@ SM.Structure = (function () {
        that reads if nobody says so. */
     SM.status('“' + d.name + '” created — ' +
       (autoCells
-        ? 'built from the two planes over ' + SM.fmtInt(autoCells) + ' cells, ' +
+        ? 'built from the ' + (pend.wedge && pend.wedge.planes.length > 1 ? 'two planes' : 'plane') +
+          ' over ' + SM.fmtInt(autoCells) + ' cells, ' +
           ring.length + ' vertices'
         : ring.length + ' vertices') +
       (built && built.clipped ? ', clipped to the area of interest' : '') +
@@ -886,22 +954,82 @@ SM.Structure = (function () {
     return '<td class="mono' + cls + '" title="' + esc(why) + '">' + text + '</td>';
   }
 
+  /**
+   * What each mode calls the things it counts.
+   *
+   * A table headed "Wedge / Axis / Slides on" is actively wrong for a toppling
+   * analysis, and a summary that says "3 of 6 intersections critical" when the
+   * mode tests one plane at a time is worse than wrong — it is confidently
+   * misleading. So the words come from the mode, in one place, rather than
+   * being written into the markup.
+   */
+  var WORDS = {
+    wedge: {
+      pop: 'intersections', head: ['Wedge', 'Axis'], move: 'Slides on',
+      zone: { primary: 'both planes', secondary: 'one plane', none: 'stable' },
+      sum: { primary: 'sliding on both planes', secondary: 'on one plane', none: 'stable' }
+    },
+    direct: {
+      pop: 'intersections', head: ['Block', 'Edge'], move: 'Moves',
+      zone: { primary: 'topples', secondary: 'oblique', none: 'no block' },
+      sum: { primary: 'cutting toppling blocks', secondary: 'toppling obliquely', none: 'no block' }
+    },
+    planar: {
+      pop: 'planes', head: ['Plane', 'Dip / dir'], move: 'Slides',
+      zone: { primary: 'planar slide', secondary: 'off square', none: 'stable' },
+      sum: { primary: 'daylighting and steeper than φ', secondary: 'outside the lateral limits',
+        none: 'stable' }
+    },
+    flexural: {
+      pop: 'planes', head: ['Plane', 'Dip / dir'], move: 'Topples',
+      zone: { primary: 'topples', secondary: 'off square', none: 'stable' },
+      sum: { primary: 'free to topple', secondary: 'outside the lateral limits', none: 'stable' }
+    }
+  };
+  WORDS.planarNL = WORDS.planar;
+
+  function words(M) { return WORDS[M.id] || WORDS.wedge; }
+  function chip(zone, text) {
+    return '<span class="stChip ' + (zone === 'primary' ? 'crit' : zone === 'secondary' ? 'sec' : '') +
+      '">' + text + '</span>';
+  }
+
   function renderResults() {
     var r = S.kin, box = $('stSummary'), host = $('stPairList');
+    var M = mode(), W = words(M);
     if (!r || !r.total) {
-      box.innerHTML = S.planes.filter(function (p) { return p.on !== false; }).length < 2
-        ? 'Two enabled planes are needed before there is a wedge to test.'
-        : 'No intersections — the enabled planes are parallel.';
+      var live = S.planes.filter(function (p) { return p.on !== false; }).length;
+      box.innerHTML = M.plots === 'poles'
+        ? (live ? 'Nothing to test.' : 'Map a plane — ' + M.name.toLowerCase() +
+          ' tests each one on its own.')
+        : (live < 2
+          ? 'Two enabled planes are needed before there is an intersection to test.'
+          : 'No intersections — the enabled planes are parallel.');
       host.innerHTML = '';
       return;
     }
+
     box.innerHTML =
-      '<b>' + r.nCritical + ' of ' + r.total + '</b> intersections critical &nbsp;' +
+      '<b>' + r.nCritical + ' of ' + r.total + '</b> ' + W.pop + ' critical &nbsp;' +
       '<b>' + fmt(r.pctCritical, 1) + '%</b><br>' +
-      '<span class="stChip crit">' + r.nPrimary + ' sliding on both planes</span> ' +
-      '<span class="stChip sec">' + r.nSecondary + ' on one plane</span> ' +
-      '<span class="stChip">' + (r.total - r.nCritical) + ' stable</span><br>' +
-      '<span class="dim">face ' + dd(r.face.dip, r.face.dipDir) + ' · φ ' + Math.round(r.phi) + '°</span>' +
+      '<span class="stChip crit">' + r.nPrimary + ' ' + W.sum.primary + '</span> ' +
+      (r.nSecondary || M.limits || M.id === 'wedge'
+        ? '<span class="stChip sec">' + r.nSecondary + ' ' + W.sum.secondary + '</span> ' : '') +
+      '<span class="stChip">' + (r.total - r.nCritical) + ' ' + W.sum.none + '</span><br>' +
+      '<span class="dim">face ' + dd(r.face.dip, r.face.dipDir) + ' · φ ' + Math.round(r.phi) + '°' +
+      (r.limit == null ? ' · no lateral limits' : ' · limits ±' + Math.round(r.limit) + '°') +
+      '</span>' +
+      /* direct toppling is the one mode that needs two populations at once, so
+         the count of one of them alone is not an answer */
+      (M.id === 'direct'
+        ? '<br><span class="stChip' + (r.nSliding ? ' crit' : '') + '">' + r.nSliding +
+          ' sliding base planes</span> <span class="stChip' + (r.nRelease ? ' sec' : '') + '">' +
+          r.nRelease + ' release surfaces</span>' +
+          (r.nPrimary && !r.nBase
+            ? '<br><span class="w">No base plane mapped. Direct toppling needs a third set for ' +
+              'the blocks to topple over — as mapped, these blocks have no floor.</span>'
+            : '')
+        : '') +
       (r.nApart
         ? '<br><span class="dim">' + r.nApart + ' pair' + (r.nApart === 1 ? '' : 's') +
           (r.filtered ? ' left out — mapped apart, so they meet nowhere on the model'
@@ -917,8 +1045,21 @@ SM.Structure = (function () {
           ' untested — a plane has no location</span>'
         : '');
 
+    host.innerHTML = M.plots === 'poles' ? poleTable(r, M)
+      : M.plots === 'both'
+        ? '<div class="subhead stSub">Block edges <span class="dim">every plane pair</span></div>' +
+          pairTable(r, M) +
+          '<div class="subhead stSub">Base planes <span class="dim">what the blocks topple over</span></div>' +
+          poleTable(r, M)
+        : pairTable(r, M);
+  }
+
+  /** the intersection population: wedge axes, or the edges of a toppling block */
+  function pairTable(r, M) {
+    var W = words(M);
     var h = ['<table class="dataTable structTable"><tr>' +
-      '<th>Wedge</th><th>Axis</th><th>Meets</th><th>Mode</th><th>Slides on</th><th></th></tr>'];
+      '<th>' + W.head[0] + '</th><th>' + W.head[1] + '</th><th>Meets</th><th>Mode</th>' +
+      '<th>' + W.move + '</th><th></th></tr>'];
     var wasEmpty = false;
     r.pairs.forEach(function (p, i) {
       /* one rule away from the top of the table: everything below this line
@@ -928,22 +1069,59 @@ SM.Structure = (function () {
         h.push('<tr class="stSplit"><td colspan="6">nothing below bounds any rock</td></tr>');
       }
       wasEmpty = empty;
-      var lbl = p.zone === 'primary' ? 'both planes' : p.zone === 'secondary' ? 'one plane' : 'stable';
-      h.push('<tr data-i="' + i + '" class="stRow zone-' + p.zone + '" title="' + esc(p.why) + '">' +
+      h.push('<tr data-i="' + i + '" data-kind="pair" class="stRow zone-' + p.zone +
+        '" title="' + esc(p.why) + '">' +
         '<td>' + esc(p.a.name) + ' × ' + esc(p.b.name) + '</td>' +
         '<td class="mono">' + tp(p.trend, p.plunge) + '</td>' +
         meetsCell(p) +
-        '<td><span class="stChip ' + (p.zone === 'primary' ? 'crit' : p.zone === 'secondary' ? 'sec' : '') +
-        '">' + lbl + '</span></td>' +
+        '<td>' + chip(p.zone, W.zone[p.zone]) + '</td>' +
         '<td class="mono">' + (p.zone === 'none' ? '—' : tp(p.slide.trend, p.slide.plunge)) + '</td>' +
         '<td><button class="miniBtn stUse"' + (p.zone === 'none' ? ' disabled' : '') +
         ' title="' + (p.zone === 'none'
           ? 'Nothing to apply — this pair is not critical.'
-          : 'Take this wedge’s movement direction down to the domain builder, ' +
+          : 'Take this result’s movement direction down to the domain builder, ' +
             'then draw the block it applies to.') +
         '">Use</button></td></tr>');
     });
-    host.innerHTML = h.join('') + '</table>';
+    return h.join('') + '</table>';
+  }
+
+  /**
+   * The pole population: one row per plane.
+   *
+   * There is no "Meets" column here, and its absence is the honest answer
+   * rather than an omission — a single plane needs no second structure to be
+   * in contact with. What a located plane does give is the trace it cuts on the
+   * surface, which is drawn in the 3D view; the row says whether there is one.
+   */
+  function poleTable(r, M) {
+    var W = words(M), base = M.id === 'direct';
+    var h = ['<table class="dataTable structTable"><tr>' +
+      '<th>' + (base ? 'Plane' : W.head[0]) + '</th><th>' + (base ? 'Dip / dir' : W.head[1]) +
+      '</th><th>Pole</th><th>' + (base ? 'Role' : 'Mode') + '</th>' +
+      '<th>' + (base ? 'Slides' : W.move) + '</th><th></th></tr>'];
+    r.poles.forEach(function (e) {
+      var idx = S.planes.indexOf(e.p);
+      var lbl = base
+        ? (e.role === 'sliding' ? 'base + slide' : e.role === 'release' ? 'release only' : 'no part')
+        : W.zone[e.zone];
+      h.push('<tr data-i="' + idx + '" data-kind="plane" class="stRow zone-' + e.zone +
+        '" title="' + esc(e.why + (e.placed ? '' :
+          ' — no location, so nothing is drawn for it on the model')) + '">' +
+        '<td>' + esc(e.name) + '</td>' +
+        '<td class="mono">' + dd(e.dip, e.dipDir) + '</td>' +
+        '<td class="mono">' + tp(e.trend, e.plunge) + '</td>' +
+        '<td>' + chip(e.zone, lbl) + '</td>' +
+        '<td class="mono">' + (e.slide ? tp(e.slide.trend, e.slide.plunge) : '—') + '</td>' +
+        '<td><button class="miniBtn stUse"' + (e.slide && e.zone !== 'none' ? '' : ' disabled') +
+        ' title="' + (e.slide && e.zone !== 'none'
+          ? 'Take this plane’s movement direction down to the domain builder.'
+          : base
+            ? 'A release surface does not move on its own — take the direction from a block edge above.'
+            : 'Nothing to apply — this plane is not critical.') +
+        '">Use</button></td></tr>');
+    });
+    return h.join('') + '</table>';
   }
 
   function renderDomains() {
@@ -991,7 +1169,8 @@ SM.Structure = (function () {
                 (d.wedge && geo.vol.maxThickness > 2 * (d.wedge.height || 0)
                   ? '<span class="mWarn">no upper release surface — this volume is ' +
                     'set by the ' + Math.round(d.wedge.height) + ' m block height as much as ' +
-                    'by the two planes</span><br>'
+                    'by the ' + (d.wedge.planes && d.wedge.planes.length > 1
+                      ? 'two planes' : 'plane') + '</span><br>'
                   : '')
               : '')
           : '') +
@@ -1022,6 +1201,7 @@ SM.Structure = (function () {
   function model() {
     return {
       planes: S.planes, face: face(), phi: phi(), result: S.kin,
+      mode: $('stMode').value, limit: mode().limits ? limit() : null,
       show: show, equalArea: $('stEqualArea').checked, hi: S.netHi
     };
   }
@@ -1045,27 +1225,47 @@ SM.Structure = (function () {
 
   function markRows() {
     var hi = S.netHi;
+    /* the results table holds pair rows, pole rows, or — under direct toppling
+       — both, so each row says which population it belongs to */
     Array.prototype.forEach.call($('stPairList').querySelectorAll('.stRow'), function (r) {
-      r.classList.toggle('hi', !!hi && hi.kind === 'pair' && +r.getAttribute('data-i') === hi.index);
+      r.classList.toggle('hi', !!hi && hi.kind === (r.getAttribute('data-kind') || 'pair') &&
+        +r.getAttribute('data-i') === hi.index);
     });
     Array.prototype.forEach.call($('stPlaneList').querySelectorAll('.stRow'), function (r) {
       r.classList.toggle('hi', !!hi && hi.kind === 'plane' && +r.getAttribute('data-i') === hi.index);
     });
   }
 
-  /** load one analysis result into the domain builder */
-  function useResult(i) {
-    var p = S.kin && S.kin.pairs[i];
+  /**
+   * Load one analysis result into the domain builder.
+   *
+   * `planes` is the part that matters as much as the direction: it is what
+   * lets the block be CONSTRUCTED from the structure instead of traced. It is
+   * staged only where the failed mass really is bounded by mapped surfaces —
+   * the rock above a wedge's two planes, or above a planar slide's one. A
+   * toppling column has no mapped floor: its basal failure surface is a
+   * notional plane cutting across the layers, not anything anybody mapped, so
+   * for the toppling modes the direction is staged alone and the footprint is
+   * traced. Building a "block above the joints" there would put a confident
+   * volume on geometry that does not exist.
+   */
+  function useResult(kind, i) {
+    var r = S.kin;
+    if (!r) return;
+    if (kind === 'plane') return usePole(i);
+    var p = r.pairs[i];
     if (!p || p.zone === 'none') return;
-    /* keep the pair itself, not just its direction: the block is built from
-       the two planes, and a trend and plunge alone cannot describe one */
-    S.stagedPlanes = [p.a, p.b];
+    var toppling = r.mode === 'direct';
+    S.stagedPlanes = toppling ? null : [p.a, p.b];
     $('stDomTrend').value = Math.round(p.slide.trend);
     $('stDomPlunge').value = Math.round(p.slide.plunge);
     $('stDomName').value = p.a.name + ' × ' + p.b.name;
-    $('stDomNote').value = (p.zone === 'primary'
-      ? 'Wedge on ' + p.a.name + ' and ' + p.b.name + ', sliding down the line of intersection'
-      : 'Release on ' + p.slide.on + ' alone (wedge axis flatter than φ)') +
+    $('stDomNote').value = (toppling
+      ? (p.zone === 'primary' ? 'Blocks cut by ' : 'Oblique toppling on ') +
+        p.a.name + ' and ' + p.b.name + ', toppling out of the face over a base plane'
+      : p.zone === 'primary'
+        ? 'Wedge on ' + p.a.name + ' and ' + p.b.name + ', sliding down the line of intersection'
+        : 'Release on ' + p.slide.on + ' alone (wedge axis flatter than φ)') +
       ' · face ' + dd(face().dip, face().dipDir) + ', φ ' + Math.round(phi()) + '°';
     syncDomainBuilder();
     /* The builder sits at the bottom of a long panel, so filling its fields is
@@ -1076,18 +1276,59 @@ SM.Structure = (function () {
     box.classList.remove('flash');
     void box.offsetWidth;                       // restart the animation
     box.classList.add('flash');
-    SM.status('Movement direction ' + tp(p.slide.trend, p.slide.plunge) +
-      ' ready — now press “Draw the block on the model” and trace its footprint.');
+    staged(p.slide);
     highlight('pair', i);
+  }
+
+  /** the same, for a mode whose result is one plane rather than a pair */
+  function usePole(planeIndex) {
+    var r = S.kin, P = S.planes[planeIndex];
+    var e = P && r && r.poles.filter(function (q) { return q.p === P; })[0];
+    if (!e || !e.slide || e.zone === 'none') return;
+    var slab = r.mode === 'planar' || r.mode === 'planarNL' ||
+      (r.mode === 'direct' && e.role === 'sliding');
+    /* a slab IS the rock above its own plane, so one plane is enough to build
+       the block from — the same construction as a wedge, with one flank */
+    S.stagedPlanes = slab ? [e.p] : null;
+    $('stDomTrend').value = Math.round(e.slide.trend);
+    $('stDomPlunge').value = Math.round(e.slide.plunge);
+    $('stDomName').value = e.name;
+    $('stDomNote').value = (r.mode === 'flexural'
+      ? 'Flexural toppling of ' + e.name + ' (' + dd(e.dip, e.dipDir) +
+        '), columns rotating out of the face'
+      : r.mode === 'direct'
+        ? 'Sliding base plane ' + e.name + ' (' + dd(e.dip, e.dipDir) + ') under toppling blocks'
+        : 'Planar slide on ' + e.name + ' (' + dd(e.dip, e.dipDir) + '), down the dip vector') +
+      (e.zone === 'secondary' ? ', outside the ±' + Math.round(r.limit) + '° lateral limits' : '') +
+      ' · face ' + dd(face().dip, face().dipDir) + ', φ ' + Math.round(phi()) + '°';
+    syncDomainBuilder();
+    var box = $('stDomainBuilder');
+    if (box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+    box.classList.remove('flash');
+    void box.offsetWidth;
+    box.classList.add('flash');
+    staged(e.slide);
+    highlight('plane', planeIndex);
+  }
+
+  /** what to say once a direction is in the builder — the next step, not the last one */
+  function staged(slide) {
+    SM.status('Movement direction ' + tp(slide.trend, slide.plunge) + ' ready — now press “' +
+      (S.stagedPlanes && $('stAutoBlock').checked
+        ? 'Build the block from one click” and click where it daylights.'
+        : 'Draw the block on the model” and trace its footprint.'));
   }
 
   /* ============================================================
      Wiring
      ============================================================ */
   function init() {
-    ['stFaceDip', 'stFaceDir', 'stPhi', 'stMode'].forEach(function (id) {
+    ['stFaceDip', 'stFaceDir', 'stPhi', 'stLimit'].forEach(function (id) {
       $(id).onchange = changed;
     });
+    /* a change of mode is a change of question: the results table, the plotted
+       population and the shaded zones all follow it */
+    $('stMode').onchange = function () { syncMode(true); changed(); };
     $('stEqualArea').onchange = redraw;
     $('stOnlyContact').onchange = changed;
     /* purely how things are drawn, so nothing is recomputed — just repainted */
@@ -1128,13 +1369,14 @@ SM.Structure = (function () {
     /* the stereonet overlay switches */
     Array.prototype.forEach.call(document.querySelectorAll('#stNetOpts [data-net]'), function (b) {
       var k = b.getAttribute('data-net');
-      b.classList.toggle('on', !!show[k]);
       b.onclick = function () {
         show[k] = !show[k];
         b.classList.toggle('on', !!show[k]);
         redraw();
       };
     });
+    syncNetButtons();
+    syncMode(false);
 
     /* plane list: edit in place, toggle, delete, hover to light up the net */
     var pl = $('stPlaneList');
@@ -1181,11 +1423,14 @@ SM.Structure = (function () {
     var rl = $('stPairList');
     rl.addEventListener('click', function (e) {
       var row = e.target.closest('.stRow'); if (!row) return;
-      if (e.target.closest('.stUse')) useResult(+row.getAttribute('data-i'));
+      if (e.target.closest('.stUse')) {
+        useResult(row.getAttribute('data-kind') || 'pair', +row.getAttribute('data-i'));
+      }
     });
     rl.addEventListener('mousemove', function (e) {
       var row = e.target.closest('.stRow');
-      highlight(row ? 'pair' : null, row ? +row.getAttribute('data-i') : -1);
+      highlight(row ? (row.getAttribute('data-kind') || 'pair') : null,
+        row ? +row.getAttribute('data-i') : -1);
     });
     rl.addEventListener('mouseleave', function () { highlight(null, -1); });
 
@@ -1249,7 +1494,7 @@ SM.Structure = (function () {
       if (!_m) return;
       var b = c.getBoundingClientRect();
       var hit = SM.Net.hitAt(_m, e.clientX - b.left, e.clientY - b.top);
-      if (hit && hit.kind === 'pair') useResult(hit.index);
+      if (hit) useResult(hit.kind, hit.index);
     });
 
     /* a canvas has no size while its pane is display:none */
@@ -1265,7 +1510,12 @@ SM.Structure = (function () {
   function describeHit(hit) {
     if (hit.kind === 'plane') {
       var p = S.planes[hit.index];
-      return p ? p.name + '  ' + planeHint(p) : '';
+      if (!p) return '';
+      /* under a pole mode the pole IS the result, so say what it did in the
+         test rather than only what it is */
+      var e = S.kin && S.kin.poles.filter(function (q) { return q.p === p; })[0];
+      return p.name + '  ' + (e ? dd(e.dip, e.dipDir) + '  pole ' + tp(e.trend, e.plunge) +
+        '  —  ' + e.why : planeHint(p));
     }
     var w = S.kin && S.kin.pairs[hit.index];
     if (!w) return '';
@@ -1286,7 +1536,8 @@ SM.Structure = (function () {
     removeDomain: removeDomain, toggleDomain: toggleDomain, clearDomains: clearDomains,
     domainsChanged: afterDomainChange, renameDomain: renameDomain,
     recomputeIndex: recomputeIndex, domainStats: domainStats,
-    highlight: highlight, useResult: useResult, show: show,
+    highlight: highlight, useResult: useResult, usePole: usePole,
+    mode: mode, limit: limit, syncMode: syncMode, show: show,
     planeSize: planeSize, planeAlpha: planeAlpha, domainAlpha: domainAlpha,
     blockGeometry: blockGeometry, blockUsesAoi: blockUsesAoi,
     planeDraw: planeDraw, planeClip: planeClip, patchOf: patchOf,

@@ -15,8 +15,13 @@
      · a POLE is the plane's normal, one dot instead of an arc
      · an INTERSECTION is where two great circles cross: the wedge axis, the
        direction the block would slide
-     · the shaded crescent is the critical zone. Intersections inside it
-       daylight out of the face and plunge steeper than friction
+     · the shading is the critical zone of the failure mode chosen in the
+       panel — red primary, amber secondary — and what falls inside it is
+       whichever population that mode tests: intersections for wedge sliding
+       and direct toppling, poles for planar sliding and flexural toppling.
+       The dashed curves are the constructions it is cut from (the daylight
+       envelope, the slip limit, the friction cone) and the two straight lines
+       across the net are the lateral limits
 
    The plot is deliberately unclipped by the terrain: it describes orientations,
    not places. What happens in a particular place is the 3D view's job.
@@ -107,6 +112,9 @@ SM.Net = (function () {
    *   planes   : [{name, dip, dipDir, on, color}]
    *   face     : {dip, dipDir}          the slope being assessed
    *   phi      : friction angle, degrees
+   *   mode     : failure mode id — decides which zones are shaded and which
+   *              way round the friction cone is measured
+   *   limit    : lateral limits in degrees, or null where the mode has none
    *   result   : Struct.analyse(...) or null
    *   show     : {net, zones, cone, faceGC, planes, poles, ints, labels}
    *   equalArea: false = Wulff (Dips default), true = Schmidt
@@ -147,29 +155,75 @@ SM.Net = (function () {
       g.restore();
     }
 
-    /* ---- critical zones, under everything else ---- */
-    if (show.zones && model.face) {
-      var sec = Struct.secondaryZones(model.face, model.phi, ea);
+    /* ---- critical zones, under everything else ----
+       Every shape comes from Struct.zones, built out of the same inequalities
+       the results table classifies with. The plot holds no rules of its own:
+       whatever the mode is, this paints what it was handed. */
+    var Z = model.face
+      ? Struct.zones(model.mode, model.face, model.phi, model.limit, ea)
+      : null;
+    if (show.zones && Z) {
       g.fillStyle = col('--warn', '#ffb300');
       g.globalAlpha = 0.16;
-      sec.forEach(function (lobe) { poly(g, F, lobe, true); g.fill(); });
-      var pri = Struct.primaryZone(model.face, model.phi, ea);
-      if (pri) {
-        g.fillStyle = col('--bad', '#ff5252');
-        g.globalAlpha = 0.24;
-        poly(g, F, pri, true); g.fill();
-      }
+      Z.secondary.forEach(function (lobe) { poly(g, F, lobe, true); g.fill(); });
+      g.fillStyle = col('--bad', '#ff5252');
+      g.globalAlpha = 0.24;
+      Z.primary.forEach(function (p) { poly(g, F, p, true); g.fill(); });
       g.globalAlpha = 1;
+
+      /* the constructions the zones are cut from — the daylight envelope, the
+         slip limit, the slope-angle circle — drawn thin so the boundary can be
+         read off the plot rather than taken on trust */
+      g.save();
+      g.setLineDash([4, 3]);
+      g.strokeStyle = col('--warn', '#ffb300');
+      g.lineWidth = 1.2;
+      Z.curves.forEach(function (c) { poly(g, F, c.pts); g.stroke(); });
+      Z.circles.forEach(function (c) {
+        g.beginPath();
+        g.arc(F.cx, F.cy, F.r * Struct.plungeRadius(c.plunge, ea), 0, 2 * Math.PI);
+        g.stroke();
+      });
+      /* the lateral limits: two full lines across the net, as in Dips */
+      g.strokeStyle = col('--dim2', '#6d7887');
+      Z.diameters.forEach(function (t) {
+        var ux = Math.sin(t * DEG), uy = -Math.cos(t * DEG);
+        g.beginPath();
+        g.moveTo(F.cx - ux * F.r, F.cy - uy * F.r);
+        g.lineTo(F.cx + ux * F.r, F.cy + uy * F.r);
+        g.stroke();
+      });
+      g.restore();
+
+      /* Dips' zone numbers. Direct toppling has three regions in two colours —
+         one of them is primary for an intersection and secondary for a pole —
+         so the shading alone cannot say which is which. */
+      if (Z.labels.length) {
+        g.font = '10px Segoe UI, sans-serif';
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        Z.labels.forEach(function (L) {
+          var s = toScreen(F, L.trend, L.plunge, ea);
+          g.fillStyle = col('--panel', '#1c222b');
+          g.globalAlpha = 0.75;
+          g.beginPath(); g.arc(s[0], s[1], 7, 0, 2 * Math.PI); g.fill();
+          g.globalAlpha = 1;
+          g.fillStyle = col('--dim', '#8f9bab');
+          g.fillText(L.text, s[0], s[1]);
+        });
+      }
     }
 
-    /* ---- friction cone: a circle at plunge = phi, measured from the rim ---- */
+    /* ---- friction cone. For a line it is φ measured in from the rim; for a
+       pole it is φ from the centre, and drawing the wrong one puts the circle
+       in the mirror-image place. The mode decides. ---- */
     if (show.cone) {
       g.save();
       g.setLineDash([5, 4]);
       g.strokeStyle = col('--bad', '#ff5252');
       g.lineWidth = 1.4;
       g.beginPath();
-      g.arc(F.cx, F.cy, F.r * Struct.plungeRadius(model.phi, ea), 0, 2 * Math.PI);
+      g.arc(F.cx, F.cy, F.r * Struct.plungeRadius(Struct.coneFor(model.mode, model.phi).plunge, ea),
+        0, 2 * Math.PI);
       g.stroke();
       g.restore();
     }
@@ -182,7 +236,18 @@ SM.Net = (function () {
       g.stroke();
     }
 
-    /* ---- the discontinuities ---- */
+    /* ---- the discontinuities ----
+       Under a pole mode the poles ARE the result, so each one is filled with
+       the zone it landed in and outlined in the plane's own colour: the
+       identity stays readable, and which of them matter is visible without
+       reading the table. */
+    var poleZone = {};
+    if (model.result && model.result.poles && model.result.poles.length) {
+      model.result.poles.forEach(function (e) {
+        var k = (model.planes || []).indexOf(e.p);
+        if (k >= 0) poleZone[k] = e.zone;
+      });
+    }
     (model.planes || []).forEach(function (P, i) {
       if (P.on === false) return;
       var lit = model.hi && model.hi.kind === 'plane' && model.hi.index === i;
@@ -198,7 +263,11 @@ SM.Net = (function () {
       if (show.poles) {
         var pl = Struct.pole(P.dip, P.dipDir);
         var s = toScreen(F, pl.trend, pl.plunge, ea);
-        dot(g, s, lit ? 5.5 : 4, c, col('--bg', '#12161c'));
+        var pz = poleZone[i];
+        var fill = pz === 'primary' ? col('--bad', '#ff5252')
+          : pz === 'secondary' ? col('--warn', '#ffb300') : c;
+        dot(g, s, lit ? 5.5 : (pz === 'primary' ? 5 : 4), fill,
+          pz && pz !== 'none' ? c : col('--bg', '#12161c'));
         hits.poles.push({ x: s[0], y: s[1], index: i });
       }
     });
@@ -251,13 +320,14 @@ SM.Net = (function () {
   }
 
   /**
-   * What is under the pointer. Intersections win over poles when both are in
-   * reach: the intersections are what the analysis is about, and they are the
-   * smaller target of the two.
+   * What is under the pointer. Whichever population the mode is actually
+   * testing wins when both are in reach — under planar sliding the poles are
+   * the analysis, and under wedge sliding the intersections are.
    */
   function hitAt(model, px, py) {
     var h = model._hits;
     if (!h) return null;
+    var poleFirst = model.result && model.result.plots === 'poles';
     function nearest(list, kind) {
       var best = null;
       for (var i = 0; i < list.length; i++) {
@@ -266,7 +336,9 @@ SM.Net = (function () {
       }
       return best;
     }
-    return nearest(h.ints, 'pair') || nearest(h.poles, 'plane');
+    return poleFirst
+      ? (nearest(h.poles, 'plane') || nearest(h.ints, 'pair'))
+      : (nearest(h.ints, 'pair') || nearest(h.poles, 'plane'));
   }
 
   /** the trend/plunge the cursor is sitting on, for a live read-out */

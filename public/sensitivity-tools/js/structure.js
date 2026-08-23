@@ -414,8 +414,18 @@ var Struct = (function () {
      Kinematic analysis.
 
      Following Dips: the slope face is one plane (dip / dip direction), the
-     friction angle φ is shared by both joint surfaces, and the test is run on
-     the LINES OF INTERSECTION of every enabled pair of planes.
+     friction angle φ is shared by every joint surface, and each mode runs its
+     test on one of two populations — the LINES OF INTERSECTION of every
+     enabled pair of planes, or the POLES of the planes themselves.
+
+     All five Dips modes are here. Which population each uses, and whether the
+     LATERAL LIMITS apply, is declared in MODES below and dispatched in
+     `analyse`; the individual tests are `wedgeZone`, `planarZone`,
+     `flexuralZone`, `directZone` and `baseZone`, each with the Dips criteria
+     written out above it. The critical zones they describe are turned into
+     polygons for the stereonet by `zones`, from the same inequalities — the
+     shading and the answers cannot disagree, because there is one statement of
+     each rule.
 
      Wedge sliding, verbatim from the Dips documentation:
        · primary critical zone   — inside the plane friction cone and outside
@@ -469,10 +479,46 @@ var Struct = (function () {
     return CONTACT_RANK[contactState(pair)] >= CONTACT_RANK.air;
   }
 
+  /**
+   * The failure modes, in Dips' own order.
+   *
+   *   plots   which population the mode counts. 'intersections' tests every
+   *           pair of planes, 'poles' tests every plane on its own, 'both'
+   *           needs the two together — direct toppling is the only one, and it
+   *           is the reason this field exists rather than a boolean.
+   *   limits  whether LATERAL LIMITS apply. Planar sliding, flexural toppling
+   *           and direct toppling all restrict the critical zone to structures
+   *           squarely enough aligned with the wall to break out of it; wedge
+   *           sliding is the one mode with none, because the second plane
+   *           frees the block sideways by itself.
+   */
   var MODES = [
-    { id: 'wedge', name: 'Wedge sliding', plots: 'intersections',
-      hint: 'Every pair of planes is intersected; the wedge slides down that line of intersection.' }
+    { id: 'wedge', name: 'Wedge sliding', plots: 'intersections', limits: false,
+      hint: 'Every pair of planes is intersected; the wedge slides down that line of intersection.' },
+    { id: 'planar', name: 'Planar sliding', plots: 'poles', limits: true,
+      hint: 'Each plane on its own: a slab daylights out of the face, dips steeper than φ, ' +
+        'and strikes near enough parallel to the wall to release.' },
+    { id: 'planarNL', name: 'Planar sliding (no limits)', plots: 'poles', limits: false,
+      hint: 'The same test with the lateral limits turned off — the whole daylight envelope ' +
+        'counts. This is the Markland test.' },
+    { id: 'flexural', name: 'Flexural toppling', plots: 'poles', limits: true,
+      hint: 'Steep layers dipping INTO the face, free to slip against one another and bend ' +
+        'out of the wall. Goodman’s slip limit: the layer normal must be flatter than φ above the slope.' },
+    { id: 'direct', name: 'Direct toppling', plots: 'both', limits: true,
+      hint: 'Two joint sets whose intersections dip into the face cut discrete blocks; a third ' +
+        'set gives them a base to topple over. Intersections AND base-plane poles are both tested.' }
   ];
+
+  /** the usual lateral limit — Dips suggests 20° to 30°, and 20 is its default */
+  var LIMIT = 20;
+
+  function modeOf(id) {
+    for (var i = 0; i < MODES.length; i++) if (MODES[i].id === id) return MODES[i];
+    return MODES[0];
+  }
+
+  /** how far off an axis a bearing lies, 0…180 — the lateral-limit measure */
+  function offAxis(trend, axis) { return Math.abs(angDiff(trend, axis)); }
 
   /** does a downward line escape from the face, and by how much room to spare? */
   function daylight(face, trend, plunge) {
@@ -529,6 +575,271 @@ var Struct = (function () {
     return best;
   }
 
+  /* ---------------------------------------------------- planar sliding
+     Dips plots POLES (or dip vectors — the same test read either way) and
+     calls a plane critical when it is all three of:
+
+       · inside the DAYLIGHT ENVELOPE. The plane's dip vector points out of
+         the face and is flatter than the face is along that same bearing, so
+         the slab can slide out into space rather than into the wall. That is
+         the `daylight` test above, applied to the dip vector.
+       · outside the POLE FRICTION CONE. The cone angle is φ measured from the
+         CENTRE of the net, and a pole of plunge 90−δ sits at δ from the
+         centre — so "outside the cone" is exactly δ > φ, the plane dipping
+         steeper than friction.
+       · inside the LATERAL LIMITS. Planar failure is only ever seen where the
+         slab can break out more or less square to the wall; ±20° to ±30° of
+         the face's dip direction is the usual allowance.
+
+     The lateral limits are the ONLY difference between this mode and planar
+     sliding (no limits), so a plane that fails on that count alone is not
+     thrown away — it is reported SECONDARY. Those are the slabs that
+     daylight and beat friction but strike obliquely, and switching to the
+     no-limits mode turns every one of them red. */
+  function planarZone(plane, face, phi, limit) {
+    var dip = clampDip(plane.dip), dir = wrap360(plane.dipDir);
+    var dl = daylight(face, dir, dip);
+    var res = { zone: 'none', apparent: dl.apparent, off: offAxis(dir, face.dipDir), why: '' };
+    if (!dl.out) {
+      res.why = dl.apparent <= 0
+        ? 'dips into the wall, not out of it'
+        : 'dips ' + dip.toFixed(1) + '° — steeper than the face\'s ' + dl.apparent.toFixed(1) +
+          '° along that bearing, so the slab is buried and cannot daylight';
+      return res;
+    }
+    if (dip <= phi) {
+      res.why = 'daylights, but dips ' + dip.toFixed(1) + '° — flatter than φ ' +
+        phi.toFixed(0) + '°, so it holds on friction alone';
+      return res;
+    }
+    if (limit != null && res.off > limit) {
+      res.zone = 'secondary';
+      res.why = 'daylights and beats φ, but its dip direction is ' + Math.round(res.off) +
+        '° off the face — outside the ±' + Math.round(limit) + '° lateral limits, so it has ' +
+        'no release to break out sideways';
+      return res;
+    }
+    res.zone = 'primary';
+    res.why = 'daylights at ' + dl.apparent.toFixed(1) + '°, dips ' + dip.toFixed(1) +
+      '° > φ ' + phi.toFixed(0) + '°' +
+      (limit == null ? '' : ', ' + Math.round(res.off) + '° off the face dip direction');
+    return res;
+  }
+
+  /* -------------------------------------------------- flexural toppling
+     Goodman (1980): for the layers to slip past one another — which is what
+     lets a toppling column bend out of the wall at all — the BEDDING NORMAL
+     must be inclined less steeply than a line at the friction angle above the
+     slope. Written as dips that is
+
+         (90 − δ_joint)  ≤  δ_face − φ
+
+     with the layers dipping into the face. Dips draws the right-hand side as
+     the SLIP LIMIT: a plane of dip (δ_face − φ) in the face's own dip
+     direction. Poles outside its great circle topple; poles inside it do not.
+     Off the face's dip direction that great circle is the inequality above
+     with the apparent dip in place of the true one, which is the same
+     relaxation Dips makes and the reason the limits are not optional here.
+
+     Lateral limits are mandatory for this mode in Dips. A layer striking
+     obliquely still has a pole outside the slip limit, so without them the
+     test would call a wall critical on structure that cannot topple towards
+     it; those are reported SECONDARY rather than dropped. */
+  function flexuralZone(plane, face, phi, limit) {
+    var dip = clampDip(plane.dip), dir = wrap360(plane.dipDir);
+    var pl = pole(dip, dir);
+    var slip = clampDip(face.dip) - phi;
+    var res = { zone: 'none', apparent: 0, off: offAxis(pl.trend, face.dipDir),
+      pole: pl, slip: slip, why: '' };
+    if (!(slip > 0)) {
+      res.why = 'the face dips ' + clampDip(face.dip).toFixed(0) + '° — flatter than φ ' +
+        phi.toFixed(0) + '°, so no inter-layer slip is possible on any structure';
+      return res;
+    }
+    var out = daylight({ dip: slip, dipDir: face.dipDir }, pl.trend, pl.plunge);
+    res.apparent = out.apparent;
+    if (!out.out) {
+      res.why = out.apparent <= 0
+        ? 'dips out of the face rather than into it — nothing to topple'
+        : 'its pole plunges ' + pl.plunge.toFixed(1) + '°, inside the ' + slip.toFixed(1) +
+          '° slip limit: the layers cannot slip past one another, so the column cannot bend out';
+      return res;
+    }
+    if (limit != null && res.off > limit) {
+      res.zone = 'secondary';
+      res.why = 'steep enough into the face for inter-layer slip, but striking ' +
+        Math.round(res.off) + '° off square — outside the ±' + Math.round(limit) +
+        '° lateral limits, so the columns lean across the wall rather than out of it';
+      return res;
+    }
+    res.zone = 'primary';
+    res.why = 'dips ' + dip.toFixed(1) + '° into the face; its pole at ' + pl.plunge.toFixed(1) +
+      '° clears the ' + slip.toFixed(1) + '° slip limit (face ' + clampDip(face.dip).toFixed(0) +
+      '° − φ ' + phi.toFixed(0) + '°)';
+    return res;
+  }
+
+  /* ---------------------------------------------------- direct toppling
+     Two populations, and the mode is only real when both are present.
+
+     INTERSECTIONS — the edges of the blocks. Dips takes them as critical when
+     they dip INTO the slope within the lateral limits and plunge steeper than
+     a circle of cone angle equal to the slope angle: zones 1 and 2, the
+     primary zone. Near-vertical intersections outside the lateral limits are
+     zone 3, OBLIQUE toppling, and are bounded by the friction cone.
+
+     POLES — the base planes those blocks topple over. A pole inside the
+     friction cone (a plane flatter than φ) is a release surface only: zones 2
+     and 3. A pole outside the friction cone but inside the slope-angle circle
+     and within the lateral limits is zone 1: a base plane that can slide as
+     well as release. */
+  function directZone(trend, plunge, face, phi, limit) {
+    var g = directGeom(face, phi, limit), res = { zone: 'none', apparent: 0, off: 0, why: '' };
+    var w = directWhere(trend, plunge, g);
+    res.off = w.off;
+    if (w.zone === 1 || w.zone === 2) {
+      res.zone = 'primary';
+      res.why = 'plunges ' + plunge.toFixed(1) + '° into the slope, steeper than the ' +
+        g.slopeP.toFixed(1) + '° slope-angle circle and ' + Math.round(w.off) +
+        '° off square — blocks can form and topple over a base plane';
+      return res;
+    }
+    if (w.zone === 3) {
+      res.zone = 'secondary';
+      res.why = 'near vertical at ' + plunge.toFixed(1) + '° and ' + Math.round(w.off) +
+        '° off the slope, outside the lateral limits — inside the friction cone, so it can ' +
+        'only topple obliquely';
+      return res;
+    }
+    res.why = w.backwards
+      ? 'plunges ' + plunge.toFixed(1) + '° but towards the face, not into the slope — the ' +
+        'blocks lean out of the wall already and there is nothing to rotate over'
+      : plunge < g.slopeP
+        ? 'plunges ' + plunge.toFixed(1) + '° — flatter than the ' + g.slopeP.toFixed(1) +
+          '° slope-angle circle, so no block stands up on it'
+        : 'lies ' + Math.round(w.off) + '° off the slope, outside the ±' + Math.round(g.lim) +
+          '° lateral limits and outside the friction cone';
+    return res;
+  }
+
+  /**
+   * The three circles and two lines the direct-toppling zones are cut from.
+   * One function, so the test and the shaded polygons cannot drift apart.
+   */
+  function directGeom(face, phi, limit) {
+    return {
+      into: wrap360(face.dipDir + 180),            // the into-slope bearing
+      out: wrap360(face.dipDir),                   // the other end of the same line
+      slopeP: 90 - clampDip(face.dip),             // circle at cone angle = slope angle
+      fricP: 90 - phi,                             // the pole friction cone
+      lim: limit == null ? LIMIT : limit
+    };
+  }
+
+  /**
+   * Which of Dips' three zones a point falls in — 0 for none.
+   *
+   * Measured straight off the Dips overlay figure rather than inferred, because
+   * two things about it are easy to get wrong and neither is written down:
+   *
+   *   · the overlay carries THREE diameters, not two. Two are the lateral
+   *     limits, at ±limit about the slope dip direction; the third is the
+   *     slope's STRIKE, at ±90°, and that is what bounds zone 3. So zone 3
+   *     runs from the lateral limit out to 90° off the into-slope bearing and
+   *     stops there. Beyond 90° the line dips out of the face rather than into
+   *     it, and Dips leaves that whole half of the friction cone unshaded —
+   *     rightly: a block edge plunging towards the face already leans out of
+   *     the wall, and there is nothing for it to rotate over.
+   *   · zones 1 and 2 are ONE red sector reaching the centre. The friction
+   *     cone drawn across it is what separates them, and it separates them
+   *     only for the poles: an intersection anywhere in that sector cuts a
+   *     block, while a pole inside the cone is a release surface and a pole
+   *     outside it is a base plane that can slide as well.
+   *
+   *   1  in the into-slope lobe, inside the slope-angle circle, OUTSIDE the
+   *      friction cone
+   *   2  the same lobe, inside the friction cone
+   *   3  inside the friction cone, between the lateral limit and 90° off —
+   *      oblique toppling
+   *   0  everything else
+   */
+  function directWhere(trend, plunge, g) {
+    var off = offAxis(trend, g.into);
+    if (off <= g.lim) {
+      if (plunge < g.slopeP) return { zone: 0, off: off, backwards: false };
+      return { zone: plunge >= g.fricP ? 2 : 1, off: off, backwards: false };
+    }
+    if (off <= 90 && plunge >= g.fricP) return { zone: 3, off: off, backwards: false };
+    return { zone: 0, off: off, backwards: off > 90 };
+  }
+
+  /**
+   * The base-plane half of direct toppling: what one plane could do for a block.
+   *
+   * Read off exactly the same three zones as the intersections, which is the
+   * point of Dips plotting both populations on one overlay:
+   *
+   *   zone 1        outside the friction cone — the plane dips steeper than φ
+   *                 but flatter than the wall, so blocks can SLIDE on it as
+   *                 well as topple over it
+   *   zones 2 & 3   inside the friction cone — nothing slides on a plane that
+   *                 flat, but it still lets the blocks go. Release only, and
+   *                 that is a secondary finding whichever of the two it is:
+   *                 the lateral limits separate a base plane square to the
+   *                 wall from an oblique one, not a real one from a paper one.
+   */
+  function baseZone(plane, face, phi, limit) {
+    var dip = clampDip(plane.dip), pl = pole(dip, wrap360(plane.dipDir));
+    var g = directGeom(face, phi, limit);
+    var w = directWhere(pl.trend, pl.plunge, g);
+    var res = { zone: 'none', role: 'none', off: w.off, pole: pl, apparent: 0, why: '' };
+    if (w.zone === 1) {
+      res.zone = 'primary';
+      res.role = 'sliding';
+      res.why = 'dips ' + dip.toFixed(1) + '° out of the face, steeper than φ ' +
+        phi.toFixed(0) + '° and flatter than the wall — a base plane the blocks can ' +
+        'slide on as well as topple over';
+      return res;
+    }
+    if (w.zone === 2 || w.zone === 3) {
+      res.zone = 'secondary';
+      res.role = 'release';
+      res.why = 'dips ' + dip.toFixed(1) + '° — flatter than φ ' + phi.toFixed(0) +
+        '°, so nothing slides on it, but it can act as ' +
+        (w.zone === 2 ? 'a base for the blocks to topple over'
+          : 'an oblique release surface (' + Math.round(w.off) + '° off the slope)');
+      return res;
+    }
+    res.why = w.backwards
+      ? 'dips back into the hill rather than out of the face — it holds the blocks up ' +
+        'rather than letting them go'
+      : pl.plunge < g.slopeP
+        ? 'dips ' + dip.toFixed(1) + '° — steeper than the face, so it undercuts nothing'
+        : 'lies ' + Math.round(w.off) + '° off the slope, outside the ±' + Math.round(g.lim) +
+          '° lateral limits';
+    return res;
+  }
+
+  /**
+   * Where a toppling column's face actually goes.
+   *
+   * A column rotating about its base moves perpendicular to its own axis, in
+   * the vertical plane that contains it: out of the wall and down. So for an
+   * axis plunging p towards θ INTO the slope, the movement is (θ+180, 90−p) —
+   * a column standing vertical topples horizontally outwards, one leaning back
+   * at 70° moves out and 20° down. For flexural toppling the axis is the
+   * layer's dip vector, which makes the movement direction its pole; for
+   * direct toppling it is the line of intersection cutting the block.
+   *
+   * This is not something Dips reports — Dips stops at critical or not. It is
+   * needed here because the whole point of the tab is to hand a movement
+   * direction to the sensitivity model, and a toppling wall does not move down
+   * the dip of anything.
+   */
+  function toppleVector(trend, plunge) {
+    return { trend: wrap360(trend + 180), plunge: Math.max(0, Math.min(90, 90 - plunge)) };
+  }
+
   /**
    * Run the failure-mode test over every pair of enabled planes.
    *
@@ -542,17 +853,27 @@ var Struct = (function () {
    */
   function analyse(planes, face, phi, mode, opts) {
     var live = (planes || []).filter(function (p) { return p && p.on !== false; });
-    var pairs = [], nPrimary = 0, nSecondary = 0;
+    var pairs = [], poles = [], nPrimary = 0, nSecondary = 0;
     phi = +phi || 0;
     opts = opts || {};
+    var M = modeOf(mode);
+    /* Lateral limits belong to the mode, not to the operator: wedge sliding
+       has none to set, and turning them off is what "planar sliding (no
+       limits)" IS. So the number is read only where the mode says it counts. */
+    var limit = M.limits
+      ? (opts.limit == null ? LIMIT : Math.max(0, Math.min(90, +opts.limit || 0)))
+      : null;
     /* `patch(plane)` turns a mapped plane into its drawn extent, or null when
        it has no location. Without it every pair is untestable and the analysis
        behaves exactly as it did before — which is what a pure orientation
        study wants. */
     var patchOf = opts.patch || function () { return null; };
     var surfaceZ = opts.surface || null;
-    var nApart = 0, nUntested = 0, nAir = 0;
-    for (var i = 0; i < live.length; i++) {
+    var nApart = 0, nUntested = 0, nAir = 0, nSliding = 0, nRelease = 0;
+    /* Which populations this mode counts. Direct toppling is the one that
+       needs both: intersections cut the blocks, poles give them a base. */
+    var doPairs = M.plots !== 'poles', doPoles = M.plots !== 'intersections';
+    for (var i = 0; doPairs && i < live.length; i++) {
       for (var j = i + 1; j < live.length; j++) {
         var A = live[i], B = live[j];
         var L = intersection(A, B);
@@ -572,26 +893,38 @@ var Struct = (function () {
         else if (rock && rock.status === 'air') nAir++;
         if (opts.onlyContact && (contact === false || (rock && rock.status === 'air'))) continue;
 
-        var z = wedgeZone(L.trend, L.plunge, face, phi);
-        var slide = { trend: L.trend, plunge: L.plunge, on: 'both planes' };
-        if (z.zone === 'secondary') {
-          var sp = slidingPlane(A, B, face, phi);
-          if (sp) {
-            var dv = { trend: sp.plane.dipDir, plunge: clampDip(sp.plane.dip) };
-            slide = { trend: dv.trend, plunge: dv.plunge, on: sp.plane.name };
-          } else {
-            /* nothing can actually release — demote it rather than report a
-               critical wedge with no mechanism behind it */
-            z = { zone: 'none', apparent: z.apparent,
-              why: 'flatter than φ and neither joint dips steeper than φ into the face' };
+        var z, slide;
+        if (M.id === 'direct') {
+          /* the block edge, not a sliding line: the pair is here because two
+             steep joints cut a column out of the wall, and what moves is the
+             column rotating over its base */
+          z = directZone(L.trend, L.plunge, face, phi, limit);
+          var tv = toppleVector(L.trend, L.plunge);
+          slide = { trend: tv.trend, plunge: tv.plunge,
+            on: z.zone === 'secondary' ? 'toppling obliquely out of the face'
+              : 'toppling out of the face' };
+        } else {
+          z = wedgeZone(L.trend, L.plunge, face, phi);
+          slide = { trend: L.trend, plunge: L.plunge, on: 'both planes' };
+          if (z.zone === 'secondary') {
+            var sp = slidingPlane(A, B, face, phi);
+            if (sp) {
+              var dv = { trend: sp.plane.dipDir, plunge: clampDip(sp.plane.dip) };
+              slide = { trend: dv.trend, plunge: dv.plunge, on: sp.plane.name };
+            } else {
+              /* nothing can actually release — demote it rather than report a
+                 critical wedge with no mechanism behind it */
+              z = { zone: 'none', apparent: z.apparent,
+                why: 'flatter than φ and neither joint dips steeper than φ into the face' };
+            }
           }
         }
         if (z.zone === 'primary') nPrimary++;
         else if (z.zone === 'secondary') nSecondary++;
         pairs.push({
-          a: A, b: B, ai: i, bi: j,
+          a: A, b: B, ai: i, bi: j, kind: 'pair',
           trend: L.trend, plunge: L.plunge,
-          zone: z.zone, why: z.why, apparent: z.apparent,
+          zone: z.zone, why: z.why, apparent: z.apparent, off: z.off,
           slide: slide, contact: contact, seg: seg, rock: rock
         });
       }
@@ -607,11 +940,55 @@ var Struct = (function () {
       if (zone[p.zone] !== zone[q.zone]) return zone[p.zone] - zone[q.zone];
       return q.plunge - p.plunge;
     });
-    var total = pairs.length;
+
+    /* ---- the pole population: one row per plane, for the modes that fail on
+       a single structure rather than on a pair of them ---- */
+    if (doPoles) {
+      live.forEach(function (P, pi) {
+        var dip = clampDip(P.dip), dir = wrap360(P.dipDir);
+        var z = M.id === 'flexural' ? flexuralZone(P, face, phi, limit)
+          : M.id === 'direct' ? baseZone(P, face, phi, limit)
+            : planarZone(P, face, phi, limit);
+        var pl = pole(dip, dir), slide = null;
+        if (M.id === 'flexural') {
+          var tv = toppleVector(dir, dip);            // = the pole, taken out of the face
+          slide = { trend: tv.trend, plunge: tv.plunge, on: 'toppling on ' + P.name };
+        } else if (M.id === 'direct') {
+          /* a release plane has no movement direction of its own — what moves
+             is the block above it, and that comes off the intersection row */
+          if (z.role === 'sliding') slide = { trend: dir, plunge: dip, on: P.name };
+        } else {
+          slide = { trend: dir, plunge: dip, on: P.name };
+        }
+        if (M.id === 'direct') {
+          if (z.role === 'sliding') nSliding++;
+          else if (z.role === 'release') nRelease++;
+        } else if (z.zone === 'primary') nPrimary++;
+        else if (z.zone === 'secondary') nSecondary++;
+        poles.push({
+          p: P, pi: pi, kind: 'pole', name: P.name,
+          dip: dip, dipDir: dir, trend: pl.trend, plunge: pl.plunge,
+          zone: z.zone, role: z.role || null, why: z.why, apparent: z.apparent, off: z.off,
+          slide: slide, placed: !!patchOf(P)
+        });
+      });
+      var pzone = { primary: 0, secondary: 1, none: 2 };
+      poles.sort(function (p, q) {
+        if (pzone[p.zone] !== pzone[q.zone]) return pzone[p.zone] - pzone[q.zone];
+        return q.dip - p.dip;
+      });
+    }
+
+    /* What the mode's percentage is a percentage OF. Direct toppling counts
+       its intersections, the way Dips does, and reports the base planes
+       beside them rather than mixing two populations into one figure. */
+    var total = M.plots === 'poles' ? poles.length : pairs.length;
     return {
-      mode: mode || 'wedge', face: face, phi: phi,
-      planes: live, pairs: pairs, total: total,
+      mode: M.id, modeName: M.name, plots: M.plots, limit: limit,
+      face: face, phi: phi,
+      planes: live, pairs: pairs, poles: poles, total: total,
       nPrimary: nPrimary, nSecondary: nSecondary,
+      nSliding: nSliding, nRelease: nRelease, nBase: nSliding + nRelease,
       /* how many pairs were mapped apart, and how many could not be tested
          because a plane has no location — both belong in the summary, because
          a percentage means something different depending on them */
@@ -675,8 +1052,179 @@ var Struct = (function () {
     return lobes;
   }
 
+  /* ---------------------------------------------- the other modes' zones
+
+     Every one of them is the region between two plunge curves over a range of
+     bearings, so they are all built by the same sweep. `lo` is the outer edge
+     (the smaller plunge, further from the centre) and `hi` the inner one;
+     either may be a constant or a function of the bearing. */
+  function band(t0, t1, lo, hi, equalArea, steps) {
+    var N = steps || 90, out = [], i, t;
+    var fLo = typeof lo === 'function' ? lo : function () { return lo; };
+    var fHi = typeof hi === 'function' ? hi : function () { return hi; };
+    for (i = 0; i <= N; i++) { t = t0 + (t1 - t0) * i / N; out.push(project(t, fLo(t), equalArea)); }
+    for (i = N; i >= 0; i--) { t = t0 + (t1 - t0) * i / N; out.push(project(t, fHi(t), equalArea)); }
+    return out;
+  }
+
+  /** a circle of constant plunge — a cone about the vertical, as a polygon */
+  function circleZone(plunge, equalArea, steps) {
+    var N = steps || 120, out = [];
+    for (var i = 0; i <= N; i++) out.push(project(360 * i / N, plunge, equalArea));
+    return out;
+  }
+
+  /**
+   * The daylight envelope: every pole whose plane's dip vector points out of
+   * the face. For a pole trend t the plane dips towards t+180, and the steepest
+   * it can be and still daylight is the face's apparent dip along that bearing
+   * — so the envelope is plunge = 90 − apparent, closing at the centre of the
+   * net at ±90° where the apparent dip runs out.
+   */
+  function daylightEnvelope(face, equalArea, steps) {
+    var d = clampDip(face.dip), N = steps || 120, out = [];
+    for (var i = 0; i <= N; i++) {
+      var t = face.dipDir + 90 + 180 * i / N;         // pole trends: the back half
+      out.push(project(t, 90 - Math.max(0, apparentDip(d, face.dipDir, t + 180)), equalArea));
+    }
+    return out;
+  }
+
+  /** planar sliding: inside the envelope, outside the pole friction cone */
+  function planarZones(face, phi, limit, equalArea, steps) {
+    var d = clampDip(face.dip), out = { primary: [], secondary: [] };
+    if (!(d > phi)) return out;                        // a wall flatter than φ releases nothing
+    var k = Math.tan(phi * DEG) / Math.tan(d * DEG);
+    if (k >= 1) return out;
+    var half = Math.acos(Math.max(-1, Math.min(1, k))) / DEG;
+    var into = face.dipDir + 180;
+    var lo = function (t) { return 90 - Math.max(phi, apparentDip(d, face.dipDir, t + 180)); };
+    var hi = 90 - phi;
+    var lim = limit == null ? half : Math.min(half, limit);
+    out.primary.push(band(into - lim, into + lim, lo, hi, equalArea, steps));
+    if (limit != null && limit < half) {
+      out.secondary.push(band(into + limit, into + half, lo, hi, equalArea, steps));
+      out.secondary.push(band(into - half, into - limit, lo, hi, equalArea, steps));
+    }
+    return out;
+  }
+
+  /** flexural toppling: poles outside the slip limit, inside the lateral limits */
+  function flexuralZones(face, phi, limit, equalArea, steps) {
+    var slip = clampDip(face.dip) - phi, out = { primary: [], secondary: [] };
+    if (!(slip > 0)) return out;
+    var ax = face.dipDir, lim = limit == null ? LIMIT : limit;
+    var hi = function (t) { return Math.max(0, apparentDip(slip, ax, t)); };
+    out.primary.push(band(ax - lim, ax + lim, 0, hi, equalArea, steps));
+    /* the same band carried out to ±90°, where the slip limit meets the rim:
+       structure steep enough to topple but striking too obliquely to do it
+       towards this wall */
+    if (lim < 89) {
+      out.secondary.push(band(ax + lim, ax + 89.9, 0, hi, equalArea, steps));
+      out.secondary.push(band(ax - 89.9, ax - lim, 0, hi, equalArea, steps));
+    }
+    return out;
+  }
+
+  /**
+   * Direct toppling. Zones 1 and 2 together are one sector: within the lateral
+   * limits of the into-slope bearing, from the slope-angle circle in to the
+   * centre. Zone 3 — oblique toppling — is the rest of the friction cone, and
+   * it is emitted as the whole cone because the primary sector is painted over
+   * the top of it.
+   */
+  function directZones(face, phi, limit, equalArea, steps) {
+    var g = directGeom(face, phi, limit);
+    var out = { primary: [], secondary: [], labels: [] };
+    var into = g.into, lim = g.lim, mid = (g.fricP + 90) / 2;
+    /* zones 1 and 2 — one red sector on the into-slope bearing, from the
+       slope-angle circle all the way to the centre. The friction cone is drawn
+       across it and the numbers name the two halves, because the split matters
+       to the poles and not to the intersections. */
+    out.primary.push(band(into - lim, into + lim, g.slopeP, 90, equalArea, steps));
+    if (g.fricP > g.slopeP) {
+      out.labels.push({ text: '1', trend: into, plunge: (g.slopeP + g.fricP) / 2 });
+    }
+    out.labels.push({ text: '2', trend: into, plunge: mid });
+    /* zone 3 — from the lateral limit round to the strike, and no further.
+       Past 90° the structure dips out of the face, and that half of the
+       friction cone is not toppling of any kind. */
+    if (lim < 90) {
+      out.secondary.push(band(into + lim, into + 90, g.fricP, 90, equalArea, steps));
+      out.secondary.push(band(into - 90, into - lim, g.fricP, 90, equalArea, steps));
+      out.labels.push({ text: '3', trend: into + (lim + 90) / 2, plunge: mid });
+      out.labels.push({ text: '3', trend: into - (lim + 90) / 2, plunge: mid });
+    }
+    return out;
+  }
+
+  /**
+   * Everything the stereonet has to paint for one mode, in one object, so the
+   * plot holds no rules of its own:
+   *
+   *   primary/secondary  filled polygons, the critical zones
+   *   circles            stroked cones about the vertical, by plunge
+   *   curves             stroked reference lines — the daylight envelope, the
+   *                      slip limit
+   *   diameters          the lateral limits, as full lines across the net
+   *   labels             Dips' zone numbers, where a mode has more than two
+   *                      regions and the colours alone cannot say which is which
+   */
+  function zones(mode, face, phi, limit, equalArea, steps) {
+    var M = modeOf(mode);
+    var out = { primary: [], secondary: [], circles: [], curves: [], diameters: [], labels: [] };
+    if (!face) return out;
+    var lim = M.limits ? (limit == null ? LIMIT : limit) : null;
+    var d = clampDip(face.dip);
+    if (M.id === 'wedge') {
+      var pri = primaryZone(face, phi, equalArea, steps);
+      if (pri) out.primary.push(pri);
+      out.secondary = secondaryZones(face, phi, equalArea, steps);
+      return out;
+    }
+    if (M.id === 'planar' || M.id === 'planarNL') {
+      var pz = planarZones(face, phi, lim, equalArea, steps);
+      out.primary = pz.primary; out.secondary = pz.secondary;
+      out.curves.push({ kind: 'daylight', pts: daylightEnvelope(face, equalArea, steps) });
+    } else if (M.id === 'flexural') {
+      var fz = flexuralZones(face, phi, lim, equalArea, steps);
+      out.primary = fz.primary; out.secondary = fz.secondary;
+      if (d > phi) {
+        out.curves.push({ kind: 'slip', pts: greatCircle(d - phi, face.dipDir, 181, equalArea) });
+      }
+    } else if (M.id === 'direct') {
+      var dz = directZones(face, phi, lim, equalArea, steps);
+      out.primary = dz.primary; out.secondary = dz.secondary; out.labels = dz.labels;
+      /* both circles belong to the overlay here — the slope-angle circle caps
+         the red sector and the friction cone divides zone 1 from zone 2 — so
+         the cone is drawn whether or not the φ-cone switch is on */
+      out.circles.push({ kind: 'slope', plunge: 90 - d });
+      out.circles.push({ kind: 'friction', plunge: 90 - phi });
+      /* and a third diameter: the slope's STRIKE, which is where zone 3 stops */
+      out.diameters.push(face.dipDir + 90);
+    }
+    if (lim != null) out.diameters.push(face.dipDir - lim, face.dipDir + lim);
+    return out;
+  }
+
+  /**
+   * Where the friction cone goes for a mode, and what it means there.
+   *
+   * For a line — a wedge axis — the cone is φ measured from the RIM: a line
+   * flatter than φ plots outside it and cannot slide. For a pole it is φ from
+   * the CENTRE, and a pole outside it belongs to a plane steeper than φ. Same
+   * friction angle, opposite sense, and drawing the wrong one puts the circle
+   * in a mirror-image place on the plot.
+   */
+  function coneFor(mode, phi) {
+    var M = modeOf(mode);
+    return M.plots === 'intersections'
+      ? { plunge: phi, label: 'plane friction cone — a line flatter than φ plots outside it' }
+      : { plunge: 90 - phi, label: 'pole friction cone — a plane steeper than φ plots outside it' };
+  }
+
   return {
-    DEG: DEG, MAX_DIP: MAX_DIP, DIP_ASPECT: DIP_ASPECT,
+    DEG: DEG, MAX_DIP: MAX_DIP, DIP_ASPECT: DIP_ASPECT, LIMIT: LIMIT,
     clampDip: clampDip, wrap360: wrap360, angDiff: angDiff,
     cross: cross, dot: dot, norm: norm,
     planeNormal: planeNormal, dipVector: dipVector, strikeVector: strikeVector,
@@ -685,9 +1233,16 @@ var Struct = (function () {
     apparentDip: apparentDip, intersection: intersection,
     fitPlane: fitPlane, meanNormal: meanNormal,
     project: project, plungeRadius: plungeRadius, greatCircle: greatCircle,
-    MODES: MODES, daylight: daylight, wedgeZone: wedgeZone, slidingPlane: slidingPlane,
+    MODES: MODES, modeOf: modeOf, offAxis: offAxis,
+    daylight: daylight, wedgeZone: wedgeZone, slidingPlane: slidingPlane,
+    planarZone: planarZone, flexuralZone: flexuralZone,
+    directZone: directZone, directGeom: directGeom, directWhere: directWhere,
+    baseZone: baseZone, toppleVector: toppleVector,
     CONTACT_RANK: CONTACT_RANK, contactState: contactState, isEmptyWedge: isEmptyWedge,
-    analyse: analyse, primaryZone: primaryZone, secondaryZones: secondaryZones
+    analyse: analyse, primaryZone: primaryZone, secondaryZones: secondaryZones,
+    daylightEnvelope: daylightEnvelope, planarZones: planarZones,
+    flexuralZones: flexuralZones, directZones: directZones,
+    zones: zones, coneFor: coneFor, circleZone: circleZone
   };
 })();
 

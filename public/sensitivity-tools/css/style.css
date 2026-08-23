@@ -731,6 +731,15 @@ tr.zone-secondary td:first-child{box-shadow:inset 2px 0 0 var(--warn)}
 .structTable tr.stSplit{cursor:default}
 .structTable tr.stSplit:hover{background:transparent}
 
+/* a control the current failure mode has no use for — the lateral limits under
+   wedge sliding. Left in place so the panel does not reflow every time the mode
+   changes, but plainly not in play. */
+label.naCell{opacity:.42}
+/* direct toppling reports two populations, so its results need a heading
+   between the block edges and the base planes they topple over */
+.stSub{margin-top:12px}
+.stSub:first-child{margin-top:0}
+
 .stChip{
   display:inline-block;padding:1px 6px;border-radius:9px;font-size:9.5px;
   background:var(--panel2);color:var(--dim);border:1px solid var(--line2);white-space:nowrap

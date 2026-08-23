@@ -31,7 +31,7 @@ SM.Tree = (function () {
     { key: 'dom', name: 'Domain outlines & vectors', icon: 'wedge',
       hint: 'Each structural domain’s footprint draped on the terrain, with an arrow along the movement direction it forces' },
     { key: 'xline', name: 'Plane intersections', icon: 'wedge',
-      hint: 'The segment two mapped planes actually share, where they are in contact on the model — red where the wedge slides on both, amber on one, grey where it is stable. A pair with no line here never touches, however its poles plot' },
+      hint: 'The segment two mapped planes actually share, where they are in contact on the model — red where the pair is critical in the failure mode being tested, amber where it is a near miss, grey where it is neither. A pair with no line here never touches, however its poles plot. The pole modes — planar sliding, flexural toppling — test single planes and have no intersections to draw' },
     { key: 'fill', name: 'Shade drawn areas', icon: 'polygon',
       hint: 'Paint the area inside each polygon onto the terrain, not just its outline — the selection mask, every structural domain, and mapped planes as solid discs. The shading follows the raster, so it shows the cells the analysis actually claims' }
   ];

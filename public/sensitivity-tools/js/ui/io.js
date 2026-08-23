@@ -124,35 +124,70 @@ SM.IO = (function () {
    */
   function exportKinematics() {
     var r = S.kin;
-    if (!r || !r.total) { SM.status('Nothing to export — no plane pairs yet.'); return; }
-    var head = '# SensiMap kinematic analysis — ' + r.mode + '\n' +
+    if (!r || !r.total) { SM.status('Nothing to export — nothing has been tested yet.'); return; }
+    var q = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
+    var head = '# SensiMap kinematic analysis — ' + (r.modeName || r.mode) + '\n' +
       '# slope face ' + Math.round(r.face.dip) + '/' + Math.round(r.face.dipDir) +
-      '   friction angle ' + Math.round(r.phi) + ' deg\n' +
-      '# ' + r.nPrimary + ' sliding on both planes, ' + r.nSecondary + ' on one plane, ' +
-      r.total + ' intersections total (' + r.pctCritical.toFixed(1) + '% critical)\n' +
-      '# ' + r.nApart + ' pair(s) meet nowhere on the model' +
-      (r.filtered ? ' and were left out' : ' and are listed anyway') +
-      (r.nUntested ? ', ' + r.nUntested + ' untested for want of a location' : '') + '\n';
-    var rows = ['plane_a,dip_a,dipdir_a,plane_b,dip_b,dipdir_b,' +
-      'intersection_trend,intersection_plunge,face_apparent_dip,zone,' +
-      'in_contact,contact_length_m,slides_on,move_trend,move_plunge,note'];
-    r.pairs.forEach(function (p) {
-      rows.push([
-        '"' + p.a.name + '"', p.a.dip.toFixed(1), p.a.dipDir.toFixed(1),
-        '"' + p.b.name + '"', p.b.dip.toFixed(1), p.b.dipDir.toFixed(1),
-        p.trend.toFixed(1), p.plunge.toFixed(1), p.apparent.toFixed(1),
-        p.zone,
-        /* whether the two are actually in contact on the model, and over how
-           much line — a critical pair that meets nowhere is not a wedge, and a
-           review sheet has to carry that distinction */
-        p.contact === null ? 'untested' : (p.contact ? 'yes' : 'no'),
-        p.seg ? p.seg.length.toFixed(1) : '',
-        '"' + p.slide.on + '"', p.slide.trend.toFixed(1), p.slide.plunge.toFixed(1),
-        '"' + p.why.replace(/"/g, '""') + '"'
-      ].join(','));
-    });
+      '   friction angle ' + Math.round(r.phi) + ' deg' +
+      (r.limit == null ? '   no lateral limits' : '   lateral limits +/-' + Math.round(r.limit) + ' deg') +
+      '\n' +
+      '# ' + r.nPrimary + ' primary, ' + r.nSecondary + ' secondary of ' + r.total + ' ' +
+      (r.plots === 'poles' ? 'planes' : 'intersections') +
+      ' (' + r.pctCritical.toFixed(1) + '% critical)\n' +
+      (r.plots === 'both'
+        ? '# base planes: ' + r.nSliding + ' sliding, ' + r.nRelease + ' release-only\n' : '');
+    var out = [head];
+
+    /* the intersection population — wedge axes, or the edges of a toppling
+       block. Written first because it is what the mode counts. */
+    if (r.pairs.length) {
+      var rows = ['plane_a,dip_a,dipdir_a,plane_b,dip_b,dipdir_b,' +
+        'intersection_trend,intersection_plunge,face_apparent_dip,zone,' +
+        'in_contact,contact_length_m,moves_on,move_trend,move_plunge,note'];
+      r.pairs.forEach(function (p) {
+        rows.push([
+          q(p.a.name), p.a.dip.toFixed(1), p.a.dipDir.toFixed(1),
+          q(p.b.name), p.b.dip.toFixed(1), p.b.dipDir.toFixed(1),
+          p.trend.toFixed(1), p.plunge.toFixed(1), (p.apparent || 0).toFixed(1),
+          p.zone,
+          /* whether the two are actually in contact on the model, and over how
+             much line — a critical pair that meets nowhere is not a wedge, and a
+             review sheet has to carry that distinction */
+          p.contact === null ? 'untested' : (p.contact ? 'yes' : 'no'),
+          p.seg ? p.seg.length.toFixed(1) : '',
+          q(p.slide.on), p.slide.trend.toFixed(1), p.slide.plunge.toFixed(1),
+          q(p.why)
+        ].join(','));
+      });
+      out.push((r.plots === 'both' ? '# intersections — the block edges\n' : '') +
+        rows.join('\n') + '\n');
+    }
+
+    /* the pole population — one row per plane, for the modes that fail on a
+       single structure */
+    if (r.poles.length) {
+      var prows = ['plane,dip,dipdir,pole_trend,pole_plunge,off_face_dip_dir,zone,role,' +
+        'located,move_trend,move_plunge,note'];
+      r.poles.forEach(function (e) {
+        prows.push([
+          q(e.name), e.dip.toFixed(1), e.dipDir.toFixed(1),
+          e.trend.toFixed(1), e.plunge.toFixed(1), (e.off || 0).toFixed(1),
+          e.zone, e.role || '', e.placed ? 'yes' : 'no',
+          e.slide ? e.slide.trend.toFixed(1) : '', e.slide ? e.slide.plunge.toFixed(1) : '',
+          q(e.why)
+        ].join(','));
+      });
+      out.push((r.plots === 'both' ? '# base planes — what the blocks topple over\n' : '') +
+        prows.join('\n') + '\n');
+    }
+
+    if (r.nApart || r.nUntested) {
+      out.push('# ' + r.nApart + ' pair(s) meet nowhere on the model' +
+        (r.filtered ? ' and were left out' : ' and are listed anyway') +
+        (r.nUntested ? ', ' + r.nUntested + ' untested for want of a location' : '') + '\n');
+    }
     download('sensimap_kinematics_' + stamp() + '.csv',
-      new Blob([head + rows.join('\n')], { type: 'text/csv' }));
+      new Blob([out.join('\n')], { type: 'text/csv' }));
   }
 
   /** the stereonet on its own, at report resolution */
@@ -216,7 +251,8 @@ SM.IO = (function () {
       structure: {
         planes: S.planes, domains: S.domains,
         face: SM.Structure.face(), phi: SM.Structure.phi(),
-        mode: $('stMode').value, equalArea: $('stEqualArea').checked,
+        mode: $('stMode').value, limit: +$('stLimit').value,
+        equalArea: $('stEqualArea').checked,
         onlyContact: $('stOnlyContact').checked,
         planeSize: $('stPlaneSize').value, planeAlpha: +$('stPlaneAlpha').value,
         planeDraw: $('stPlaneDraw').value, planeClip: $('stPlaneClip').checked,
@@ -271,6 +307,9 @@ SM.IO = (function () {
       if (q2.face) SM.Structure.setFace(q2.face.dip, q2.face.dipDir);
       if (q2.phi != null) $('stPhi').value = q2.phi;
       if (q2.mode) $('stMode').value = q2.mode;
+      /* saved before the other failure modes existed: the lateral limits key is
+         absent, and the default is the one those projects were assessed with */
+      if (q2.limit != null) $('stLimit').value = q2.limit;
       $('stEqualArea').checked = !!q2.equalArea;
       $('stOnlyContact').checked = !!q2.onlyContact;
       if (q2.planeSize != null) $('stPlaneSize').value = q2.planeSize;
