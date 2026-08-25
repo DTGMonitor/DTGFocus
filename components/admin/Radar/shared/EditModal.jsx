@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 /**
  * Reusable generic form modal for editing records.
@@ -16,13 +17,47 @@ import { useState, useEffect } from 'react';
  *   {
  *     key:      string,
  *     label:    string,
- *     type:     'text' | 'textarea' | 'datetime-local' | 'number' | 'select' | 'readonly',
+ *     type:     'text' | 'textarea' | 'datetime-local' | 'number' | 'select' | 'readonly'
+ *               | 'heading',
  *     options?: { value: string, label: string }[],   // static options for type='select'
  *     computeOptions?: (values) => { value, label }[], // dynamic options derived from current values
  *     clearWhen?: string[],   // when any of these field keys change, clear this field's value
- *     required?: boolean
+ *     required?: boolean,
+ *     help?:     string | ((values) => string),  // muted guidance under the input
+ *     showWhen?: (values) => boolean,  // hidden fields render nothing and skip validation
+ *     derive?:   (values) => string,   // fills the field while it is still empty
+ *     collapsible?: boolean,    // 'heading' only — the fields under it fold away
+ *     defaultCollapsed?: boolean
  *   }
+ *
+ * A 'heading' field owns every field after it until the next heading, which is
+ * what lets one long form read as three short ones. `help` exists so a label can
+ * stay two words: a form whose labels are paragraphs is a form nobody reads.
  */
+
+const isHeading = (field) => field.type === 'heading';
+
+/** Fields the current values have hidden — they neither render nor validate. */
+const isVisible = (field, values) =>
+  typeof field.showWhen === 'function' ? Boolean(field.showWhen(values)) : true;
+
+const helpText = (field, values) =>
+  typeof field.help === 'function' ? field.help(values) : field.help;
+
+/**
+ * Splits a flat field list into sections.
+ *
+ * A list with no headings yields one anonymous section, so every existing caller
+ * renders exactly as it did.
+ */
+const toSections = (fields) => {
+  const sections = [{ heading: null, fields: [] }];
+  fields.forEach((field) => {
+    if (isHeading(field)) sections.push({ heading: field, fields: [] });
+    else sections[sections.length - 1].fields.push(field);
+  });
+  return sections.filter((section) => section.heading || section.fields.length);
+};
 const EditModal = ({
   isOpen,
   title,
@@ -34,14 +69,30 @@ const EditModal = ({
 }) => {
   const [values, setValues] = useState({});
   const [errors, setErrors] = useState({});
+  const [collapsed, setCollapsed] = useState({});
 
-  // Sync form values whenever the modal opens or initialValues change
+  const sections = useMemo(() => toSections(fields), [fields]);
+
+  // Sync form values whenever the modal opens or the record being edited
+  // changes. Compared by CONTENT, not identity: callers build initialValues
+  // inline, so a parent re-render used to hand back an equal-but-new object and
+  // wipe whatever the engineer had typed.
+  const initialKey = JSON.stringify(initialValues ?? {});
   useEffect(() => {
     if (isOpen) {
-      setValues({ ...initialValues });
+      setValues(JSON.parse(initialKey));
       setErrors({});
+      setCollapsed(
+        Object.fromEntries(
+          fields
+            .filter((f) => isHeading(f) && f.collapsible)
+            .map((f) => [f.key, f.defaultCollapsed !== false])
+        )
+      );
     }
-  }, [isOpen, initialValues]);
+    // `fields` is a module constant in every caller; `initialKey` is the record.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialKey]);
 
   // Handle Escape key
   useEffect(() => {
@@ -73,6 +124,19 @@ const EditModal = ({
           next[field.key] = '';
         }
       });
+      // Fill any field that can answer itself but has not been answered yet —
+      // the trigger's wording from its deformation type, its TARP level from
+      // the band label. Only ever writes into a blank, so a value an engineer
+      // typed (or a client's own wording) is never overwritten.
+      fields.forEach((field) => {
+        if (field.key === key || typeof field.derive !== 'function') return;
+        const current = next[field.key];
+        if (current !== undefined && current !== null && String(current).trim() !== '') return;
+        const derived = field.derive(next);
+        if (derived !== undefined && derived !== null && derived !== '') {
+          next[field.key] = derived;
+        }
+      });
       return next;
     });
     // Clear error for this field as soon as the user starts typing
@@ -89,6 +153,9 @@ const EditModal = ({
     // Validate required fields
     const newErrors = {};
     fields.forEach((field) => {
+      // A field the current answers have hidden is not a field the engineer
+      // can fill, so it cannot block the save.
+      if (isHeading(field) || !isVisible(field, values)) return;
       if (field.required && field.type !== 'readonly') {
         const val = values[field.key];
         if (val === undefined || val === null || String(val).trim() === '') {
@@ -145,6 +212,11 @@ const EditModal = ({
           typeof field.computeOptions === 'function'
             ? field.computeOptions(values)
             : field.options || [];
+        // Two empty choices on one dropdown reads as a bug, and on a required
+        // field the placeholder is an answer that always fails validation. So
+        // it is offered only when the field neither demands a value nor
+        // already states what blank means.
+        const suppliesOwnBlank = selectOptions.some((opt) => opt.value === '');
         return (
           <select
             id={`edit-field-${field.key}`}
@@ -154,7 +226,13 @@ const EditModal = ({
             aria-invalid={hasError}
             aria-describedby={hasError ? `error-${field.key}` : undefined}
           >
-            <option value="">— Select —</option>
+            {!field.required && !suppliesOwnBlank && <option value="">— Select —</option>}
+            {/* A required field with nothing chosen yet still needs somewhere
+                for that empty value to show, or the box would display the first
+                option while saving as blank. It cannot be chosen again. */}
+            {field.required && !suppliesOwnBlank && !value && (
+              <option value="" disabled>— Select —</option>
+            )}
             {selectOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -230,32 +308,78 @@ const EditModal = ({
         </div>
 
         {/* Scrollable body */}
-        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-4">
-          {fields.map((field) => (
-            <div key={field.key}>
-              <label
-                htmlFor={field.type !== 'readonly' ? `edit-field-${field.key}` : undefined}
-                className="block text-sm font-medium text-[var(--dtg-text-primary)] mb-1"
-              >
-                {field.label}
-                {field.required && field.type !== 'readonly' && (
-                  <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-5">
+          {sections.map((section, index) => {
+            const heading = section.heading;
+            const isFolded = heading?.collapsible && collapsed[heading.key];
+            const visible = section.fields.filter((field) => isVisible(field, values));
+
+            // A section whose every field is hidden takes its heading with it.
+            if (heading && !visible.length && !heading.collapsible) return null;
+
+            return (
+              <div key={heading?.key ?? `section-${index}`} className="space-y-4">
+                {heading && (
+                  heading.collapsible ? (
+                    <button
+                      type="button"
+                      onClick={() => setCollapsed((prev) => ({
+                        ...prev, [heading.key]: !prev[heading.key],
+                      }))}
+                      aria-expanded={!isFolded}
+                      className="w-full flex items-center gap-1.5 pb-1 border-b border-[var(--dtg-border-light)] text-xs font-semibold uppercase tracking-wide text-[var(--dtg-text-muted)] hover:text-[var(--dtg-text-primary)] transition-colors"
+                    >
+                      {isFolded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      {heading.label}
+                    </button>
+                  ) : (
+                    <p className="pb-1 border-b border-[var(--dtg-border-light)] text-xs font-semibold uppercase tracking-wide text-[var(--dtg-text-muted)]">
+                      {heading.label}
+                    </p>
+                  )
                 )}
-              </label>
 
-              {renderField(field)}
+                {heading?.help && !isFolded && (
+                  <p className="-mt-2 text-xs text-[var(--dtg-text-muted)]">
+                    {helpText(heading, values)}
+                  </p>
+                )}
 
-              {errors[field.key] && (
-                <p
-                  id={`error-${field.key}`}
-                  className="mt-1 text-xs text-red-500"
-                  role="alert"
-                >
-                  {errors[field.key]}
-                </p>
-              )}
-            </div>
-          ))}
+                {!isFolded && visible.map((field) => {
+                  const help = helpText(field, values);
+                  return (
+                    <div key={field.key}>
+                      <label
+                        htmlFor={field.type !== 'readonly' ? `edit-field-${field.key}` : undefined}
+                        className="block text-sm font-medium text-[var(--dtg-text-primary)] mb-1"
+                      >
+                        {field.label}
+                        {field.required && field.type !== 'readonly' && (
+                          <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+                        )}
+                      </label>
+
+                      {renderField(field)}
+
+                      {help && (
+                        <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">{help}</p>
+                      )}
+
+                      {errors[field.key] && (
+                        <p
+                          id={`error-${field.key}`}
+                          className="mt-1 text-xs text-red-500"
+                          role="alert"
+                        >
+                          {errors[field.key]}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer */}

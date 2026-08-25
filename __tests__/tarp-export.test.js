@@ -2,7 +2,14 @@
  * TARP export helpers + workbook construction.
  */
 
-import { stampFor, tarpFileName, buildTarpWorkbook } from '../utils/tarpXlsx';
+import {
+  stampFor,
+  tarpDocumentDate,
+  tarpFileName,
+  tarpAllVersionsFileName,
+  buildTarpWorkbook,
+  buildTarpVersionsWorkbook,
+} from '../utils/tarpXlsx';
 import { groupByRiskBand } from '../components/admin/Radar/Tarp/TarpChart';
 import { normalizeTarpDocument } from '../config/tarpDocument';
 
@@ -62,6 +69,46 @@ describe('file naming', () => {
   it('falls back when no company is known', () => {
     expect(tarpFileName('', new Date(2026, 6, 22)))
       .toBe('DTG Radar TARP - Site_22072026.xlsx');
+  });
+
+  it('stamps the version only on an archived export', () => {
+    expect(tarpFileName('Genesis Minerals', new Date(2026, 6, 22), 2))
+      .toBe('DTG Radar TARP - Genesis Minerals v2_22072026.xlsx');
+    // The version in force keeps the name the client already files it under.
+    expect(tarpFileName('Genesis Minerals', new Date(2026, 6, 22), null))
+      .toBe('DTG Radar TARP - Genesis Minerals_22072026.xlsx');
+  });
+
+  it('names the every-version workbook for the whole chain', () => {
+    expect(tarpAllVersionsFileName('Genesis Minerals', new Date(2026, 6, 22)))
+      .toBe('DTG Radar TARP - Genesis Minerals All Versions_22072026.xlsx');
+  });
+
+  it('reads an ISO date without a timezone round-trip', () => {
+    // new Date('2026-07-22') is UTC midnight, which is the 21st in the Americas.
+    expect(stampFor('2026-07-22')).toBe('22072026');
+  });
+
+  it('dates a file by the version, not by the day it was exported', () => {
+    expect(tarpDocumentDate({ effectiveFrom: '2026-07-22', revisions: [] }))
+      .toBe('2026-07-22');
+    expect(tarpFileName('Genesis Minerals', tarpDocumentDate(doc), null))
+      .toBe('DTG Radar TARP - Genesis Minerals_22072026.xlsx');
+  });
+
+  it('falls back to the newest revision when a version has no effective date', () => {
+    const imported = {
+      effectiveFrom: null,
+      revisions: [
+        { seq: 1, approvalDate: '2026-01-05', modifiedDate: '2026-01-05' },
+        { seq: 2, approvalDate: '2026-03-11', modifiedDate: '2026-03-12' },
+      ],
+    };
+    expect(tarpDocumentDate(imported)).toBe('2026-03-12');
+  });
+
+  it('falls back to today only when the version carries no date at all', () => {
+    expect(tarpDocumentDate({ revisions: [] })).toBeInstanceOf(Date);
   });
 });
 
@@ -220,5 +267,92 @@ describe('buildTarpWorkbook — a chart with a parameter axis', () => {
   it('keeps the band fill on the risk column it moved', () => {
     expect(sheet.getRow(5).getCell(2).fill.fgColor.argb).toBe('FFFF0000');
     expect(sheet.getRow(5).getCell(4).value).toBe('Pola Deformasi Progresif');
+  });
+});
+
+/**
+ * Every version, one workbook.
+ *
+ * The point of the feature is an audit read: the chart in force at the time of
+ * an incident is not the chart in force now, so each version has to arrive
+ * whole, labelled, and with one audit trail covering the lot.
+ */
+describe('buildTarpVersionsWorkbook', () => {
+  const version = (v, status, label, revisions) => normalizeTarpDocument({
+    id: v,
+    site_id: 7,
+    heading: 'Genesis Minerals',
+    version: v,
+    status,
+    triggers: [{
+      id: v * 10, sort_order: 1, risk_rating: 'Extreme', trigger_label: label,
+      colour: 'red', comments: [], def_type: 'Progressive', tarp_level: 4,
+      requires_alarm: false,
+    }],
+    contacts: [],
+    revisions,
+  });
+
+  const v1 = version(1, 'superseded', 'Progressive trend', [
+    { id: 1, seq: 1, version_no: 1, remark: 'First issue' },
+  ]);
+  const v2 = version(2, 'superseded', 'Progressive (accelerating) trend', [
+    { id: 2, seq: 1, version_no: 1, remark: 'First issue' },
+    { id: 3, seq: 2, version_no: 2, remark: 'Reworded the progressive row' },
+  ]);
+  const v3 = version(3, 'active', 'Progressive (accelerating) trend', [
+    { id: 4, seq: 1, version_no: 1, remark: 'First issue' },
+    { id: 5, seq: 2, version_no: 2, remark: 'Reworded the progressive row' },
+    { id: 6, seq: 3, version_no: 3, remark: 'Linear trend to email' },
+  ]);
+
+  let workbook;
+
+  beforeAll(async () => {
+    // Deliberately out of order: the workbook decides the order, not the caller.
+    workbook = await buildTarpVersionsWorkbook([v2, v1, v3], {
+      company: 'Genesis Minerals',
+      siteName: 'Leonora',
+    });
+  });
+
+  it('writes one chart sheet per version, newest first, and one audit trail', () => {
+    expect(workbook.worksheets.map((w) => w.name)).toEqual([
+      'v3 (in force)', 'v2 (superseded)', 'v1 (superseded)', 'TARP History',
+    ]);
+  });
+
+  it('gives each sheet that version’s own rows', () => {
+    expect(workbook.getWorksheet('v1 (superseded)').getRow(5).getCell(3).value)
+      .toBe('Progressive trend');
+    expect(workbook.getWorksheet('v3 (in force)').getRow(5).getCell(3).value)
+      .toBe('Progressive (accelerating) trend');
+  });
+
+  it('prints each revision once, oldest first, across the whole chain', () => {
+    const history = workbook.getWorksheet('TARP History');
+    const remarks = [];
+    history.eachRow((row, number) => {
+      if (number > 3) remarks.push(row.getCell(11).value);
+    });
+    expect(remarks).toEqual([
+      'First issue',
+      'Reworded the progressive row',
+      'Linear trend to email',
+    ]);
+  });
+
+  it('labels the tabs in the site’s language', async () => {
+    const wb = await buildTarpVersionsWorkbook([v3, v2], {
+      siteName: 'IBP Mahakam',
+      locale: 'id',
+    });
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      'v3 (berlaku)', 'v2 (digantikan)', 'Riwayat TARP',
+    ]);
+  });
+
+  it('refuses to build an empty workbook', async () => {
+    await expect(buildTarpVersionsWorkbook([])).rejects.toThrow('No TARP versions');
   });
 });

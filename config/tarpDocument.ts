@@ -15,15 +15,28 @@ import { TYPE_MATRIX } from './formConfig';
 
 export type TarpColour = 'red' | 'orange' | 'yellow' | 'grey' | 'green';
 
-/** How the site expects DTG to respond when a trigger fires. */
-export type TarpResponseMethod = 'call' | 'email' | 'call_then_email' | 'na';
+/**
+ * How the site expects DTG to respond when a trigger fires.
+ *
+ * `call_then_email` is no longer offered as a CHOICE — a site whose rule is
+ * "every call is followed by an email summary" says so once, in its footer, not
+ * on every row. It stays in the type because `inferResponseMethod` still reads
+ * it out of the shift cells that name both, and a value the engine can produce
+ * is a value the chart has to be able to print.
+ */
+export type TarpResponseMethod = 'call' | 'email' | 'whatsapp' | 'call_then_email' | 'na';
 
 export const RESPONSE_METHOD_LABEL: Record<TarpResponseMethod, string> = {
     call: 'Call',
     email: 'Email only',
+    whatsapp: 'WhatsApp only',
     call_then_email: 'Call, then email',
     na: 'No action'
 };
+
+/** The methods an engineer may pick. See TarpResponseMethod for the omission. */
+export const SELECTABLE_RESPONSE_METHODS: TarpResponseMethod[] =
+    ['call', 'email', 'whatsapp', 'na'];
 
 export interface TarpTrigger {
     id: number;
@@ -314,6 +327,7 @@ export interface ResponseRequirement {
 const DEVIATION_WORDING: Record<TarpResponseMethod, string> = {
     email: 'Email only — do NOT call.',
     call: 'A phone call is required for this trigger.',
+    whatsapp: 'WhatsApp message only — do NOT call.',
     call_then_email: 'Call first, then follow up by email.',
     na: 'No notification required for this trigger.'
 };
@@ -328,6 +342,15 @@ const NO_ACTION_RE = /^\s*(na|n\/a|none|no action(\s+required)?|tidak ada( tinda
  */
 const CALL_RE = /\b(call|calls|called|calling|phone|phoned|ring|telfon|telpon|telepon|menelepon|hubungi|menghubungi)\b/i;
 const EMAIL_RE = /\b(e-?mail|e-?mails|e-?mailed|e-?mailing)\b/i;
+/**
+ * Read ONLY when the cell names no call and no email.
+ *
+ * The Indonesian charts say "Telfon Geotek, WhatsApp, Email semua kontak" —
+ * WhatsApp is listed alongside a phone call there, not instead of one, and that
+ * cell must keep resolving to a call. So WhatsApp answers a cell that names
+ * nothing else, and never downgrades one that does.
+ */
+const WHATSAPP_RE = /\b(whats\s?app|wa\s+(?:message|group|blast)|chat)\b/i;
 
 /**
  * The response a shift cell *states*, or null when the prose names none.
@@ -351,6 +374,7 @@ export const inferResponseMethod = (
     if (call && email) return 'call_then_email';
     if (call) return 'call';
     if (email) return 'email';
+    if (WHATSAPP_RE.test(value)) return 'whatsapp';
     return null;
 };
 
@@ -397,9 +421,12 @@ export const resolveResponseRequirement = (
 /** How much a response asks of the engineer. Used to pick the stronger of two. */
 const RESPONSE_STRENGTH: Record<TarpResponseMethod, number> = {
     na: 0,
-    email: 1,
-    call: 2,
-    call_then_email: 3
+    // A chat message reaches a phone, but it is not a record and not an
+    // answered call — it asks less of the engineer than an email does.
+    whatsapp: 1,
+    email: 2,
+    call: 3,
+    call_then_email: 4
 };
 
 export interface ResponseContext {
@@ -623,6 +650,7 @@ export interface TarpTransition {
 const DEESCALATION_WORDING: Record<TarpResponseMethod, string> = {
     email: 'Stand this level down by EMAIL only — do NOT call.',
     call: 'Call the site to stand this TARP level down.',
+    whatsapp: 'Stand this level down by WhatsApp only — do NOT call.',
     call_then_email: 'Call the site to stand this level down, then confirm by email.',
     na: 'No notification required to stand this level down.'
 };

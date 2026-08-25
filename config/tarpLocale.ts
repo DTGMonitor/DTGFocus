@@ -220,6 +220,8 @@ const COMMENTS_ID: Record<string, string> = {
 const RESPONSE_LABELS_ID: Record<string, string> = {
     'Call': 'Telepon',
     'Email only': 'Email saja',
+    // Kept as the product name the site engineer knows, per the rules above.
+    'WhatsApp only': 'WhatsApp saja',
     'Call, then email': 'Telepon, lalu email',
     'No action': 'Tidak ada tindakan'
 };
@@ -229,6 +231,8 @@ const NOTICES_ID: Record<string, string> = {
     'Email only — do NOT call.': 'Email saja — JANGAN menelepon.',
     'A phone call is required for this trigger.':
         'Pemicu ini mewajibkan panggilan telepon.',
+    'WhatsApp message only — do NOT call.':
+        'Pesan WhatsApp saja — JANGAN menelepon.',
     'Call first, then follow up by email.':
         'Telepon terlebih dahulu, lalu tindak lanjuti melalui email.',
     'No notification required for this trigger.':
@@ -373,6 +377,13 @@ export interface TarpStrings {
     historySheet: string;
     documentControl: string;
     historyHeaders: string[];
+
+    /**
+     * How a version is labelled when several are exported together — the tab
+     * name of each chart sheet in the every-version workbook. Only the status
+     * translates; "v3" is the number the site quotes back at us.
+     */
+    versionStatus: Record<'active' | 'superseded' | 'draft', string>;
 }
 
 const EN: TarpStrings = {
@@ -405,7 +416,13 @@ const EN: TarpStrings = {
         'Approved / Modified by\nSite', 'Role',
         'Approved / Modified by DTG Engineer', 'Role', 'Modified Date',
         'Sections Modified and Summary of Changes', 'Remark'
-    ]
+    ],
+
+    versionStatus: {
+        active: 'in force',
+        superseded: 'superseded',
+        draft: 'draft'
+    }
 };
 
 const ID: TarpStrings = {
@@ -438,7 +455,13 @@ const ID: TarpStrings = {
         'Disetujui / Diubah oleh\nSite', 'Jabatan',
         'Disetujui / Diubah oleh DTG Engineer', 'Jabatan', 'Tanggal Perubahan',
         'Bagian yang Diubah dan Ringkasan Perubahan', 'Keterangan'
-    ]
+    ],
+
+    versionStatus: {
+        active: 'berlaku',
+        superseded: 'digantikan',
+        draft: 'draf'
+    }
 };
 
 export const tarpStrings = (locale: TarpLocale = 'en'): TarpStrings =>

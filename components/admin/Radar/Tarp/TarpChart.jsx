@@ -1,4 +1,4 @@
-import { Pencil, AlertTriangle, Phone, Mail, PhoneOff } from 'lucide-react';
+import { Pencil, AlertTriangle, Phone, Mail, MessageCircle, PhoneOff } from 'lucide-react';
 import { resolveResponseRequirement } from '@/config/tarpDocument';
 import {
   tarpStrings,
@@ -30,6 +30,7 @@ const METHOD_ICON = {
   call: Phone,
   call_then_email: Phone,
   email: Mail,
+  whatsapp: MessageCircle,
   na: PhoneOff,
 };
 

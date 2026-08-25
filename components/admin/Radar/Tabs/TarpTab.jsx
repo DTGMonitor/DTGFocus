@@ -5,17 +5,27 @@ import EditModal from '@/components/admin/Radar/shared/EditModal';
 import ConfirmDialog from '@/components/admin/Radar/shared/ConfirmDialog';
 import TarpChart from '@/components/admin/Radar/Tarp/TarpChart';
 import TarpImportModal from '@/components/admin/Radar/Tarp/TarpImportModal';
-import { useTarpDocument } from '@/components/admin/Radar/Tarp/useTarpDocument';
-import { downloadTarpXlsx } from '@/utils/tarpXlsx';
+import {
+  fetchTarpDocumentById,
+  fetchTarpDocumentsForSite,
+  useTarpDocument,
+  useTarpVersions,
+} from '@/components/admin/Radar/Tarp/useTarpDocument';
+import { downloadTarpAllVersionsXlsx, downloadTarpXlsx } from '@/utils/tarpXlsx';
 import { toContactImportPayload, toImportPayload } from '@/utils/tarpImport';
 import { TYPE_MATRIX } from '@/config/formConfig';
-import { RESPONSE_METHOD_LABEL, buildPolicyFromDocument } from '@/config/tarpDocument';
+import {
+  RESPONSE_METHOD_LABEL,
+  SELECTABLE_RESPONSE_METHODS,
+  buildPolicyFromDocument,
+  inferResponseMethod,
+} from '@/config/tarpDocument';
 import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from '@/config/tarpPolicy';
 import { composeDeformationSubject } from '@/config/emailSubject';
 import { resolveTarpLocale, tarpStrings, translateDocumentText } from '@/config/tarpLocale';
 import toast from 'react-hot-toast';
 import {
-  Copy, Download, FileText, History, Plus, Save, Trash2, Pencil, Undo2, Upload,
+  Copy, Download, FileText, History, Layers, Plus, Save, Trash2, Pencil, Undo2, Upload,
 } from 'lucide-react';
 
 /**
@@ -28,6 +38,12 @@ import {
  * Editing never mutates the version in force. Changes are held locally and
  * committed by `tarp_save_revision`, which writes a complete new version plus
  * its DOCUMENT CONTROL entry in one transaction.
+ *
+ * Because no version is ever overwritten, every one of them can still be read:
+ * the version picker loads any of them, and Export all versions writes the whole
+ * chain as one workbook. An archived version is shown READ-ONLY — amending it
+ * would mean branching a controlled document, and the row that drives an email
+ * is always the one in force.
  *
  * An Indonesian site's chart and workbook are rendered in Bahasa Indonesia
  * (config/tarpLocale.ts). The document itself is not translated: the editing
@@ -42,7 +58,7 @@ import {
  */
 
 const DEF_TYPE_OPTIONS = [
-  { value: '', label: '— None (descriptive row) —' },
+  { value: '', label: '— None: a descriptive row (alarms, connection) —' },
   ...Object.keys(TYPE_MATRIX).map((type) => ({ value: type, label: type })),
 ];
 
@@ -51,10 +67,59 @@ const COLOUR_OPTIONS = ['red', 'orange', 'yellow', 'grey', 'green'].map((c) => (
   label: c.charAt(0).toUpperCase() + c.slice(1),
 }));
 
+/**
+ * The chart's left-hand column.
+ *
+ * Was free text, which the workbook then colour-fills and merges by matching the
+ * string exactly — so "extreme" or a trailing space silently cost a row both.
+ * The list is the vocabulary already in use across every seeded site, plus the
+ * two more that config/tarpLocale.ts translates for imported charts.
+ */
+const RISK_RATING_VALUES = ['Extreme', 'High', 'Moderate', 'Intermediate', 'Low'];
+
+const RISK_RATING_OPTIONS = [
+  { value: '', label: '— None: this row carries no risk band —' },
+  ...RISK_RATING_VALUES.map((value) => ({ value, label: value })),
+];
+
+/**
+ * A client's own wording is never lost to a dropdown: a stored rating outside
+ * the standard list is offered back as its own option.
+ */
+const riskRatingOptions = (values) => {
+  const current = values.riskRating;
+  return current && !RISK_RATING_VALUES.includes(current)
+    ? [...RISK_RATING_OPTIONS, { value: current, label: `${current} (this document's wording)` }]
+    : RISK_RATING_OPTIONS;
+};
+
+const TARP_LEVEL_OPTIONS = [
+  { value: '', label: '— None: this row carries no TARP level —' },
+  ...[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: `TARP ${n}` })),
+];
+
+/**
+ * What an engineer may pick. `call_then_email` is deliberately absent — a site
+ * whose rule is "every call is followed by an email" states that once in its
+ * footer, not on every row. It is still offered back on a row that already
+ * resolves to it, so opening such a row and saving cannot silently downgrade
+ * what the client's chart says today.
+ */
 const RESPONSE_OPTIONS = [
   { value: '', label: '— Follow the document default —' },
-  ...Object.entries(RESPONSE_METHOD_LABEL).map(([value, label]) => ({ value, label })),
+  ...SELECTABLE_RESPONSE_METHODS.map((value) => ({
+    value,
+    label: RESPONSE_METHOD_LABEL[value],
+  })),
 ];
+
+const responseOptions = (values) =>
+  values.responseMethod === 'call_then_email'
+    ? [...RESPONSE_OPTIONS, {
+      value: 'call_then_email',
+      label: `${RESPONSE_METHOD_LABEL.call_then_email} (as this row reads today)`,
+    }]
+    : RESPONSE_OPTIONS;
 
 const SUBJECT_TOKEN_HINT = 'Tokens: {level} {colour} {Colour} {band}';
 
@@ -63,49 +128,173 @@ const ALARM_PREFIX_OPTIONS = [
   { value: 'none', label: 'No — the trigger wording already names the alarm' },
 ];
 
-const TRIGGER_FIELDS = [
-  { key: 'triggerLabel', label: 'Trigger', type: 'text', required: true },
+/**
+ * The TARP number inside a band label — "TARP Trigger 4 - Red" yields 4.
+ *
+ * Every band label across every seeded site carries its own number, which is
+ * what makes the level derivable at all. A site that names its bands without one
+ * simply never matches, and the level stays the engineer's to set.
+ */
+const BAND_LEVEL_RE = /TARP\s+(?:Trigger\s+)?([0-4])\b/i;
+
+const levelFromBand = (bandLabel) => {
+  const match = BAND_LEVEL_RE.exec(bandLabel || '');
+  return match ? match[1] : '';
+};
+
+/** True when the level on screen is exactly the one the band label states. */
+const levelMatchesBand = (values) => {
+  const derived = levelFromBand(values.bandLabel);
+  return Boolean(derived) && String(values.tarpLevel) === derived;
+};
+
+/**
+ * Whether this row departs from the site's normal response — the same test
+ * `resolveResponseRequirement` makes, so the form asks for the deviation notice
+ * exactly where the chart and the workbook will print one.
+ */
+const deviatesFromDefault = (values) => {
+  const fallback = values._defaultResponseMethod || 'call';
+  const stated = values.responseMethod || inferResponseMethod(values.dayShift);
+  return Boolean(stated) && stated !== fallback;
+};
+
+/**
+ * The trigger row, as three short forms rather than one long one.
+ *
+ * Order follows how an engineer thinks about a row: what it IS, then what the
+ * client reads, then what the software does with it, then the wording overrides
+ * two sites use and nobody else touches.
+ *
+ * Nothing here changes what is stored. Every derived value only ever fills a
+ * blank, every dropdown offers a document's existing wording back, and the
+ * fields a row cannot use are hidden rather than removed — so no chart, workbook
+ * or email subject moves because the form was rearranged.
+ */
+export const TRIGGER_FIELDS = [
   {
-    key: 'parameter',
-    label: 'Parameter (matrix-layout charts only — blank on the rest)',
-    type: 'text',
+    key: 'defType',
+    label: 'What this row answers',
+    type: 'select',
+    options: DEF_TYPE_OPTIONS,
+    help: 'The deformation type that quotes this row in an email. One row per type. '
+      + 'Alarm and connection rows answer nothing — leave it as None.',
   },
-  { key: 'bandLabel', label: 'TARP Band Label', type: 'text' },
-  { key: 'riskRating', label: 'Risk Rating', type: 'text' },
+
+  { key: '_chart', type: 'heading', label: 'What the chart says' },
+
+  {
+    key: 'triggerLabel',
+    label: 'Trigger',
+    type: 'text',
+    required: true,
+    // Blank rows start from the type's own name; a client's wording stands.
+    derive: (values) => values.defType || '',
+    help: 'The row\'s name, in the client\'s own words — “Progressive (accelerating) trend”.',
+  },
+  {
+    key: 'bandLabel',
+    label: 'TARP band',
+    type: 'text',
+    help: 'The band this row sits in, e.g. “TARP Trigger 4 - Red”.',
+  },
+  {
+    key: 'riskRating',
+    label: 'Risk rating',
+    type: 'select',
+    computeOptions: riskRatingOptions,
+    help: 'The left-hand column. Rows sharing a rating are merged into one banded cell.',
+  },
   { key: 'colour', label: 'Colour', type: 'select', options: COLOUR_OPTIONS },
   { key: 'description', label: 'Description', type: 'textarea' },
-  { key: 'responseMethod', label: 'Required response', type: 'select', options: RESPONSE_OPTIONS },
   {
-    key: 'responseNotice',
-    label: 'Deviation notice (shown to the engineer when this differs from the default)',
+    key: 'dayShift',
+    label: 'Day shift response',
     type: 'textarea',
+    help: 'Also what the required response is read from, when none is set below.',
   },
-  { key: 'dayShift', label: 'Day Shift Response', type: 'textarea' },
-  { key: 'nightShift', label: 'Night Shift Response', type: 'textarea' },
-  { key: 'commentsText', label: 'Comments (one per line)', type: 'textarea' },
+  { key: 'nightShift', label: 'Night shift response', type: 'textarea' },
+  {
+    key: 'commentsText',
+    label: 'Comments',
+    type: 'textarea',
+    help: 'One per line. They print as the numbered call script.',
+  },
   { key: 'extraNote', label: 'Note', type: 'textarea' },
-  { key: 'defType', label: 'Drives deformation type', type: 'select', options: DEF_TYPE_OPTIONS },
-  { key: 'tarpLevel', label: 'TARP level (0-4, blank for none)', type: 'number' },
+  {
+    key: 'parameter',
+    label: 'Parameter',
+    type: 'text',
+    // Only the matrix-layout charts have this axis. On every other site a value
+    // here would add a leading column to the whole exported workbook.
+    showWhen: (values) => Boolean(values._hasParameterAxis),
+    help: 'The axis this row sits on — “Pola Deformasi”, “Koneksi Data”.',
+  },
+
+  { key: '_engine', type: 'heading', label: 'What it triggers' },
+
+  {
+    key: 'tarpLevel',
+    label: 'TARP level',
+    type: 'select',
+    options: TARP_LEVEL_OPTIONS,
+    // Read out of the band label while the level is still blank — every seeded
+    // band carries its own number. Never overwrites a stored level.
+    derive: (values) => levelFromBand(values.bandLabel),
+    help: (values) => (levelMatchesBand(values)
+      ? 'Read from the band label. Drives the number in the subject and the [CRITICAL] bracket.'
+      : 'Drives the number in the subject and the [CRITICAL] / [MODERATE RISK] bracket.'),
+  },
   {
     key: 'requiresAlarm',
-    label: 'Only apply the TARP trigger when an alarm is triggered',
+    label: 'Only counts when an alarm has fired',
     type: 'select',
     options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }],
+    // On a row with no deformation type this is not a question: an alarm row IS
+    // the alarm, and the flag is what lets a fired alarm find its band.
+    showWhen: (values) => Boolean(values.defType),
+    help: 'Yes means a record with no alarm carries no TARP trigger at all.',
   },
   {
-    key: 'subjectLabel',
-    label: `Email subject wording, no alarm — blank follows the site rule. ${SUBJECT_TOKEN_HINT}`,
-    type: 'text',
+    key: 'responseMethod',
+    label: 'Required response',
+    type: 'select',
+    computeOptions: responseOptions,
+    help: (values) => {
+      const inferred = inferResponseMethod(values.dayShift);
+      if (values.responseMethod) return 'Set on this row.';
+      return inferred
+        ? `Currently read from the day shift cell: ${RESPONSE_METHOD_LABEL[inferred]}.`
+        : 'Follows the site default.';
+    },
   },
   {
-    key: 'subjectLabelAlarm',
-    label: 'Email subject wording, with an alarm — blank follows the site rule',
-    type: 'text',
+    key: 'responseNotice',
+    label: 'Deviation notice',
+    type: 'textarea',
+    // Printed only where the row departs from the site's normal response, so it
+    // is asked for only there too.
+    showWhen: (values) => deviatesFromDefault(values),
+    help: 'Shown beside this row because it departs from the site\'s normal response. '
+      + 'Blank uses the standard wording.',
   },
+
+  {
+    key: '_advanced',
+    type: 'heading',
+    label: 'Advanced — subject wording',
+    collapsible: true,
+    defaultCollapsed: true,
+    help: `Per-row overrides. Blank follows the site rule. ${SUBJECT_TOKEN_HINT}`,
+  },
+
+  { key: 'subjectLabel', label: 'Subject wording, no alarm', type: 'text' },
+  { key: 'subjectLabelAlarm', label: 'Subject wording, with an alarm', type: 'text' },
   {
     key: 'severityBracket',
-    label: 'Override the [CRITICAL] / [MODERATE RISK] bracket — blank derives it from the TARP level',
+    label: 'Severity bracket',
     type: 'text',
+    help: 'Overrides [CRITICAL] / [MODERATE RISK], which otherwise comes from the TARP level.',
   },
 ];
 
@@ -120,46 +309,82 @@ const LEVEL_SOURCE_OPTIONS = [
   },
 ];
 
+/**
+ * A site rule's response dropdown, with the same courtesy the trigger form
+ * extends: a document already set to "call, then email" keeps seeing it, so
+ * opening this form cannot quietly change what the whole site expects.
+ */
+const siteResponseOptions = (key) => (values) => {
+  const options = SELECTABLE_RESPONSE_METHODS.map((value) => ({
+    value,
+    label: RESPONSE_METHOD_LABEL[value],
+  }));
+  return values[key] === 'call_then_email'
+    ? [...options, {
+      value: 'call_then_email',
+      label: `${RESPONSE_METHOD_LABEL.call_then_email} (as this document reads today)`,
+    }]
+    : options;
+};
+
 const SITE_RULE_FIELDS = [
-  {
-    key: 'tarp_level_source',
-    label: 'What decides the TARP level in an email',
-    type: 'select',
-    options: LEVEL_SOURCE_OPTIONS,
-    required: true,
-  },
+  { key: '_responses', type: 'heading', label: 'How this site is told' },
   {
     key: 'default_response_method',
-    label: 'Normal response to a trigger',
+    label: 'Normal response',
     type: 'select',
-    options: Object.entries(RESPONSE_METHOD_LABEL).map(([value, label]) => ({ value, label })),
+    computeOptions: siteResponseOptions('default_response_method'),
     required: true,
+    help: 'What a trigger normally asks of the engineer. Rows that differ are '
+      + 'called out on the chart and in the workbook.',
   },
   {
     key: 'deescalation_response_method',
-    label: 'Response when standing a TARP level DOWN (e.g. Progressive → Linear)',
+    label: 'Standing a TARP level down',
     type: 'select',
-    options: Object.entries(RESPONSE_METHOD_LABEL).map(([value, label]) => ({ value, label })),
+    computeOptions: siteResponseOptions('deescalation_response_method'),
     required: true,
+    help: 'The case engineers get wrong — e.g. Progressive easing back to Linear.',
   },
   {
     key: 'deescalation_notice',
-    label: 'De-escalation notice shown to the engineer',
+    label: 'De-escalation notice',
     type: 'textarea',
+    help: 'Shown to the engineer when standing a level down. Blank shows nothing.',
+  },
+
+  { key: '_level', type: 'heading', label: 'What decides the TARP level' },
+  {
+    key: 'tarp_level_source',
+    label: 'The level comes from',
+    type: 'select',
+    options: LEVEL_SOURCE_OPTIONS,
+    required: true,
+    help: 'On an alarm-led site a progressive trend under an orange alarm is '
+      + 'reported as TARP 3, and a record with no alarm carries no trigger at all.',
+  },
+
+  {
+    key: '_subject',
+    type: 'heading',
+    label: 'Subject wording',
+    help: `How every row announces itself, unless it overrides this. ${SUBJECT_TOKEN_HINT}`,
   },
   {
     key: 'subject_label_template',
-    label: `How an email subject announces a trigger, no alarm. ${SUBJECT_TOKEN_HINT}`,
+    label: 'No alarm',
     type: 'text',
+    help: `Blank uses the DTG standard, “${DEFAULT_SUBJECT_LABEL_TEMPLATE}”.`,
   },
   {
     key: 'subject_label_template_alarm',
-    label: 'How an email subject announces a trigger WITH an alarm — blank uses the same wording',
+    label: 'With an alarm',
     type: 'text',
+    help: 'Blank uses the same wording as above.',
   },
   {
     key: 'alarm_prefix_style',
-    label: 'Also list the alarm colours at the front of the subject?',
+    label: 'List the alarm colours at the front?',
     type: 'select',
     options: ALARM_PREFIX_OPTIONS,
     required: true,
@@ -175,8 +400,13 @@ const DISTRIBUTION_FIELDS = [
 ];
 
 const CONTACT_FIELDS = [
-  { key: 'name', label: 'Name', type: 'text' },
-  { key: 'role', label: 'Role', type: 'text' },
+  { key: 'name', label: 'Name', type: 'text', required: true },
+  {
+    key: 'role',
+    label: 'Role',
+    type: 'text',
+    help: 'Printed as “Role: Name” on the chart and in the workbook.',
+  },
   { key: 'phone', label: 'Phone', type: 'text' },
   { key: 'email', label: 'Email', type: 'text' },
 ];
@@ -190,8 +420,17 @@ const REVISION_FIELDS = [
   { key: 'dtg_role', label: 'DTG Role', type: 'text' },
 ];
 
-/** Domain trigger -> flat values the generic EditModal understands. */
-const toTriggerValues = (trigger) => ({
+/**
+ * Domain trigger -> flat values the generic EditModal understands.
+ *
+ * `context` carries the two facts a single row cannot answer for itself: whether
+ * this document HAS a parameter axis, and what the site's normal response is.
+ * Both only decide what the form shows — `fromTriggerValues` reads neither, so
+ * they never reach the database.
+ */
+const toTriggerValues = (trigger, context = {}) => ({
+  _hasParameterAxis: Boolean(context.hasParameterAxis),
+  _defaultResponseMethod: context.defaultResponseMethod || 'call',
   triggerLabel: trigger.triggerLabel || '',
   parameter: trigger.parameter || '',
   bandLabel: trigger.bandLabel || '',
@@ -277,7 +516,8 @@ const nextTempId = () => `new-${(tempIdCounter += 1)}`;
 
 export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
   const siteId = sensor?.site_id;
-  const { document: doc, loading, error, refresh } = useTarpDocument(siteId);
+  const { document: activeDoc, loading, error, refresh } = useTarpDocument(siteId);
+  const { versions, refresh: refreshVersions } = useTarpVersions(siteId);
   // The document's own prose follows the site's language; the editing controls
   // around it stay English, because they act on the English rows.
   const locale = resolveTarpLocale(sensor, timezone);
@@ -301,10 +541,19 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
   // Where the draft's rows came from, so the revision row says so rather than
   // recording a wholesale replacement as an ordinary amendment.
   const [importSource, setImportSource] = useState(null);
+  // An archived version being read. Held beside the active document rather than
+  // replacing it, so the version in force is always one click away — and so
+  // publishing still knows which document it is superseding.
+  const [archivedDoc, setArchivedDoc] = useState(null);
+  const [isLoadingVersion, setIsLoadingVersion] = useState(false);
+  const [isExportingAll, setIsExportingAll] = useState(false);
 
   useEffect(() => {
-    if (activeTab === 'tarp') refresh();
-  }, [activeTab, refresh]);
+    if (activeTab === 'tarp') {
+      refresh();
+      refreshVersions();
+    }
+  }, [activeTab, refresh, refreshVersions]);
 
   useEffect(() => {
     if (!siteId) return;
@@ -320,6 +569,12 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
     return () => { cancelled = true; };
   }, [siteId]);
 
+  // Reading an archived version, rather than the one in force.
+  const isArchiveView = Boolean(archivedDoc) && archivedDoc.id !== activeDoc?.id;
+  const doc = isArchiveView ? archivedDoc : activeDoc;
+
+  // A version that has been superseded cannot be amended, imported into or
+  // published from — the only thing offered on it is a read.
   const isEditing = draft !== null;
   const triggers = useMemo(
     () => (isEditing ? draft.triggers : (doc?.triggers ?? [])),
@@ -347,6 +602,20 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
     alarm_prefix_style: doc?.alarmPrefixStyle ?? 'regions',
     tarp_level_source: doc?.tarpLevelSource ?? 'trigger',
   }), [isEditing, draft, doc]);
+
+  // What the trigger form needs to know about the document around the row it is
+  // editing. Memoised because the modal re-syncs when its values change.
+  const triggerContext = useMemo(() => ({
+    // One row with a parameter gives the whole workbook a leading column, so
+    // the field is offered wherever the chart already has that axis.
+    hasParameterAxis: triggers.some((t) => t.parameter),
+    defaultResponseMethod: rules.default_response_method,
+  }), [triggers, rules.default_response_method]);
+
+  const triggerValues = useMemo(
+    () => (editTarget ? toTriggerValues(editTarget, triggerContext) : {}),
+    [editTarget, triggerContext]
+  );
 
   // What this chart actually sends. Built from the rows on screen — including
   // unpublished edits — through the same code path the deformation form uses,
@@ -395,7 +664,7 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
   }, [isEditing, draft, doc]);
 
   const beginEditing = useCallback(() => {
-    if (!doc) return;
+    if (!doc || isArchiveView) return;
     setDraft({
       triggers: doc.triggers.map((t) => ({ ...t })),
       contacts: doc.contacts.map((c) => ({ ...c })),
@@ -410,7 +679,7 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
         tarp_level_source: doc.tarpLevelSource || 'trigger',
       },
     });
-  }, [doc]);
+  }, [doc, isArchiveView]);
 
   const handleRulesSave = useCallback((values) => {
     setDraft((prev) => ({ ...prev, rules: { ...prev.rules, ...values } }));
@@ -479,11 +748,12 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
   // ── Publish / export ───────────────────────────────────────────────────────
 
   const handlePublish = useCallback(async (values) => {
-    if (!doc) return;
+    // Always supersedes the version in force, never the one being read.
+    if (!activeDoc) return;
     setIsPublishing(true);
     try {
       const { error: rpcError } = await supabase.rpc('tarp_save_revision', {
-        p_document_id: doc.id,
+        p_document_id: activeDoc.id,
         p_document: { created_by: userSite?.user_id || null, ...draft.rules },
         p_triggers: draft.triggers.map(toTriggerPayload),
         p_contacts: draft.contacts.map(toContactPayload),
@@ -491,18 +761,65 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
       });
       if (rpcError) throw rpcError;
 
-      toast.success(`Published version ${(doc.version ?? 0) + 1}`);
+      toast.success(`Published version ${(activeDoc.version ?? 0) + 1}`);
       setShowPublish(false);
       setDraft(null);
       setImportSource(null);
-      await refresh();
+      await Promise.all([refresh(), refreshVersions()]);
     } catch (err) {
       console.error('[TarpTab] publish failed', err);
       toast.error(err.message || 'Could not publish the new version.');
     } finally {
       setIsPublishing(false);
     }
-  }, [doc, draft, refresh, userSite]);
+  }, [activeDoc, draft, refresh, refreshVersions, userSite]);
+
+  // ── Reading an earlier version ─────────────────────────────────────────────
+
+  const handleVersionChange = useCallback(async (value) => {
+    const id = Number(value);
+    if (!id || id === activeDoc?.id) {
+      setArchivedDoc(null);
+      return;
+    }
+
+    setIsLoadingVersion(true);
+    try {
+      const fetched = await fetchTarpDocumentById(id);
+      if (!fetched) throw new Error('That version is no longer on file.');
+      // Set only once the rows are in hand, so the chart never blanks out
+      // between the two versions.
+      setArchivedDoc(fetched);
+    } catch (err) {
+      console.error('[TarpTab] version load failed', err);
+      toast.error(err.message || 'Could not load that version.');
+    } finally {
+      setIsLoadingVersion(false);
+    }
+  }, [activeDoc?.id]);
+
+  const handleExportAllVersions = useCallback(async () => {
+    if (!siteId) return;
+    setIsExportingAll(true);
+    try {
+      const allDocs = await fetchTarpDocumentsForSite(siteId);
+      if (!allDocs.length) {
+        toast.error('There are no versions to export.');
+        return;
+      }
+      await downloadTarpAllVersionsXlsx(allDocs, {
+        company, siteName: sensor?.site_name, locale,
+      });
+      toast.success(
+        `Exported ${allDocs.length} version${allDocs.length === 1 ? '' : 's'} as one workbook.`
+      );
+    } catch (err) {
+      console.error('[TarpTab] export of every version failed', err);
+      toast.error(err.message || 'Could not build the workbook.');
+    } finally {
+      setIsExportingAll(false);
+    }
+  }, [siteId, company, sensor?.site_name, locale]);
 
   // ── Bootstrapping a site that has no document yet ──────────────────────────
 
@@ -546,14 +863,14 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
 
       if (rpcError) throw rpcError;
       toast.success('Draft TARP created — review it with the site before relying on it.');
-      await refresh();
+      await Promise.all([refresh(), refreshVersions()]);
     } catch (err) {
       console.error('[TarpTab] bootstrap failed', err);
       toast.error(err.message || 'Could not create the TARP document.');
     } finally {
       setIsBootstrapping(false);
     }
-  }, [cloneSourceId, siteId, userSite, refresh]);
+  }, [cloneSourceId, siteId, userSite, refresh, refreshVersions]);
 
   // ── Importing a client's own workbook ──────────────────────────────────────
   //
@@ -615,14 +932,14 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
 
       toast.success('TARP created from the file — review it with the site before relying on it.');
       setShowImport(false);
-      await refresh();
+      await Promise.all([refresh(), refreshVersions()]);
     } catch (err) {
       console.error('[TarpTab] import failed', err);
       toast.error(err.message || 'Could not create the TARP document from that file.');
     } finally {
       setIsImporting(false);
     }
-  }, [doc, siteId, sensor?.site_name, company, userSite, refresh]);
+  }, [doc, siteId, sensor?.site_name, company, userSite, refresh, refreshVersions]);
 
   const handleCopyDistribution = useCallback(async () => {
     try {
@@ -813,11 +1130,35 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
           </p>
           <p className="mt-1 text-xs text-[var(--dtg-text-muted)]">
             Version {doc.version}
+            {doc.status === 'active' ? ' · in force' : ` · ${doc.status}`}
             {doc.effectiveFrom && ` · effective ${doc.effectiveFrom}`}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Version picker. Only offered once a site has a history to pick
+              from, and locked while a draft is open — switching away would
+              throw the draft away without saying so. */}
+          {versions.length > 1 && (
+            <select
+              value={doc.id}
+              disabled={isEditing || isLoadingVersion}
+              onChange={(e) => handleVersionChange(e.target.value)}
+              title={isEditing
+                ? 'Discard or publish your draft before reading another version.'
+                : 'Read an earlier version of this TARP'}
+              className="px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {`v${v.version}`}
+                  {v.status === 'active' ? ' — in force' : ` — ${v.status}`}
+                  {v.effectiveFrom ? ` (${v.effectiveFrom})` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             type="button"
             onClick={() => setShowHistory((v) => !v)}
@@ -830,24 +1171,55 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
           <button
             type="button"
             onClick={handleExport}
+            title={isArchiveView
+              ? `Export v${doc.version} as it stood`
+              : 'Export the chart on screen, including unpublished edits'}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
           >
             <Download size={14} />
-            Export .xlsx
+            {isArchiveView ? `Export v${doc.version}` : 'Export .xlsx'}
           </button>
+
+          {/* One workbook, one sheet per version. Offered beside the ordinary
+              export because "send us the TARP history" is a request in its own
+              right — an audit or an incident review needs the chart that was in
+              force then, not the one in force now. */}
+          {versions.length > 1 && (
+            <button
+              type="button"
+              onClick={handleExportAllVersions}
+              disabled={isExportingAll}
+              title="Every published version as one workbook — unpublished edits are not included"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Layers size={14} />
+              {isExportingAll ? 'Building…' : `Export all ${versions.length} versions`}
+            </button>
+          )}
 
           {/* Re-importing is an amendment like any other, so it is offered
               alongside Amend rather than hidden inside it. */}
-          <button
-            type="button"
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
-          >
-            <Upload size={14} />
-            Import .xlsx
-          </button>
+          {!isArchiveView && (
+            <button
+              type="button"
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
+            >
+              <Upload size={14} />
+              Import .xlsx
+            </button>
+          )}
 
-          {isEditing ? (
+          {isArchiveView ? (
+            <button
+              type="button"
+              onClick={() => setArchivedDoc(null)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)] transition-colors"
+            >
+              <Undo2 size={14} />
+              Back to v{activeDoc?.version}
+            </button>
+          ) : isEditing ? (
             <>
               <button
                 type="button"
@@ -878,6 +1250,15 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
           )}
         </div>
       </div>
+
+      {isArchiveView && (
+        <p className="text-xs px-3 py-2 rounded border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-secondary)] text-[var(--dtg-text-secondary)]">
+          Reading version {doc.version} — a record of what this site had agreed, not
+          what is in force. Emails are driven by version {activeDoc?.version}, and this
+          version cannot be amended: to bring an old row back, return to
+          v{activeDoc?.version} and amend it there.
+        </p>
+      )}
 
       {isEditing && (
         <p className="text-xs px-3 py-2 rounded border border-[var(--dtg-brand-orange)]/40 bg-[var(--dtg-brand-orange)]/10 text-[var(--dtg-text-secondary)]">
@@ -966,7 +1347,9 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
               <h4 className="text-sm font-semibold text-[var(--dtg-text-primary)]">
-                Email subjects this chart produces
+                {isArchiveView
+                  ? `Email subjects version ${doc.version} produced`
+                  : 'Email subjects this chart produces'}
               </h4>
               <p className="text-xs text-[var(--dtg-text-muted)]">
                 Example sensor, one red alarm region.
@@ -1115,7 +1498,7 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
         isOpen={Boolean(editTarget)}
         title={`Edit trigger — ${editTarget?.triggerLabel ?? ''}`}
         fields={TRIGGER_FIELDS}
-        initialValues={editTarget ? toTriggerValues(editTarget) : {}}
+        initialValues={triggerValues}
         onSave={handleTriggerSave}
         onCancel={() => setEditTarget(null)}
       />

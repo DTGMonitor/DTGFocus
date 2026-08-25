@@ -449,6 +449,23 @@ describe('response method inferred from the shift cell', () => {
         )).toBe('call_then_email');
     });
 
+    it('reads WhatsApp only from a cell that names nothing else', () => {
+        expect(inferResponseMethod('WhatsApp the geotech group')).toBe('whatsapp');
+        expect(inferResponseMethod('Kirim pesan WhatsApp ke grup')).toBe('whatsapp');
+    });
+
+    it('never lets WhatsApp downgrade a cell that also names a call', () => {
+        // The Indonesian charts list WhatsApp ALONGSIDE a phone call, not
+        // instead of one. Reading it as a chat message would quietly stand
+        // down a row the client's document says to phone in.
+        expect(inferResponseMethod('Telfon Geotek, WhatsApp, Email semua kontak'))
+            .toBe('call_then_email');
+        expect(inferResponseMethod('Call the supervisor, then WhatsApp the group'))
+            .toBe('call');
+        expect(inferResponseMethod('WhatsApp and email the distribution list'))
+            .toBe('email');
+    });
+
     it('names nothing when the cell names no response', () => {
         expect(inferResponseMethod('')).toBeNull();
         expect(inferResponseMethod(null)).toBeNull();

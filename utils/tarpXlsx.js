@@ -5,6 +5,11 @@
  *   1. the trigger chart, colour-banded by risk rating
  *   2. "TARP History" — the DOCUMENT CONTROL audit trail
  *
+ * `buildTarpVersionsWorkbook` writes the same two things for a whole chain: one
+ * chart sheet per version, newest first, and a single audit trail merged across
+ * them — what someone reviewing a past incident actually needs, since the chart
+ * in force then is not the chart in force now.
+ *
  * ExcelJS is loaded from its browser bundle via dynamic import, so the ~1 MB
  * library only reaches users who actually press Export.
  *
@@ -57,11 +62,38 @@ const THIN_BORDER = {
   right: { style: 'thin', color: { argb: 'FF808080' } },
 };
 
-/** DDMMYYYY, as used by the existing client workbooks. */
+/**
+ * DDMMYYYY, as used by the existing client workbooks.
+ *
+ * Accepts an ISO date string as well as a Date, and reads the string's own
+ * digits rather than parsing it: `new Date('2026-07-22')` is UTC midnight, which
+ * a site west of Greenwich would render as the 21st — the wrong day on a
+ * controlled document.
+ */
 export const stampFor = (date = new Date()) => {
+  if (typeof date === 'string') {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+    if (iso) return `${iso[3]}${iso[2]}${iso[1]}`;
+  }
   const dd = String(date.getDate()).padStart(2, '0');
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   return `${dd}${mm}${date.getFullYear()}`;
+};
+
+/**
+ * The date a version carries, for the file name — when it took effect, not when
+ * somebody happened to press Export. Two people exporting v3 a month apart
+ * should produce the same file.
+ *
+ * `effective_from` is what the tab prints and what `tarp_save_revision` stamps
+ * on publish. A document created by import or clone may not have one, so the
+ * newest revision's dates stand in, and today's date is the last resort.
+ */
+export const tarpDocumentDate = (doc) => {
+  if (doc?.effectiveFrom) return doc.effectiveFrom;
+
+  const latest = [...(doc?.revisions || [])].sort((a, b) => a.seq - b.seq).pop();
+  return latest?.modifiedDate || latest?.approvalDate || new Date();
 };
 
 /** Excel forbids : \ / ? * [ ] in sheet names and caps them at 31 chars. */
@@ -70,8 +102,18 @@ const safeSheetName = (name, fallback) => {
   return (cleaned || fallback).slice(0, 31);
 };
 
-export const tarpFileName = (company, date = new Date()) =>
-  `DTG Radar TARP - ${company || 'Site'}_${stampFor(date)}.xlsx`;
+/**
+ * The single-version name. `date` is the version's own date — see
+ * `tarpDocumentDate`. `version` is appended only for a SUPERSEDED version, so
+ * the file a client is normally sent keeps exactly the name they already file it
+ * under, and an archived one cannot be mistaken for the current chart.
+ */
+export const tarpFileName = (company, date = new Date(), version = null) =>
+  `DTG Radar TARP - ${company || 'Site'}${version ? ` v${version}` : ''}_${stampFor(date)}.xlsx`;
+
+/** The whole version history, one workbook, dated by its NEWEST version. */
+export const tarpAllVersionsFileName = (company, date = new Date()) =>
+  `DTG Radar TARP - ${company || 'Site'} All Versions_${stampFor(date)}.xlsx`;
 
 const fillCell = (cell, argb) => {
   if (!argb) return;
@@ -81,26 +123,30 @@ const fillCell = (cell, argb) => {
   }
 };
 
-/**
- * Builds the workbook. Exported separately from the download so it can be
- * unit-tested without a DOM.
- *
- * @param {object} doc      normalised TARP document (config/tarpDocument.ts)
- * @param {object} meta     { company, siteName, locale }
- */
-export async function buildTarpWorkbook(doc, meta = {}) {
+/** ExcelJS only reaches users who actually press Export. */
+const newWorkbook = async () => {
   const ExcelJS = (await import('exceljs/dist/exceljs.min.js')).default;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'DTG FOCUS';
+  return workbook;
+};
 
+/**
+ * Writes one version's trigger chart onto a sheet of its own.
+ *
+ * Named rather than positional, because the every-version workbook puts several
+ * of these side by side and the tab is the only thing telling them apart.
+ *
+ * @param {object} workbook  the ExcelJS workbook being built
+ * @param {object} doc       normalised TARP document (config/tarpDocument.ts)
+ * @param {object} meta      { company, siteName, locale }
+ * @param {string} sheetName already sanitised by the caller
+ */
+function addChartSheet(workbook, doc, meta, sheetName) {
   const locale = meta.locale === 'id' ? 'id' : 'en';
   const t = tarpStrings(locale);
 
-  // ── Sheet 1: the trigger chart ────────────────────────────────────────────
-  const sheet = workbook.addWorksheet(
-    safeSheetName(meta.siteName || doc.heading, 'TARP'),
-    { views: [{ state: 'frozen', ySplit: 4 }] }
-  );
+  const sheet = workbook.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 4 }] });
 
   // The parameter column only exists for charts that have one, so every other
   // site's workbook keeps exactly the layout its client already signs off.
@@ -244,7 +290,21 @@ export async function buildTarpWorkbook(doc, meta = {}) {
     row.alignment = { wrapText: true, vertical: 'top' };
   }
 
-  // ── Sheet 2: DOCUMENT CONTROL ─────────────────────────────────────────────
+  return sheet;
+}
+
+/**
+ * The DOCUMENT CONTROL sheet.
+ *
+ * Takes the revision rows rather than the document, because the every-version
+ * workbook prints ONE audit trail assembled from the whole chain — a version
+ * created by import starts its own history, so the newest document's carried
+ * -forward list is not always the superset.
+ */
+function addHistorySheet(workbook, revisions, meta = {}) {
+  const locale = meta.locale === 'id' ? 'id' : 'en';
+  const t = tarpStrings(locale);
+
   const history = workbook.addWorksheet(t.historySheet);
   history.columns = [
     { width: 6 }, { width: 26 }, { width: 11 }, { width: 15 }, { width: 22 },
@@ -265,7 +325,7 @@ export async function buildTarpWorkbook(doc, meta = {}) {
     fillCell(cell, 'FFD9D9D9');
   });
 
-  doc.revisions.forEach((revision) => {
+  (revisions || []).forEach((revision) => {
     const row = history.addRow([
       revision.seq,
       revision.siteLabel || meta.siteName || '',
@@ -285,12 +345,80 @@ export async function buildTarpWorkbook(doc, meta = {}) {
     row.eachCell({ includeEmpty: true }, (cell) => { cell.border = THIN_BORDER; });
   });
 
+  return history;
+}
+
+/**
+ * Builds the workbook for ONE version. Exported separately from the download so
+ * it can be unit-tested without a DOM.
+ *
+ * @param {object} doc      normalised TARP document (config/tarpDocument.ts)
+ * @param {object} meta     { company, siteName, locale }
+ */
+export async function buildTarpWorkbook(doc, meta = {}) {
+  const workbook = await newWorkbook();
+  addChartSheet(workbook, doc, meta, safeSheetName(meta.siteName || doc.heading, 'TARP'));
+  addHistorySheet(workbook, doc.revisions, meta);
   return workbook;
 }
 
-/** Builds the workbook and triggers a browser download. */
-export async function downloadTarpXlsx(doc, meta = {}) {
-  const workbook = await buildTarpWorkbook(doc, meta);
+/** "v3 (in force)" — the tab that tells two versions of the same chart apart. */
+export const versionSheetName = (doc, locale = 'en') => {
+  const status = tarpStrings(locale).versionStatus[doc.status];
+  return safeSheetName(
+    `v${doc.version}${status ? ` (${status})` : ''}`,
+    `v${doc.version ?? '?'}`
+  );
+};
+
+/**
+ * Every revision the chain knows about, newest document first, de-duplicated.
+ *
+ * `tarp_save_revision` carries the history forward, so the same row appears on
+ * every later version. It is keyed by (version, seq) — the pair that identifies
+ * a revision across the chain — and the newest copy of a row wins, since that is
+ * the wording the current document control sheet shows.
+ */
+const mergeRevisions = (docs) => {
+  const seen = new Map();
+  docs.forEach((doc) => {
+    (doc.revisions || []).forEach((revision) => {
+      const key = `${revision.versionNo ?? '-'}|${revision.seq}`;
+      if (!seen.has(key)) seen.set(key, revision);
+    });
+  });
+  return [...seen.values()].sort(
+    (a, b) => (a.versionNo ?? 0) - (b.versionNo ?? 0) || a.seq - b.seq
+  );
+};
+
+/**
+ * Builds one workbook holding EVERY version of a site's TARP: a chart sheet per
+ * version, newest first, then the combined DOCUMENT CONTROL trail.
+ *
+ * One file rather than one download per version, because a browser blocks the
+ * second and later saves of a burst — and because what an auditor asks for is
+ * the history as a single document.
+ *
+ * @param {object[]} docs  normalised documents, any order
+ * @param {object}   meta  { company, siteName, locale }
+ */
+export async function buildTarpVersionsWorkbook(docs, meta = {}) {
+  const ordered = [...(docs || [])].sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
+  if (!ordered.length) throw new Error('No TARP versions to export.');
+
+  const locale = meta.locale === 'id' ? 'id' : 'en';
+  const workbook = await newWorkbook();
+
+  ordered.forEach((doc) => {
+    addChartSheet(workbook, doc, meta, versionSheetName(doc, locale));
+  });
+  addHistorySheet(workbook, mergeRevisions(ordered), meta);
+
+  return workbook;
+}
+
+const saveWorkbook = async (workbook, fileName) => {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -299,9 +427,33 @@ export async function downloadTarpXlsx(doc, meta = {}) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = tarpFileName(meta.company || meta.siteName, new Date());
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+/** Builds the workbook and triggers a browser download. */
+export async function downloadTarpXlsx(doc, meta = {}) {
+  const workbook = await buildTarpWorkbook(doc, meta);
+  await saveWorkbook(
+    workbook,
+    tarpFileName(
+      meta.company || meta.siteName,
+      tarpDocumentDate(doc),
+      // Only an archived version is stamped — see tarpFileName.
+      doc.status === 'superseded' ? doc.version : null
+    )
+  );
+}
+
+/** Every version of a site's TARP, as one workbook. */
+export async function downloadTarpAllVersionsXlsx(docs, meta = {}) {
+  const workbook = await buildTarpVersionsWorkbook(docs, meta);
+  const newest = [...docs].sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0];
+  await saveWorkbook(
+    workbook,
+    tarpAllVersionsFileName(meta.company || meta.siteName, tarpDocumentDate(newest))
+  );
 }
