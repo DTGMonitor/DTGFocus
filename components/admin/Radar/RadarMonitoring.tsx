@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getRiskColor, getStatusColor, getQualityColor, getBandColor } from "@/config/statusConfig";
 import { resolveRiskPresentation, pendingPresentation, atLeastBand } from "@/config/riskDisplay";
 import type { RiskPresentation, RiskRecordLike } from "@/config/riskDisplay";
-import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { supabase } from '@/lib/supabaseClient';
@@ -23,6 +23,16 @@ import {
 } from '@/utils/checklistDay';
 import { carriedChecks, predecessorFolderIds } from '@/utils/checklistCarryOver';
 import type { FolderLike } from '@/utils/checklistCarryOver';
+import {
+  BOARD_COLUMNS,
+  activeFilterCount,
+  applyFilters,
+  cellText,
+  filterOptions,
+  groupRows
+} from '@/utils/radarBoardView';
+import type { ColumnFilters, ColumnKey, SortState } from '@/utils/radarBoardView';
+import { ColumnFilterMenu, FilterSummary, SortHeader } from '@/components/admin/Radar/shared/BoardControls';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -65,6 +75,31 @@ interface ShiftStats {
   alarms: number;
 };
 
+/**
+ * Per-column header chrome. The SSR column stays pinned while the twelve hour
+ * columns scroll under it, so its heading carries the sticky treatment its cells
+ * do — at a z-index above the body's own sticky cells, or a filter menu opened
+ * from it would be painted over by the rows below.
+ */
+const HEADER_CELL: Record<ColumnKey, string> = {
+  radar_number: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] sticky left-0 bg-[var(--dtg-bg-primary)] z-30 border-r border-[var(--dtg-border-medium)]',
+  site_name: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[150px]',
+  area: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[150px]',
+  risk: 'px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]',
+  status: 'px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]',
+  quality: 'px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]'
+};
+
+/** Each heading sits over its own cells. */
+const HEADER_ALIGN: Record<ColumnKey, 'left' | 'center'> = {
+  radar_number: 'left',
+  site_name: 'left',
+  area: 'left',
+  risk: 'center',
+  status: 'center',
+  quality: 'center'
+};
+
 const shifts = {
   DS: { label: 'Day Shift (07-18)', hours: ['07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18'], indices: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
   NS: { label: 'Night Shift (19-06)', hours: ['19', '20', '21', '22', '23', '00', '01', '02', '03', '04', '05', '06'], indices: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6] },
@@ -104,6 +139,67 @@ function RadarMonitoring() {
 
   const [showPreview, setShowPreview] = useState(false);
   const [showAddSensor, setShowAddSensor] = useState(false);
+
+  // ---- How the board is presented: ordered, narrowed, grouped ----
+  // None of this reaches the database or the exported handover; it decides what
+  // the grid shows and in what order. See utils/radarBoardView.ts.
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [filters, setFilters] = useState<ColumnFilters>({});
+  const [search, setSearch] = useState('');
+  // Grouped by site out of the box: a station mixes sites, and an operator works
+  // one of them.
+  const [groupBy, setGroupBy] = useState<ColumnKey | null>('site_name');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // A heading collapsed under one grouping means nothing under another.
+  useEffect(() => {
+    setCollapsedGroups(new Set());
+  }, [groupBy]);
+
+  /** Cycle one column: unsorted → ascending → descending → unsorted. */
+  const cycleSort = (key: ColumnKey) => {
+    setSort((current) => {
+      if (current?.key !== key) return { key, direction: 'asc' };
+      if (current.direction === 'asc') return { key, direction: 'desc' };
+      return null;
+    });
+  };
+
+  const visibleList = useMemo(
+    () => applyFilters(liveViewList, filters, search),
+    [liveViewList, filters, search]
+  );
+  const rowGroups = useMemo(
+    () => groupRows(visibleList, groupBy, sort),
+    [visibleList, groupBy, sort]
+  );
+  // Offered from the whole station, not from what is left after filtering, so a
+  // menu does not lose the values that would widen the board again.
+  const filterChoices = useMemo(
+    () => Object.fromEntries(
+      BOARD_COLUMNS.map((c) => [c.key, filterOptions(liveViewList, c.key)])
+    ) as Record<ColumnKey, string[]>,
+    [liveViewList]
+  );
+  const filtersActive = activeFilterCount(filters, search);
+
+  const clearFilters = () => {
+    setFilters({});
+    setSearch('');
+  };
+
+  const anyGroupExpanded = rowGroups.some((g) => !collapsedGroups.has(g.key));
+  const toggleAllGroups = () => {
+    setCollapsedGroups(anyGroupExpanded ? new Set(rowGroups.map((g) => g.key)) : new Set());
+  };
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     liveViewListRef.current = liveViewList;
@@ -340,15 +436,24 @@ function RadarMonitoring() {
     return current;
   };
 
-  const toggleHourlyCheck = async (ssrIndex: number, hourIndex: number) => {
+  /**
+   * Tick or untick one hour for one sensor.
+   *
+   * Keyed by wall folder rather than by the row's position, because the board is
+   * sorted, filtered and grouped for display: the third row on screen is not the
+   * third row in state, and writing by index would have ticked somebody else's
+   * radar the moment an operator sorted the board.
+   */
+  const toggleHourlyCheck = async (wallfolderId: number | null, hourIndex: number) => {
     if (!userID) {
       console.error('User ID not available:', userID);
       toast.error('User ID not available. Please refresh the page.');
       return;
     }
+    if (wallfolderId == null) return;
 
-    const sensor = liveViewListRef.current[ssrIndex];
-    if (!sensor || sensor.wallfolder_id == null) return;
+    const sensor = liveViewListRef.current.find((s) => s.wallfolder_id === wallfolderId);
+    if (!sensor) return;
 
     if (isCheckboxDisabled(hourIndex)) {
       toast.error('This time slot has passed and can no longer be checked.');
@@ -367,8 +472,8 @@ function RadarMonitoring() {
 
     // Update UI optimistically
     setLiveViewList((prev) =>
-      prev.map((s, sIdx) => {
-        if (sIdx !== ssrIndex) return s;
+      prev.map((s) => {
+        if (s.wallfolder_id !== wallfolderId) return s;
         const optimistic = toChecks(s.hourlychecks);
         optimistic[actualIndex] = desired;
         return { ...s, hourlychecks: optimistic, created_time: new Date().toISOString() };
@@ -383,8 +488,8 @@ function RadarMonitoring() {
       // Settle on what was actually stored, for the hours that date owns — the
       // other date of a night shift keeps what it is already showing.
       setLiveViewList((prev) =>
-        prev.map((s, sIdx) =>
-          sIdx === ssrIndex
+        prev.map((s) =>
+          s.wallfolder_id === wallfolderId
             ? { ...s, hourlychecks: withStoredDay(s.hourlychecks, indices, shiftDates, recordDate, stored) }
             : s
         )
@@ -393,8 +498,8 @@ function RadarMonitoring() {
       console.error('Error updating checklist:', error);
       // Revert UI on error
       setLiveViewList((prev) =>
-        prev.map((s, sIdx) =>
-          sIdx === ssrIndex ? { ...s, hourlychecks: previousChecks } : s
+        prev.map((s) =>
+          s.wallfolder_id === wallfolderId ? { ...s, hourlychecks: previousChecks } : s
         )
       );
       toast.error(`Failed to update checklist: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -613,9 +718,10 @@ function RadarMonitoring() {
   };
 
   /** Clear one row. The narrow case: a single radar carrying ticks it shouldn't. */
-  const handleClearSensorChecklist = (ssrIndex: number) => {
-    const sensor = liveViewListRef.current[ssrIndex];
-    if (!sensor || sensor.wallfolder_id == null) return;
+  const handleClearSensorChecklist = (wallfolderId: number | null) => {
+    if (wallfolderId == null) return;
+    const sensor = liveViewListRef.current.find((s) => s.wallfolder_id === wallfolderId);
+    if (!sensor) return;
 
     if (!window.confirm(
       `Clear the ${shifts[selectedShift].label} checklist for ${sensor.radar_number} (${sensor.site_name})?`
@@ -625,19 +731,24 @@ function RadarMonitoring() {
   };
 
   /**
-   * Clear every row on the station.
+   * Clear every row the board is SHOWING.
    *
-   * The confirm names the sites because this reaches sensors the operator may
-   * not have come here for: a station mixes Telfer with Hidden Valley, and an
-   * hour cleared here cannot be re-ticked once the gate has closed on it.
+   * Showing, not holding: a filtered board would otherwise clear sites the
+   * operator cannot see, and an hour cleared here cannot be re-ticked once the
+   * gate has closed on it. The confirm names the sites for the same reason — a
+   * station mixes Telfer with Hidden Valley — and says plainly when the reach is
+   * the filtered subset rather than the whole station.
    */
   const handleResetChecklist = () => {
-    const sensors = liveViewListRef.current.filter((s) => s.wallfolder_id != null);
+    const sensors = visibleList.filter((s) => s.wallfolder_id != null);
     if (sensors.length === 0) return;
 
     const sites = Array.from(new Set(sensors.map((s) => s.site_name))).join(', ');
+    const scope = filtersActive > 0
+      ? `the ${sensors.length} sensors currently shown`
+      : `all ${sensors.length} sensors on station ${selectedStation}`;
     if (!window.confirm(
-      `Clear the ${shifts[selectedShift].label} checklist for all ${sensors.length} sensors on station ${selectedStation} (${sites})?\n\n` +
+      `Clear the ${shifts[selectedShift].label} checklist for ${scope} (${sites})?\n\n` +
       `Checks already recorded this shift will be lost, and hours that have passed cannot be re-ticked. ` +
       `To clear a single radar instead, use the reset icon on its row.`
     )) return;
@@ -898,16 +1009,78 @@ function RadarMonitoring() {
 
       {/* Unified Compact Table */}
       <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg overflow-hidden">
+        {/* Board controls. Presentation only: the KPI cards above and the
+            exported handover keep reporting the whole station, whatever the
+            grid is narrowed to. */}
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-[var(--dtg-border-medium)]">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[var(--dtg-gray-700)]">Group by:</label>
+            <select
+              value={groupBy ?? 'none'}
+              onChange={(e) => setGroupBy(e.target.value === 'none' ? null : (e.target.value as ColumnKey))}
+              className="px-2 py-1 text-xs border border-[var(--dtg-border-medium)] rounded bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)]"
+            >
+              <option value="none">None</option>
+              {BOARD_COLUMNS.map((column) => (
+                <option key={column.key} value={column.key}>{column.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--dtg-gray-500)]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search SSR, site, area, status..."
+              aria-label="Search sensors"
+              className="w-64 pl-7 pr-2 py-1 text-xs border border-[var(--dtg-border-medium)] rounded bg-[var(--dtg-bg-primary)] text-[var(--dtg-text-primary)] outline-none"
+            />
+          </div>
+
+          {groupBy && rowGroups.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleAllGroups}
+              className="text-xs text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
+            >
+              {anyGroupExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
+
+          <div className="ml-auto">
+            <FilterSummary
+              shown={visibleList.length}
+              total={liveViewList.length}
+              activeFilters={filtersActive}
+              onClear={clearFilters}
+            />
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-[var(--dtg-bg-primary)]">
               <tr>
-                <th className="px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] sticky left-0 bg-[var(--dtg-bg-primary)] z-10 border-r border-[var(--dtg-border-medium)]">SSR</th>
-                <th className="px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[120px]">Site Name</th>
-                <th className="px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[120px]">Area</th>
-                <th className="px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]">Risk</th>
-                <th className="px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]">Status</th>
-                <th className="px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]">Quality</th>
+                {BOARD_COLUMNS.map((column) => (
+                  <th key={column.key} className={HEADER_CELL[column.key]}>
+                    <SortHeader
+                      column={column}
+                      sort={sort}
+                      onSort={cycleSort}
+                      align={HEADER_ALIGN[column.key]}
+                    >
+                      <ColumnFilterMenu
+                        column={column}
+                        options={filterChoices[column.key]}
+                        selected={filters[column.key] ?? []}
+                        onChange={(next) =>
+                          setFilters((current) => ({ ...current, [column.key]: next }))
+                        }
+                      />
+                    </SortHeader>
+                  </th>
+                ))}
                 <th className="px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)] border-l border-b border-[var(--dtg-border-medium)]" colSpan={12}>Hourly Verification (Last 12 Hours)</th>
               </tr>
               <tr className="bg-[var(--dtg-bg-primary)]">
@@ -921,82 +1094,137 @@ function RadarMonitoring() {
               </tr>
             </thead>
             <tbody>
-              {liveViewList.map((sensor, sensorIdx) => {
-                const allChecks = sensor.hourlychecks || Array(24).fill(false);
-                const shiftChecks = currentShift.indices.map(idx => allChecks[idx]);
+              {visibleList.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={BOARD_COLUMNS.length + currentShift.hours.length}
+                    className="px-3 py-10 text-center text-sm text-[var(--dtg-gray-500)]"
+                  >
+                    No sensors match the current filters.{' '}
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="underline hover:text-[var(--dtg-text-primary)]"
+                    >
+                      Clear them
+                    </button>
+                  </td>
+                </tr>
+              )}
+
+              {rowGroups.map((group) => {
+                const collapsed = groupBy != null && collapsedGroups.has(group.key);
+                const groupChecks = group.rows.reduce(
+                  (acc, s) => acc + getShiftChecks(s.hourlychecks).filter(Boolean).length,
+                  0
+                );
 
                 return (
-                  <tr key={sensor.radar_number} className="group border-t border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-hover)]/50 transition-colors">
-                    <td className="px-3 py-3 text-[var(--dtg-text-primary)] sticky left-0 bg-[var(--dtg-bg-card)] z-10 border-r border-[var(--dtg-border-medium)]">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono cursor-pointer"
-                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
-                          {sensor.radar_number}
-                        </span>
-                        <button
-                          type="button"
-                          title={`Clear this shift's checklist for ${sensor.radar_number}`}
-                          aria-label={`Clear this shift's checklist for ${sensor.radar_number}`}
-                          onClick={(e) => { e.stopPropagation(); handleClearSensorChecklist(sensorIdx); }}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
-                    >{sensor.site_name}</td>
-                    <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
-                    >{sensor.area}</td>
-                    <td className="px-3 py-3 text-center cursor-pointer"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
-                    >
-                      <span className={`px-2 py-1 rounded text-xs border ${getBandColor(sensor.riskInfo?.colour)}`}>
-                        {sensor.riskInfo?.label ?? sensor.risk}
-                      </span>
-                    </td>
+                  <React.Fragment key={group.key || 'all'}>
+                    {groupBy && (
+                      <tr className="border-t border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-primary)]/70">
+                        <td colSpan={BOARD_COLUMNS.length + currentShift.hours.length} className="p-0">
+                          {/* Sticky INSIDE the cell rather than on it: the row
+                              spans the full table, so only a content-width child
+                              can hold its place while the hour columns scroll. */}
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(group.key)}
+                            aria-expanded={!collapsed}
+                            className="sticky left-0 inline-flex items-center gap-2 px-3 py-2 text-left hover:text-[var(--dtg-text-primary)]"
+                          >
+                            {collapsed
+                              ? <ChevronRight className="w-4 h-4 text-[var(--dtg-gray-500)]" />
+                              : <ChevronDown className="w-4 h-4 text-[var(--dtg-gray-500)]" />}
+                            <span className="text-sm text-[var(--dtg-text-primary)]">{group.key}</span>
+                            <span className="text-xs text-[var(--dtg-gray-500)]">
+                              {group.rows.length} sensor{group.rows.length === 1 ? '' : 's'}
+                              {' · '}
+                              {groupChecks}/{group.rows.length * currentShift.hours.length} checks
+                            </span>
+                          </button>
+                        </td>
+                      </tr>
+                    )}
 
-                    <td className="px-3 py-3 text-center cursor-pointer"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
-                      <span className={`px-2 py-1 rounded text-xs border ${getStatusColor(sensor.status)}`}>
-                        {sensor.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-center cursor-pointer"
-                      onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
-                      <span className={`text-sm px-2 py-1 rounded text-xs border ${getRiskColor(sensor.quality)}`}>
-                        {sensor.quality}
-                      </span>
-                    </td>
-
-                    {shiftChecks.map((checked, hourIdx) => {
-                      const disabled = isCheckboxDisabled(hourIdx);
+                    {!collapsed && group.rows.map((sensor) => {
+                      const allChecks = sensor.hourlychecks || Array(24).fill(false);
+                      const shiftChecks = currentShift.indices.map(idx => allChecks[idx]);
 
                       return (
-                        <td key={hourIdx} className="px-2 py-3 text-center border-l border-[var(--dtg-border-medium)]">
-                          <div className="flex items-center justify-center">
-                            <Checkbox
-                              checked={checked}
-                              disabled={disabled}
-                              onCheckedChange={() => toggleHourlyCheck(sensorIdx, hourIdx)}
-                              className={`w-5 h-5 ${disabled
-                                ? checked
-                                  ? 'bg-green-500/20 border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500'
-                                  : 'opacity-50 cursor-not-allowed'
-                                : checked
-                                  ? 'bg-green-500/20 border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500'
-                                  : 'border-gray-600 hover:border-gray-500'
-                                }`}
-                            />
+                        <tr key={sensor.wallfolder_id ?? sensor.radar_number} className="group border-t border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-hover)]/50 transition-colors">
+                        <td className="px-3 py-3 text-[var(--dtg-text-primary)] sticky left-0 bg-[var(--dtg-bg-card)] z-10 border-r border-[var(--dtg-border-medium)]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono cursor-pointer"
+                              onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
+                              {sensor.radar_number}
+                            </span>
+                            <button
+                              type="button"
+                              title={`Clear this shift's checklist for ${sensor.radar_number}`}
+                              aria-label={`Clear this shift's checklist for ${sensor.radar_number}`}
+                              onClick={(e) => { e.stopPropagation(); handleClearSensorChecklist(sensor.wallfolder_id); }}
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
+                        <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
+                        >{cellText(sensor, 'site_name')}</td>
+                        <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
+                        >{cellText(sensor, 'area')}</td>
+                        <td className="px-3 py-3 text-center cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}
+                        >
+                          <span className={`px-2 py-1 rounded text-xs border ${getBandColor(sensor.riskInfo?.colour)}`}>
+                            {sensor.riskInfo?.label ?? sensor.risk}
+                          </span>
+                        </td>
+
+                        <td className="px-3 py-3 text-center cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
+                          <span className={`px-2 py-1 rounded text-xs border ${getStatusColor(sensor.status)}`}>
+                            {sensor.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-center cursor-pointer"
+                          onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>
+                          <span className={`text-sm px-2 py-1 rounded text-xs border ${getRiskColor(sensor.quality)}`}>
+                            {sensor.quality}
+                          </span>
+                        </td>
+
+                        {shiftChecks.map((checked, hourIdx) => {
+                          const disabled = isCheckboxDisabled(hourIdx);
+
+                          return (
+                            <td key={hourIdx} className="px-2 py-3 text-center border-l border-[var(--dtg-border-medium)]">
+                              <div className="flex items-center justify-center">
+                                <Checkbox
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onCheckedChange={() => toggleHourlyCheck(sensor.wallfolder_id, hourIdx)}
+                                  className={`w-5 h-5 ${disabled
+                                    ? checked
+                                      ? 'bg-green-500/20 border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500'
+                                      : 'opacity-50 cursor-not-allowed'
+                                    : checked
+                                      ? 'bg-green-500/20 border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                    }`}
+                                />
+                              </div>
+                            </td>
+                          )
+                        })}
+                        </tr>
                       )
                     })}
-                  </tr>
-
-                )
+                  </React.Fragment>
+                );
               })}
             </tbody>
           </table>
