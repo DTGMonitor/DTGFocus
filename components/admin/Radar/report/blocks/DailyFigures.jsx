@@ -63,6 +63,7 @@ export function DailyScanArea({
           onPaste={annotation?.handlePaste}
           onImageClick={(e) => annotation?.addPoint(e, imageRef?.current)}
           onImageLoad={onImageLoad}
+          onLabelMove={annotation?.moveLabel}
           maxHeight={maxHeight}
           northRotation={annotation?.north ?? 0}
           northLetter={strings.northLetter}
@@ -124,6 +125,7 @@ export function DailyAnalysisImage({
           onPaste={api?.handlePaste}
           onImageClick={(e) => api?.addPoint(e, imageRef?.current)}
           onImageLoad={onImageLoad}
+          onLabelMove={api?.moveLabel}
           maxHeight={maxHeight}
           northRotation={api?.north ?? 0}
           northLetter={strings.northLetter}

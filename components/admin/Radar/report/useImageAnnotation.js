@@ -25,6 +25,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 export const DEFAULT_BOUNDARY_COLOR = '#FF1744';
 
+/**
+ * Marks an interactive annotation drop zone in the DOM.
+ *
+ * The document-level paste listener reads it to tell "the user pasted into a
+ * figure" from "the user pasted with nothing focused" — see handleDocumentPaste.
+ * AnnotatedImage stamps it on its viewport.
+ */
+export const DROPZONE_ATTR = 'data-annotation-dropzone';
+
 /** Where a zone's label sits relative to its polygon. */
 export const PLACEMENT_INSIDE = 'inside';
 export const PLACEMENT_OUTSIDE = 'outside';
@@ -36,6 +45,16 @@ export function centroid(points) {
   const sy = points.reduce((a, p) => a + p.y, 0);
   return { x: sx / points.length, y: sy / points.length };
 }
+
+/**
+ * Keep a percent-space coordinate inside the image box. A label that reaches
+ * past the edge is clipped by the viewport's `overflow: hidden` and reads as
+ * missing, so every anchor this module returns goes through here.
+ */
+export const clampPct = (v) => Math.max(3, Math.min(97, v));
+
+/** A label that has never been dragged. Frozen so it can be shared safely. */
+export const NO_OFFSET = Object.freeze({ dx: 0, dy: 0 });
 
 /** Axis-aligned bounds of a polygon, in the same percent space as the points. */
 export function bbox(points) {
@@ -85,11 +104,70 @@ export function outsideLabelAnchor(points, margin = 7) {
   const tY = Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity;
   const edge = Math.min(tX, tY);
 
-  const clamp = (v) => Math.max(3, Math.min(97, v));
   return {
-    from: { x: clamp(c.x + dx * edge), y: clamp(c.y + dy * edge) },
-    to: { x: clamp(c.x + dx * (edge + margin)), y: clamp(c.y + dy * (edge + margin)) },
+    from: { x: clampPct(c.x + dx * edge), y: clampPct(c.y + dy * edge) },
+    to: { x: clampPct(c.x + dx * (edge + margin)), y: clampPct(c.y + dy * (edge + margin)) },
   };
+}
+
+/**
+ * Where a leader line should MEET the polygon when its label sits at `target`.
+ *
+ * The same ray maths as `outsideLabelAnchor`, run backwards: given a label
+ * position — which the analyst may have dragged anywhere — find the point on the
+ * zone's bounding box facing it. Returns null when the label still sits over the
+ * zone, because a leader drawn there would just be a stub under the label.
+ */
+export function edgeToward(points, target) {
+  if (!points?.length) return null;
+  const c = centroid(points);
+  const b = bbox(points);
+
+  let dx = target.x - c.x;
+  let dy = target.y - c.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return null;
+  dx /= len;
+  dy /= len;
+
+  const halfW = (b.maxX - b.minX) / 2;
+  const halfH = (b.maxY - b.minY) / 2;
+  const tX = Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity;
+  const tY = Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity;
+  const edge = Math.min(tX, tY);
+
+  // Still inside (or barely clear of) the zone — nothing to lead to.
+  if (!Number.isFinite(edge) || len <= edge + 1) return null;
+  return { x: clampPct(c.x + dx * edge), y: clampPct(c.y + dy * edge) };
+}
+
+/**
+ * Where one zone's label sits, and the leader line it needs to get there.
+ *
+ * Three inputs stack, in this order:
+ *
+ *   1. `placement` — centroid for an inside label, pushed clear of the polygon
+ *      for an outside one.
+ *   2. `offset` — how far the analyst has DRAGGED it from there, in percent
+ *      points of the image box. This is what lets two zones that would print
+ *      their labels on top of each other be pulled apart by hand.
+ *   3. the leader — drawn whenever the label ends up clear of the zone,
+ *      whichever of the two put it there. Without one an offset label is just a
+ *      caption floating on the image with nothing saying which zone it belongs to.
+ *
+ * Lives here rather than in AnnotatedImage because the drag maths and the render
+ * have to agree on the anchor exactly, and because the export render resolves it
+ * through the same path as the preview.
+ */
+export function resolveLabelAnchor(b) {
+  const base = b.placement === PLACEMENT_OUTSIDE ? outsideLabelAnchor(b.points).to : centroid(b.points);
+  const off = b.offset ?? NO_OFFSET;
+  const at =
+    off.dx || off.dy
+      ? { x: clampPct(base.x + off.dx), y: clampPct(base.y + off.dy) }
+      : base;
+  const from = edgeToward(b.points, at);
+  return { at, leader: from ? { from, to: at } : null };
 }
 
 /** First image on a DataTransfer / ClipboardData, or null. */
@@ -123,7 +201,7 @@ function firstImageFile(dataTransfer) {
  */
 export function useImageAnnotation(initialImage = null, { pasteEnabled = true } = {}) {
   const [image, setImage] = useState(initialImage);
-  const [boundaries, setBoundaries] = useState([]); // [{ points, color, label, placement }]
+  const [boundaries, setBoundaries] = useState([]); // [{ points, color, label, placement, offset }]
   const [draft, setDraft] = useState(null);
   const [color, setColor] = useState(DEFAULT_BOUNDARY_COLOR);
   // Compass bearing for the figure, in degrees clockwise from up. Only the
@@ -164,11 +242,35 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
     [readImageFile]
   );
 
+  /**
+   * The same paste, arriving on the DOCUMENT rather than on this figure's own
+   * drop zone — the convenience path for the common case of one figure on screen
+   * and nothing focused.
+   *
+   * It must stand down when the paste already belongs to a drop zone. A report
+   * can carry several figures (the daily report has a scan area and N analysis
+   * areas), and a paste into one of them bubbles up to here as well: this hook
+   * would read the same clipboard image and replace ITS figure too, so pasting
+   * into the second placeholder silently overwrote the first. The zone's own
+   * `onPaste` runs first and marks the event — both by consuming it
+   * (`defaultPrevented`) and by being an ancestor of the paste target — and
+   * either mark is enough to leave it alone.
+   */
+  const handleDocumentPaste = useCallback(
+    (e) => {
+      if (e.defaultPrevented) return;
+      const target = e.target;
+      if (target && typeof target.closest === 'function' && target.closest(`[${DROPZONE_ATTR}]`)) return;
+      handlePaste(e);
+    },
+    [handlePaste]
+  );
+
   useEffect(() => {
     if (!pasteEnabled || typeof document === 'undefined') return undefined;
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
-  }, [pasteEnabled, handlePaste]);
+    document.addEventListener('paste', handleDocumentPaste);
+    return () => document.removeEventListener('paste', handleDocumentPaste);
+  }, [pasteEnabled, handleDocumentPaste]);
 
   /** Click → append a point, in percent of the image box. */
   const addPoint = useCallback(
@@ -203,6 +305,7 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
           color: draftColor,
           label: `Zone ${String.fromCharCode(65 + b.length)}`,
           placement: PLACEMENT_INSIDE,
+          offset: NO_OFFSET,
         },
       ]);
     }
@@ -220,6 +323,35 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
     (idx, placement) => setBoundaries((b) => b.map((bd, i) => (i === idx ? { ...bd, placement } : bd))),
     []
   );
+  /**
+   * Recolour ONE zone after it is drawn.
+   *
+   * `setColor` picks the colour the NEXT zone is drawn in; this changes one that
+   * already exists. Both are needed — an analyst who draws three zones before
+   * noticing two of them are the same red should not have to redraw them.
+   */
+  const updateColor = useCallback(
+    (idx, zoneColor) => setBoundaries((b) => b.map((bd, i) => (i === idx ? { ...bd, color: zoneColor } : bd))),
+    []
+  );
+  /** Drag a label off its computed anchor, in percent points of the image box. */
+  const moveLabel = useCallback(
+    (idx, offset) => setBoundaries((b) => b.map((bd, i) => (i === idx ? { ...bd, offset } : bd))),
+    []
+  );
+  const resetLabelPosition = useCallback(
+    (idx) => setBoundaries((b) => b.map((bd, i) => (i === idx ? { ...bd, offset: NO_OFFSET } : bd))),
+    []
+  );
+  /**
+   * Delete ONE zone. The remaining zones keep their own labels rather than being
+   * renamed to close the gap: "Zone C" may already be written into the report
+   * prose, and silently promoting it to Zone B would falsify that.
+   */
+  const removeBoundary = useCallback(
+    (idx) => setBoundaries((b) => b.filter((_, i) => i !== idx)),
+    []
+  );
 
   return {
     image, setImage,
@@ -227,6 +359,7 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
     north, setNorth,
     readImageFile, handleDrop, handlePaste, addPoint,
     startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement,
+    updateColor, moveLabel, resetLabelPosition, removeBoundary,
   };
 }
 

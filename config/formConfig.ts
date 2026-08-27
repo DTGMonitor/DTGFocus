@@ -633,7 +633,7 @@ export const CAUSE_OPTIONS = {
     Valid: [
         "Failure Pattern Indication", "Slip Pattern Indication",
         "Material Detachment Indication", "Rock Fall", "Rapid Movement",
-        "Progressive Deformation Trend", "Linear Deformation Trend",
+        "Progressive Deformation Trend", "Linear Accelerating Trend", "Linear Deformation Trend",
         "Regressive Deformation Trend"
     ]
 };

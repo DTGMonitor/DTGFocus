@@ -10,21 +10,61 @@
  */
 
 import { MUTED, LINE, ACCENT, IMAGE_MAX_H } from './constants';
-import { centroid, outsideLabelAnchor, PLACEMENT_OUTSIDE } from './useImageAnnotation';
+import { DROPZONE_ATTR, NO_OFFSET, resolveLabelAnchor } from './useImageAnnotation';
 import { NorthArrow } from './NorthArrow';
 
 /**
- * Where one zone's label sits, and the leader line it needs to get there.
+ * Drag a zone label to a new resting place.
  *
- * Inside labels sit on the centroid and need no leader. Outside labels are
- * pushed clear of the polygon and are tied back to it by a line — without one an
- * offset label is just a caption floating on the image with nothing saying which
- * zone it belongs to.
+ * Two labels whose zones sit close together print on top of each other, and no
+ * automatic placement rule fixes every figure — so the analyst pulls them apart
+ * by hand. The delta is measured against the IMAGE box and stored in percent
+ * points, the same space the polygons live in, so a label dragged in the preview
+ * lands in the same spot in the export.
+ *
+ * Listeners go on the window, not the label: a fast drag outruns the element and
+ * would otherwise drop the pointer mid-move.
  */
-function labelAnchor(b) {
-  if (b.placement !== PLACEMENT_OUTSIDE) return { at: centroid(b.points), leader: null };
-  const { from, to } = outsideLabelAnchor(b.points);
-  return { at: to, leader: { from, to } };
+function beginLabelDrag({ event, index, boundary, imageEl, onLabelMove }) {
+  const rect = imageEl?.getBoundingClientRect();
+  if (!rect?.width || !rect?.height) return;
+
+  // Stop the image's click handler from reading this as a polygon point.
+  event.preventDefault();
+  event.stopPropagation();
+
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const base = boundary.offset ?? NO_OFFSET;
+
+  // Coalesced to one commit per frame. A pointermove fires far faster than the
+  // report re-renders, and every commit re-runs pagination on templates that
+  // measure against the zone list — unthrottled, the drag stutters.
+  let frame = null;
+  let pending = null;
+  const flush = () => {
+    frame = null;
+    if (pending) onLabelMove(index, pending);
+  };
+  const onMove = (ev) => {
+    pending = {
+      dx: base.dx + ((ev.clientX - startX) / rect.width) * 100,
+      dy: base.dy + ((ev.clientY - startY) / rect.height) * 100,
+    };
+    if (frame == null) frame = requestAnimationFrame(flush);
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    // Land on the last position even if the pointer came up between frames.
+    if (frame != null) cancelAnimationFrame(frame);
+    if (pending) onLabelMove(index, pending);
+  };
+
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
 }
 
 /**
@@ -42,6 +82,9 @@ function labelAnchor(b) {
  *   included — overlays a rotatable compass on the figure; null (the default)
  *   renders none, so the Post-Blast and Comprehensive figures are unchanged.
  * @param {string} northLetter       'U' on the Indonesian path, 'N' otherwise.
+ * @param {Function|null} onLabelMove  (index, {dx, dy}) — commit a dragged label.
+ *   Omitted (or non-interactive) leaves the labels click-through, exactly as they
+ *   were before dragging existed, which is what the export render wants.
  */
 export function AnnotatedImage({
   image,
@@ -57,7 +100,9 @@ export function AnnotatedImage({
   emptyHint = 'Drag & drop an image here, or use “Upload image”.',
   northRotation = null,
   northLetter = 'N',
+  onLabelMove = null,
 }) {
+  const labelsDraggable = interactive && Boolean(onLabelMove) && !draft;
   return (
     <div
       onDragOver={interactive ? (e) => e.preventDefault() : undefined}
@@ -66,6 +111,9 @@ export function AnnotatedImage({
       // Focusable so a click on the drop zone puts Ctrl+V here explicitly. Not
       // the only path — the hook's document listener covers the untouched case.
       tabIndex={interactive ? 0 : undefined}
+      // Marks this as a figure that OWNS its pastes, so the single-image hook's
+      // document listener does not also swallow one meant for another figure.
+      {...(interactive ? { [DROPZONE_ATTR]: '' } : {})}
       style={{
         position: 'relative',
         width: '100%',
@@ -114,7 +162,7 @@ export function AnnotatedImage({
             {/* Leader lines, drawn after the polygons so they are never buried
                 under a later zone's translucent fill. */}
             {boundaries.map((b, i) => {
-              const { leader } = labelAnchor(b);
+              const { leader } = resolveLabelAnchor(b);
               if (!leader) return null;
               return (
                 <line
@@ -141,10 +189,23 @@ export function AnnotatedImage({
             )}
           </svg>
           {boundaries.map((b, i) => {
-            const { at } = labelAnchor(b);
+            const { at } = resolveLabelAnchor(b);
             return (
               <span
                 key={i}
+                onPointerDown={
+                  labelsDraggable
+                    ? (e) =>
+                        beginLabelDrag({
+                          event: e,
+                          index: i,
+                          boundary: b,
+                          imageEl: imageRef?.current,
+                          onLabelMove,
+                        })
+                    : undefined
+                }
+                title={labelsDraggable ? 'Drag to reposition this label' : undefined}
                 style={{
                   position: 'absolute',
                   left: `${at.x}%`,
@@ -161,7 +222,12 @@ export function AnnotatedImage({
                   // on one, velocity on the next) and each must keep its break.
                   whiteSpace: 'pre-line',
                   textAlign: 'center',
-                  pointerEvents: 'none',
+                  // Click-through except while draggable — during a draft the
+                  // clicks belong to the polygon being drawn underneath.
+                  pointerEvents: labelsDraggable ? 'auto' : 'none',
+                  cursor: labelsDraggable ? 'move' : undefined,
+                  userSelect: 'none',
+                  touchAction: 'none',
                 }}
               >
                 {b.label}
@@ -186,6 +252,18 @@ export function AnnotatedImage({
     </div>
   );
 }
+
+/** The small ✕ / ⟲ affordances on a zone row. */
+const zoneIconBtn = {
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'rgba(255,255,255,0.08)',
+  color: '#cbd5e1',
+  borderRadius: 3,
+  padding: '1px 5px',
+  fontSize: 11,
+  lineHeight: 1.6,
+  cursor: 'pointer',
+};
 
 const btn = {
   padding: '5px 10px',
@@ -213,6 +291,7 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image', sho
     image, boundaries, draft, color, setColor, readImageFile,
     north, setNorth,
     startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement,
+    updateColor, removeBoundary, resetLabelPosition,
   } = annotation;
 
   return (
@@ -252,7 +331,9 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image', sho
             </button>
           </>
         )}
-        <button type="button" onClick={clearBoundaries} disabled={!boundaries.length} style={btn}>Clear</button>
+        <button type="button" onClick={clearBoundaries} disabled={!boundaries.length} style={btn} title="Delete every zone on this figure">
+          Clear all
+        </button>
 
         {showNorth && setNorth ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
@@ -293,6 +374,8 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image', sho
 
         {draft ? (
           <span style={{ fontSize: 11, color: '#cbd5e1' }}>Click the image to add points.</span>
+        ) : boundaries.length > 1 ? (
+          <span style={{ fontSize: 11, color: '#64748b' }}>Drag a label on the figure to move it.</span>
         ) : null}
       </div>
 
@@ -301,8 +384,24 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image', sho
           <span style={{ fontSize: 11, color: '#cbd5e1', paddingTop: 4 }}>Zone labels:</span>
           {boundaries.map((b, i) => (
             <span key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-              <span
-                style={{ width: 9, height: 9, background: b.color, borderRadius: 2, display: 'inline-block', marginTop: 5 }}
+              {/* The swatch is the control: a zone drawn in the wrong colour is
+                  recoloured here rather than deleted and drawn again. */}
+              <input
+                type="color"
+                value={b.color}
+                onChange={(e) => updateColor?.(i, e.target.value)}
+                disabled={!updateColor}
+                aria-label={`Zone ${i + 1} colour`}
+                title="Zone colour"
+                style={{
+                  width: 18,
+                  height: 18,
+                  padding: 0,
+                  marginTop: 2,
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: updateColor ? 'pointer' : 'default',
+                }}
               />
               {/* textarea, not input: Enter has to insert a line break so a label
                   can carry the trend on one line and the velocity on the next. */}
@@ -339,6 +438,30 @@ export function AnnotationToolbar({ annotation, label = 'Deformation image', sho
                 <option value="inside" style={{ color: '#111' }}>Inside</option>
                 <option value="outside" style={{ color: '#111' }}>Outside</option>
               </select>
+              {/* Only offered once the label has actually been dragged — a reset
+                  that does nothing is a control the analyst has to think about. */}
+              {resetLabelPosition && (b.offset?.dx || b.offset?.dy) ? (
+                <button
+                  type="button"
+                  onClick={() => resetLabelPosition(i)}
+                  aria-label={`Reset zone ${i + 1} label position`}
+                  title="Put this label back on its zone"
+                  style={zoneIconBtn}
+                >
+                  ⟲
+                </button>
+              ) : null}
+              {removeBoundary ? (
+                <button
+                  type="button"
+                  onClick={() => removeBoundary(i)}
+                  aria-label={`Delete zone ${i + 1}`}
+                  title="Delete this zone"
+                  style={{ ...zoneIconBtn, color: '#fca5a5' }}
+                >
+                  ✕
+                </button>
+              ) : null}
             </span>
           ))}
         </div>

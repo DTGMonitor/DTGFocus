@@ -6,6 +6,7 @@ import { FaArrowRight } from "react-icons/fa";
 import { MdLocationOn } from "react-icons/md";
 import { SlClock } from "react-icons/sl";
 import { FaCalendarAlt } from "react-icons/fa";
+import { isAllSites } from "@/config/clientView";
 
 /**
  * The client landing page — five dashboard cards, one per sensor family.
@@ -161,18 +162,26 @@ const Dashboard = () => {
       let allowedKeys = [];
 
       if (userSite.role === "admin") {
-        // An admin lands here by picking a site on the monitoring board, so the
-        // header names the site in the URL rather than the admin's own row.
-        const { data: viewed } = await supabase
-          .from("clients")
-          .select("site_name, location, company")
-          .eq("stock_code", client)
-          .maybeSingle();
+        // An admin has no site of their own, so the header names whatever the
+        // URL is on. The monitoring board sends them to the ALL-SITES view,
+        // which is not a stock_code and must not be looked up as one — the
+        // dashboards behind it read across every site anyway. A real stock_code
+        // still reaches here when an admin is handed a site's own link.
+        if (isAllSites(client)) {
+          setLocation("All Sites");
+          setCompany("Admin");
+        } else {
+          const { data: viewed } = await supabase
+            .from("clients")
+            .select("site_name, location, company")
+            .eq("stock_code", client)
+            .maybeSingle();
 
-        setLocation(
-          viewed ? `${viewed.site_name}, ${viewed.location}` : "All Sites"
-        );
-        setCompany(viewed?.company || "Admin");
+          setLocation(
+            viewed ? `${viewed.site_name}, ${viewed.location}` : "All Sites"
+          );
+          setCompany(viewed?.company || "Admin");
+        }
         allowedKeys = allDashboards.map((d) => d.key);
       } else if (userSite.clients) {
         setLocation(

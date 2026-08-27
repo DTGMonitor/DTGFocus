@@ -284,6 +284,10 @@ export default function PostBlastReportModal({
     finishDraft,
     clearBoundaries,
     updateLabel,
+    updateColor,
+    moveLabel,
+    resetLabelPosition,
+    removeBoundary,
   } = annotation;
   const handleImageClick = (e) => annotation.addPoint(e, imageRef.current);
 
@@ -756,6 +760,7 @@ export default function PostBlastReportModal({
         onPaste={handlePaste}
         onImageClick={handleImageClick}
         onImageLoad={bumpMeasure}
+        onLabelMove={moveLabel}
         maxHeight={PIT_MAX_H}
         emptyHint="Drag, drop or paste (Ctrl+V) the pit-wall photograph here, or use “Upload pit image”."
       />
@@ -939,7 +944,7 @@ export default function PostBlastReportModal({
             <button type="button" onClick={finishDraft} style={{ ...tbBtn, background: ACCENT, color: '#111' }}>✓ Finish ({draft.points.length})</button>
           </>
         )}
-        <button type="button" onClick={clearBoundaries} disabled={!boundaries.length} style={tbBtn}>Clear</button>
+        <button type="button" onClick={clearBoundaries} disabled={!boundaries.length} style={tbBtn} title="Delete every boundary">Clear all</button>
 
         <button type="button" onClick={handleExport} disabled={isExporting} style={{ ...tbBtn, background: ACCENT, color: '#111', fontWeight: 700 }}>
           {isExporting ? 'Exporting…' : '⬇ Export to PDF'}
@@ -953,10 +958,42 @@ export default function PostBlastReportModal({
           <span style={{ alignSelf: 'center' }}>Boundary labels:</span>
           {boundaries.map((b, i) => (
             <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 10, height: 10, background: b.color, borderRadius: 2, display: 'inline-block' }} />
+              {/* The swatch is the control: a boundary drawn in the wrong colour
+                  is recoloured here rather than deleted and drawn again. */}
+              <input
+                type="color"
+                value={b.color}
+                onChange={(e) => updateColor(i, e.target.value)}
+                aria-label={`Boundary ${i + 1} colour`}
+                title="Boundary colour"
+                style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+              />
               <input value={b.label} onChange={(e) => updateLabel(i, e.target.value)} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', borderRadius: 3, padding: '2px 6px', fontSize: 12, width: 100 }} />
+              {b.offset?.dx || b.offset?.dy ? (
+                <button
+                  type="button"
+                  onClick={() => resetLabelPosition(i)}
+                  aria-label={`Reset boundary ${i + 1} label position`}
+                  title="Put this label back on its boundary"
+                  style={zoneIconBtn}
+                >
+                  ⟲
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => removeBoundary(i)}
+                aria-label={`Delete boundary ${i + 1}`}
+                title="Delete this boundary"
+                style={{ ...zoneIconBtn, color: '#fca5a5' }}
+              >
+                ✕
+              </button>
             </span>
           ))}
+          {boundaries.length > 1 ? (
+            <span style={{ alignSelf: 'center', color: '#64748b' }}>Drag a label on the figure to move it.</span>
+          ) : null}
         </div>
       )}
 
@@ -977,6 +1014,18 @@ export default function PostBlastReportModal({
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // PageSheet / ReportPages / FooterLogo / SectionBar now live in ../report/pageFrame.
+
+/** The small ✕ / ⟲ affordances on a boundary row. */
+const zoneIconBtn = {
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'rgba(255,255,255,0.08)',
+  color: '#cbd5e1',
+  borderRadius: 3,
+  padding: '1px 6px',
+  fontSize: 12,
+  lineHeight: 1.5,
+  cursor: 'pointer',
+};
 
 const tbBtn = {
   padding: '6px 12px',

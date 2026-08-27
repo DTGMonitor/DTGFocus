@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { DEFAULT_BOUNDARY_COLOR, PLACEMENT_INSIDE } from './useImageAnnotation';
+import { DEFAULT_BOUNDARY_COLOR, NO_OFFSET, PLACEMENT_INSIDE } from './useImageAnnotation';
 
 /** Monotonic ids, so React keys survive a removal from the middle of the list. */
 let nextId = 1;
@@ -178,6 +178,7 @@ export function useDailyFigures(initial = null) {
               color: f.draft.color,
               label: `Zone ${String.fromCharCode(65 + f.boundaries.length)}`,
               placement: PLACEMENT_INSIDE,
+              offset: NO_OFFSET,
             },
           ],
         };
@@ -196,6 +197,37 @@ export function useDailyFigures(initial = null) {
   const updatePlacement = useCallback(
     (i, bi, placement) =>
       patch(i, (f) => ({ boundaries: f.boundaries.map((b, idx) => (idx === bi ? { ...b, placement } : b)) })),
+    [patch]
+  );
+
+  /** Recolour one drawn zone — `setColor` only chooses the colour of the next one. */
+  const updateZoneColor = useCallback(
+    (i, bi, color) =>
+      patch(i, (f) => ({ boundaries: f.boundaries.map((b, idx) => (idx === bi ? { ...b, color } : b)) })),
+    [patch]
+  );
+
+  /** Drag a label off its computed anchor, in percent points of the image box. */
+  const moveLabel = useCallback(
+    (i, bi, offset) =>
+      patch(i, (f) => ({ boundaries: f.boundaries.map((b, idx) => (idx === bi ? { ...b, offset } : b)) })),
+    [patch]
+  );
+
+  const resetLabelPosition = useCallback(
+    (i, bi) =>
+      patch(i, (f) => ({
+        boundaries: f.boundaries.map((b, idx) => (idx === bi ? { ...b, offset: NO_OFFSET } : b)),
+      })),
+    [patch]
+  );
+
+  /**
+   * Delete ONE zone from a figure. The survivors keep their labels rather than
+   * being renamed to close the gap — see useImageAnnotation.removeBoundary.
+   */
+  const removeBoundary = useCallback(
+    (i, bi) => patch(i, (f) => ({ boundaries: f.boundaries.filter((_, idx) => idx !== bi) })),
     [patch]
   );
 
@@ -238,8 +270,12 @@ export function useDailyFigures(initial = null) {
         clearBoundaries: () => clearBoundaries(i),
         updateLabel: (bi, label) => updateLabel(i, bi, label),
         updatePlacement: (bi, placement) => updatePlacement(i, bi, placement),
+        updateColor: (bi, c) => updateZoneColor(i, bi, c),
+        moveLabel: (bi, offset) => moveLabel(i, bi, offset),
+        resetLabelPosition: (bi) => resetLabelPosition(i, bi),
+        removeBoundary: (bi) => removeBoundary(i, bi),
       })),
-    [figures, setColor, setNorth, setImage, addPoint, startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement]
+    [figures, setColor, setNorth, setImage, addPoint, startDraft, undoPoint, finishDraft, clearBoundaries, updateLabel, updatePlacement, updateZoneColor, moveLabel, resetLabelPosition, removeBoundary]
   );
 
   return {

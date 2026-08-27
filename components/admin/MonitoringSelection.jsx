@@ -6,14 +6,12 @@ import { FaArrowRight } from "react-icons/fa";
 import { MdLocationOn } from "react-icons/md";
 import { SlClock } from "react-icons/sl";
 import { FaCalendarAlt } from "react-icons/fa";
+import { ALL_SITES_HOME } from "@/config/clientView";
 
 const MonitoringSelection = () => {
   const router = useRouter();
 
   const [activeCards, setActiveCards] = useState([]);
-  // Cards showing their site picker instead of their front face.
-  const [pickerCards, setPickerCards] = useState([]);
-  const [sites, setSites] = useState([]);
   const [location, setLocation] = useState("");
   const [company, setCompany] = useState("");
   const [items, setItems] = useState([]);
@@ -60,11 +58,11 @@ const MonitoringSelection = () => {
       title: "CLIENT VIEW",
       url: `/images/home/ClientView.png`,
       Description:
-        "Open any site's client dashboard exactly as that site's team sees it",
-      // Resolved from the site picker below, not fixed: this card opens
-      // /tools/<stock_code>/home, which needs a site chosen first.
-      Path: null,
-      needsSite: true,
+        "Open the client dashboard exactly as a site's team sees it",
+      // Straight in, no site chosen first: the dashboards behind this card read
+      // across every site and carry their own site filters, so picking one here
+      // decided nothing. See config/clientView.
+      Path: ALL_SITES_HOME,
       bgColor: "rgba(19,80,27,1)",
       gradColor: "linear-gradient(90deg, #0B4F4C 0%, #10807A 50%, #14B8A6 100%)",
     },
@@ -78,11 +76,7 @@ const MonitoringSelection = () => {
     });
 
   const handleExplore = (item) => {
-    if (item.needsSite && item.hasData) {
-      setPickerCards((prev) =>
-        prev.includes(item.id) ? prev : [...prev, item.id]
-      );
-    } else if (item.hasData) {
+    if (item.hasData) {
       router.push(item.Path);
     } else {
       setActiveCards((prev) =>
@@ -94,14 +88,6 @@ const MonitoringSelection = () => {
   const handleBack = (e, id) => {
     e.stopPropagation();
     setActiveCards((prev) => prev.filter((cardId) => cardId !== id));
-    setPickerCards((prev) => prev.filter((cardId) => cardId !== id));
-  };
-
-  // A site is addressed by its stock_code — that is what [client] is in
-  // /tools/[client], and what middleware.ts matches a user's sites against.
-  const openClientView = (e, site) => {
-    e.stopPropagation();
-    router.push(`/tools/${site.stock_code}/home`);
   };
 
   // ---- DATE & TIME ----
@@ -156,26 +142,12 @@ const MonitoringSelection = () => {
         setCompany("");
       }
 
-      // Sites the CLIENT VIEW card can open. Only stock_code-bearing rows are
-      // addressable — /tools/[client] is keyed on it.
-      const { data: clientSites } = await supabase
-        .from("clients")
-        .select("id, site_name, location, company, stock_code")
-        .not("stock_code", "is", null)
-        .order("site_name", { ascending: true });
-
-      const siteList = clientSites || [];
-      setSites(siteList);
-
-      // SURFACE and SENSITIVITY are reachable — the underground app is not ported
-      // yet, so its card falls through to the "No access" panel. Per-site gating
-      // can be layered on later the same way site_dashboards works for the
-      // surface dashboard picker.
+      // SURFACE, SENSITIVITY and CLIENT VIEW are reachable — the underground app
+      // is not ported yet, so its card falls through to the "No access" panel.
+      // Per-site gating can be layered on later the same way site_dashboards
+      // works for the surface dashboard picker.
       setItems(
-        allDomains.map((d) => ({
-          ...d,
-          hasData: d.needsSite ? siteList.length > 0 : d.Path !== null,
-        }))
+        allDomains.map((d) => ({ ...d, hasData: d.Path !== null }))
       );
       setLoading(false);
     };
@@ -323,82 +295,8 @@ const MonitoringSelection = () => {
                 (e.currentTarget.style.transform = "scale(1)")
               }
             >
-              {/* Site picker — CLIENT VIEW only */}
-              {pickerCards.includes(item.id) ? (
-                <>
-                  <div
-                    style={{
-                      border: `1px solid ${item.bgColor}`,
-                      borderRadius: "40px",
-                      width: "80%",
-                      marginBottom: "15px",
-                    }}
-                  >
-                    <h2 style={{ fontSize: "20px", fontWeight: "bold", margin: 5 }}>
-                      {item.title}
-                    </h2>
-                  </div>
-                  <p style={{ color: "#ccc", fontSize: "13px", margin: "0 0 10px" }}>
-                    Choose a site to open its client dashboard
-                  </p>
-                  <div
-                    style={{
-                      width: "100%",
-                      flex: 1,
-                      minHeight: 0,
-                      overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    {sites.map((site) => (
-                      <button
-                        key={site.id}
-                        type="button"
-                        onClick={(e) => openClientView(e, site)}
-                        style={{
-                          background: setAlpha(item.bgColor, 0.25),
-                          border: "1px solid #595959",
-                          borderRadius: "8px",
-                          padding: "8px 12px",
-                          color: "#fff",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                        }}
-                      >
-                        <span style={{ fontWeight: "bold", fontSize: "14px" }}>
-                          {site.site_name}{" "}
-                          <span style={{ color: "#9BE7DC", fontWeight: "normal" }}>
-                            ({site.stock_code})
-                          </span>
-                        </span>
-                        <span style={{ fontSize: "11px", color: "#bbb" }}>
-                          {site.company}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={(e) => handleBack(e, item.id)}
-                    style={{
-                      backgroundColor: "#20625C",
-                      border: "none",
-                      padding: "6px 16px",
-                      color: "#fff",
-                      borderRadius: "3px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    BACK
-                  </button>
-                </>
-              ) : /* Notification View */
-              activeCards.includes(item.id) ? (
+              {/* Notification View */}
+              {activeCards.includes(item.id) ? (
                 <>
                   <div
                     style={{

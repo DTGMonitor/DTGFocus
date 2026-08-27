@@ -367,6 +367,7 @@ export function DeformationImage({
           onPaste={annotation?.handlePaste}
           onImageClick={(e) => annotation?.addPoint(e, imageRef?.current)}
           onImageLoad={onImageLoad}
+          onLabelMove={annotation?.moveLabel}
           maxHeight={IMAGE_MAX_H}
           emptyHint="Drag, drop or paste (Ctrl+V) the deformation image here, or use “Upload image”."
         />

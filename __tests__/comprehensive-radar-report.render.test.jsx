@@ -7,12 +7,18 @@
  * the page. Page-count fidelity is verified in the browser (tasks.md task 9).
  */
 
-import { StrictMode } from 'react';
+import { StrictMode, useState } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 import { ComprehensiveRadarTemplate } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
 import { DeformationTimeline } from '@/components/admin/Radar/report/blocks/DeformationTimeline';
-import { useImageAnnotation } from '@/components/admin/Radar/report/useImageAnnotation';
+import { AnnotatedImage } from '@/components/admin/Radar/report/AnnotatedImage';
+import {
+  useImageAnnotation,
+  resolveLabelAnchor,
+  PLACEMENT_OUTSIDE,
+  DROPZONE_ATTR,
+} from '@/components/admin/Radar/report/useImageAnnotation';
 import { computeAvailability } from '@/utils/reportAvailability';
 import { aggregateAlarmCauses, countValidTotal } from '@/utils/reportAlarms';
 import { buildRadarRecord } from '@/utils/buildRadarRecord';
@@ -476,6 +482,177 @@ describe('useImageAnnotation — zone drawing', () => {
 
     expect(result.current.boundaries).toHaveLength(0);
     expect(result.current.draft).toBeNull();
+  });
+
+  it('deletes one zone and leaves the others named as they were', () => {
+    const { result } = renderHook(() => useImageAnnotation('data:image/png;base64,AAA'), {
+      wrapper: StrictMode,
+    });
+
+    [0, 1, 2].forEach(() => {
+      drawTriangle(result);
+      act(() => result.current.finishDraft());
+    });
+    act(() => result.current.removeBoundary(1));
+
+    // C is NOT renamed to B: the label may already be written into the report
+    // prose, and renaming it would falsify that.
+    expect(result.current.boundaries.map((b) => b.label)).toEqual(['Zone A', 'Zone C']);
+  });
+
+  it('recolours a drawn zone without touching the next-zone colour', () => {
+    const { result } = renderHook(() => useImageAnnotation('data:image/png;base64,AAA'), {
+      wrapper: StrictMode,
+    });
+
+    drawTriangle(result);
+    act(() => result.current.finishDraft());
+    const drawnWith = result.current.color;
+    act(() => result.current.updateColor(0, '#00E5FF'));
+
+    expect(result.current.boundaries[0].color).toBe('#00E5FF');
+    expect(result.current.color).toBe(drawnWith);
+  });
+
+  it('moves a label off its anchor and back again', () => {
+    const { result } = renderHook(() => useImageAnnotation('data:image/png;base64,AAA'), {
+      wrapper: StrictMode,
+    });
+
+    drawTriangle(result);
+    act(() => result.current.finishDraft());
+    const home = resolveLabelAnchor(result.current.boundaries[0]).at;
+
+    act(() => result.current.moveLabel(0, { dx: 20, dy: -12 }));
+    const moved = resolveLabelAnchor(result.current.boundaries[0]);
+    expect(moved.at.x).toBeCloseTo(home.x + 20);
+    expect(moved.at.y).toBeCloseTo(home.y - 12);
+    // Dragged clear of the zone, so it needs a leader tying it back.
+    expect(moved.leader).not.toBeNull();
+    expect(moved.leader.to).toEqual(moved.at);
+
+    act(() => result.current.resetLabelPosition(0));
+    expect(resolveLabelAnchor(result.current.boundaries[0]).at).toEqual(home);
+  });
+
+  it('leaves a label sitting on its zone without a leader line', () => {
+    const b = {
+      points: [{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 25, y: 40 }],
+      color: '#FF1744',
+      label: 'Zone A',
+      offset: { dx: 0, dy: 0 },
+    };
+    expect(resolveLabelAnchor(b).leader).toBeNull();
+    // An outside placement is clear of the polygon, so that one does get a leader.
+    expect(resolveLabelAnchor({ ...b, placement: PLACEMENT_OUTSIDE }).leader).not.toBeNull();
+  });
+
+  // Regression: the document listener is a convenience for the one-figure case,
+  // but a report can carry several. A paste into the SECOND figure bubbled up to
+  // it and replaced the FIRST figure's image as well.
+  it('ignores a document paste that a figure drop zone already owns', () => {
+    const { result } = renderHook(() => useImageAnnotation(null), { wrapper: StrictMode });
+
+    const zone = document.createElement('div');
+    zone.setAttribute(DROPZONE_ATTR, '');
+    document.body.appendChild(zone);
+
+    const file = new File(['x'], 'snip.png', { type: 'image/png' });
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [file] },
+    });
+
+    act(() => {
+      zone.dispatchEvent(paste);
+    });
+
+    expect(result.current.image).toBeNull();
+    zone.remove();
+  });
+
+  it('still takes a document paste when no figure is focused', async () => {
+    const { result } = renderHook(() => useImageAnnotation(null), { wrapper: StrictMode });
+
+    const file = new File(['x'], 'snip.png', { type: 'image/png' });
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [file] },
+    });
+
+    act(() => {
+      document.body.dispatchEvent(paste);
+    });
+
+    await waitFor(() => expect(result.current.image).toEqual(expect.stringContaining('data:')));
+  });
+});
+
+/**
+ * The two-figure case the daily (tabulation) report puts on screen: a scan-area
+ * figure whose hook arms the document paste listener, and an analysis figure
+ * that owns its own pastes. Pasting into the second must not touch the first.
+ */
+describe('AnnotatedImage — paste ownership across figures', () => {
+  const imageFile = () => new File(['x'], 'snip.png', { type: 'image/png' });
+
+  const pasteInto = (el) => {
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', { value: { items: [], files: [imageFile()] } });
+    act(() => {
+      el.dispatchEvent(ev);
+    });
+  };
+
+  function TwoFigures() {
+    // The scan area: document-level paste armed, as in the real report.
+    const scan = useImageAnnotation(null);
+    // The analysis figure: element-scoped only, like useDailyFigures' adapter.
+    const [analysis, setAnalysis] = useState(null);
+    const onAnalysisPaste = (e) => {
+      const file = e.clipboardData?.files?.[0];
+      if (!file) return;
+      e.preventDefault();
+      setAnalysis('data:image/png;base64,BBB');
+    };
+
+    return (
+      <div>
+        <div data-testid="scan-state">{scan.image ?? 'empty'}</div>
+        <div data-testid="analysis-state">{analysis ?? 'empty'}</div>
+        <div data-testid="scan">
+          <AnnotatedImage image="data:image/png;base64,AAA" interactive onPaste={scan.handlePaste} />
+        </div>
+        <div data-testid="analysis">
+          <AnnotatedImage image="data:image/png;base64,AAA" interactive onPaste={onAnalysisPaste} />
+        </div>
+      </div>
+    );
+  }
+
+  it('marks every interactive figure as a drop zone', () => {
+    render(<AnnotatedImage image="data:image/png;base64,AAA" interactive />);
+    expect(document.querySelectorAll(`[${DROPZONE_ATTR}]`)).toHaveLength(1);
+  });
+
+  it('leaves the figures alone in the export render, which owns no pastes', () => {
+    render(<AnnotatedImage image="data:image/png;base64,AAA" interactive={false} />);
+    expect(document.querySelectorAll(`[${DROPZONE_ATTR}]`)).toHaveLength(0);
+  });
+
+  // Regression: pasting into the SECOND placeholder replaced the FIRST image,
+  // because the scan area's document listener read the same clipboard event.
+  it('does not overwrite the first figure when the second one is pasted into', async () => {
+    render(<TwoFigures />);
+
+    const analysisZone = screen.getByTestId('analysis').querySelector(`[${DROPZONE_ATTR}]`);
+
+    pasteInto(analysisZone);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('analysis-state')).toHaveTextContent('data:image/png;base64,BBB')
+    );
+    expect(screen.getByTestId('scan-state')).toHaveTextContent('empty');
   });
 });
 
