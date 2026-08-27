@@ -94,9 +94,9 @@ describe('band colour follows the deformation type', () => {
 });
 
 describe('the ranking', () => {
-    it('is rapid movement, then the TARP bands, then fall of ground, then green', () => {
-        expect(RISK_ORDER).toEqual(['darkred', 'red', 'orange', 'yellow', 'grey', 'green']);
-        expect(RISK_ORDER.map((c) => COLOUR_RANK[c])).toEqual([5, 4, 3, 2, 1, 0]);
+    it('is rapid movement, the TARP bands, fall of ground, contamination, then green', () => {
+        expect(RISK_ORDER).toEqual(['darkred', 'red', 'orange', 'yellow', 'grey', 'pink', 'green']);
+        expect(RISK_ORDER.map((c) => COLOUR_RANK[c])).toEqual([6, 5, 4, 3, 2, 1, 0]);
     });
 
     it('puts a rapid movement above a TARP 4', () => {
@@ -115,6 +115,23 @@ describe('the ranking', () => {
             expect(COLOUR_RANK[defTypeColour(type)]).toBeGreaterThan(COLOUR_RANK.green);
             expect(COLOUR_RANK[defTypeColour(type)]).toBeLessThan(COLOUR_RANK[defTypeColour('Regressive')]);
         }
+    });
+
+    it('puts data contamination last, and still above nothing at all', () => {
+        // The band makes no claim about the slope, so it must not out-rank a
+        // record that does — including a rock fall, which is only "past tense".
+        expect(defTypeColour('Data Contamination')).toBe('pink');
+        expect(COLOUR_RANK.pink).toBeGreaterThan(COLOUR_RANK.green);
+        expect(COLOUR_RANK.pink).toBeLessThan(COLOUR_RANK[defTypeColour('Rock Fall')]);
+    });
+
+    it('reads contamination out of a free-typed value, but never over a trend', () => {
+        expect(defTypeColour('Data contamination from machinery')).toBe('pink');
+        expect(labelColour('Data Contamination')).toBe('pink');
+        // Contamination is last in the keyword rules on purpose: it is the
+        // calmest band, and a free-typed value that names a real trend must
+        // keep that trend's band rather than be softened by the caveat.
+        expect(defTypeColour('Linear trend, data contamination present')).toBe('orange');
     });
 
     it('reads a rapid movement out of a free-typed value', () => {

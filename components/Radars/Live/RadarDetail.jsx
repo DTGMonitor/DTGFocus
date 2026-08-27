@@ -215,6 +215,7 @@ const DefCard = ({ def }) => {
     red: "#FF0000",
     darkred: "#8B0000",
     grey: "#888",
+    pink: "#FF33CC",
   };
   const BAND_CARD = {
     green: "rgba(71,212,90,0.2)",
@@ -225,6 +226,7 @@ const DefCard = ({ def }) => {
     // indistinguishable from red's at a glance, which is the one thing it must not be.
     darkred: "rgba(139,0,0,0.45)",
     grey: "rgba(136,136,136,0.2)",
+    pink: "rgba(255,51,204,0.2)",
   };
 
   // The same rule the timeline cards use — the more severe of the trend and its
@@ -871,6 +873,9 @@ function RadarDetail({ radar, onBack }) {
     // darker still to stay distinguishable from red.
     darkred: "#4a0000",
     grey: "#aaa",
+    // Data Contamination — the band below every finding. Darkened to sit on the
+    // same panel background as the rest of this palette.
+    pink: "#a3007d",
     purple: "#D86ECC"
   };
 
@@ -946,6 +951,7 @@ function RadarDetail({ radar, onBack }) {
       case "orange": return COLORS.orange;
       case "red": return COLORS.red;
       case "darkred": return COLORS.darkred;
+      case "pink": return COLORS.pink;
       default: return COLORS.grey;
     }
   };

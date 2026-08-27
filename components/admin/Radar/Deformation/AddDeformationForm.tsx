@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
-import { FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
-import { resolveEmailLocale } from '../../../../config/emailLocale';
+import { composeFinding, DATA_CONTAMINATION_TYPE, FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
+import { emailStrings, resolveEmailLocale } from '../../../../config/emailLocale';
 import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
 import { composeDeformationSubject } from '../../../../config/emailSubject';
 import { useTarpDocument } from '../Tarp/useTarpDocument';
 import { responseRequirementForType, resolveDraftAudience, resolveTarpTransition } from '../../../../config/tarpDocument';
-import { performDeformationUpdateFlow } from '@/utils/tabHelpers';
+import { performContaminationSplit, performDeformationUpdateFlow } from '@/utils/tabHelpers';
 import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -133,6 +133,12 @@ const AddDeformationForm = ({
     const [withAlarm, setWithAlarm] = useState(
         Boolean(initialValues?.alarmRegions && initialValues.alarmRegions.length > 0)
     );
+
+    // The engineer's statement that the data behind THIS finding is interfered
+    // with — machinery working the face, a truck parked in the beam. It is not a
+    // second report: it rides on the trend they are already filling in, and the
+    // two leave as one draft. See handleSubmit for what it writes.
+    const [withContamination, setWithContamination] = useState(false);
 
     // Tracks whether the user has manually edited any field after auto-fill (Requirement 9.4)
     // Resets to false whenever the form is opened fresh (initialValues changes / component mounts)
@@ -500,7 +506,16 @@ const AddDeformationForm = ({
         if (initialValues) {
             hasManualEdits.current = true;
         }
-        setFormData(prev => ({ ...prev, [key]: value }));
+        setFormData(prev => {
+            const next = { ...prev, [key]: value };
+            // Selecting the caveat as the TYPE is the other way of reporting it
+            // (approach 2, raised against an earlier trend), and it earns the
+            // same pre-filled note the checkbox does.
+            if (key === 'Type' && value === DATA_CONTAMINATION_TYPE && !String(prev.Notes ?? '').trim()) {
+                next.Notes = emailStrings(emailLocale).contaminationNote;
+            }
+            return next;
+        });
     };
 
     const handleRegionTimeChange = (regionId: number, value: string) => {
@@ -511,6 +526,22 @@ const AddDeformationForm = ({
                 [regionId]: value
             }
         }));
+    };
+
+    /**
+     * Ticking the box pre-fills the note the caveat almost always needs. The
+     * engineer is free to rewrite it, and un-ticking takes it back only if they
+     * have not — anything they typed themselves is theirs to keep.
+     */
+    const handleContaminationToggle = () => {
+        const next = !withContamination;
+        const note = emailStrings(emailLocale).contaminationNote;
+        setWithContamination(next);
+        setFormData(prev => {
+            const notes = String(prev.Notes ?? '').trim();
+            if (next) return notes ? prev : { ...prev, Notes: note };
+            return notes === note ? { ...prev, Notes: '' } : prev;
+        });
     };
 
     const handleRegionToggle = (regionId: number) => {
@@ -534,7 +565,7 @@ const AddDeformationForm = ({
                 wallfolder_id: formData.WallFolderID || null,
                 location: formData.Location,
                 isactive: "Yes",
-                tarp_level: composed.tarpLevel,
+                tarp_level: composedTrend.tarpLevel,
                 start: formData.Start ? toUTC(formData.Start, clientTimezone) : null,
                 notes: formData.Notes,
                 detected_by: formData.DetectedBy,
@@ -624,15 +655,65 @@ const AddDeformationForm = ({
                 insertedRecord = data;
             }
 
+            // 3b. THE CAVEAT (approach 1) — the box was ticked on a trend's own
+            // form, so the trend has just gone in and the contamination is
+            // raised against it. It carries no metrics of its own: the numbers
+            // all belong to the trend it points back at.
+            let contaminationRecord: typeof insertedRecord = null;
+
+            if (isContaminated && insertedRecord) {
+                const split = await performContaminationSplit(supabase, insertedRecord.id, {
+                    def_type: DATA_CONTAMINATION_TYPE,
+                    created_at: new Date().toISOString(),
+                    wallfolder_id: fixedColumns.wallfolder_id,
+                    location: fixedColumns.location,
+                    isactive: "Yes",
+                    tarp_level: composed.tarpLevel,
+                    start: fixedColumns.start,
+                    notes: fixedColumns.notes,
+                    detected_by: fixedColumns.detected_by,
+                    crosschecked_by: fixedColumns.crosschecked_by,
+                    notification_time: fixedColumns.notification_time,
+                    site_engineer: fixedColumns.site_engineer,
+                    properties: null,
+                });
+
+                if (!split.ok) {
+                    if (split.stage === 'insert') {
+                        toast.error(
+                            `${formData.Type} was saved, but the Data Contamination record could not be created. ` +
+                            'The trend is still active — add the contamination from the list.'
+                        );
+                    } else {
+                        toast.error(
+                            'Both records were saved, but the original trend could not be archived. ' +
+                            'Archive it from the list so it is not reported twice.'
+                        );
+                    }
+                    setIsLoading(false);
+                    return;
+                }
+
+                contaminationRecord = split.inserted;
+            }
+
+            // The record left standing on the board — the caveat where there is
+            // one, the trend otherwise. Alarms hang off it for the same reason
+            // the Update flow hangs them off the new record and not the archived
+            // one: an alarm on an archived record shows on no card.
+            const standingRecord = contaminationRecord || insertedRecord;
+
             // 4. Insert Linked Alarm Records
-            if (formData.alarmRegions.length > 0 && insertedRecord) {
+            if (formData.alarmRegions.length > 0 && standingRecord) {
                 const alarmPayloads = formData.alarmRegions.map(regionId => ({
                     triggered_at: formData.triggeredTimes[regionId] ? toUTC(formData.triggeredTimes[regionId], clientTimezone) : null,
                     alarm_region: regionId,
                     location: formData.Location,
                     reason: 'Valid',
+                    // The CAUSE is still the trend — that is what set the alarm
+                    // off, whatever the data quality behind it.
                     cause: formData.Type,
-                    deformation: insertedRecord.id,
+                    deformation: standingRecord.id,
                     detected_by: formData.DetectedBy,
                     crosschecked_by: formData.CrosscheckedBy || null
                 }));
@@ -655,7 +736,9 @@ const AddDeformationForm = ({
                     location: formData.Location,
                     category: 'deformation',
                     action: 'As per site TARP', // Added 'Batch Insert' as the action name
-                    notes: `${formData.Type} have been submitted`,
+                    notes: contaminatedFrom
+                        ? `${formData.Type} with ${DATA_CONTAMINATION_TYPE} have been submitted`
+                        : `${formData.Type} have been submitted`,
                     submitted_by: userID
                 };
 
@@ -705,6 +788,51 @@ const AddDeformationForm = ({
 
     const selectedRegions = alarmRegion.filter((r: any) => formData.alarmRegions.includes(r.id));
 
+    // Is this record standing a TARP level DOWN? The prior state is the record
+    // being updated plus any precursors the engineer ticked.
+    const priorRecordIds = [
+        ...(precursors !== null && precursors !== undefined ? [precursors] : []),
+        ...(formData.Precursorss || []),
+    ].map(String);
+
+    // --- Data contamination -------------------------------------------------
+    //
+    // Two routes reach the same finding, and they must produce the same words:
+    //
+    //   approach 1  the box is ticked on the trend's own form. The trend is
+    //               submitted first, the caveat is raised against it, and one
+    //               draft goes out for both.
+    //   approach 2  the caveat is reported later, as its own record, with the
+    //               earlier trend as its precursor.
+    //
+    // `contaminatedFrom` is what both hand to the subject and body builders —
+    // the TREND being qualified. See composeFinding in config/formConfig.ts.
+
+    /** Approach 1: the tick applies only while the type is a trend, not the caveat. */
+    const isContaminated = withContamination && formData.Type !== DATA_CONTAMINATION_TYPE;
+
+    /**
+     * Approach 2: the trend this caveat sits on top of. The Update flow's
+     * archived original leads `priorRecordIds`, so it wins over anything else
+     * the engineer ticked; a caveat raised against nothing names only itself.
+     */
+    const contaminationTrend = formData.Type === DATA_CONTAMINATION_TYPE
+        ? priorRecordIds
+            .map(id => activeRecords.find(record => String(record.id) === id)?.def_type)
+            .find(type => type && type !== DATA_CONTAMINATION_TYPE) ?? null
+        : null;
+
+    const contaminatedFrom = isContaminated ? formData.Type : contaminationTrend;
+
+    /**
+     * The type the DRAFT reports. A contaminated finding is reported as the
+     * contamination — the trend keeps its own level on its own record, but the
+     * site is not asked to act on a reading DTG has just said it cannot vouch
+     * for. Everything downstream of the email (the TARP response, the
+     * de-escalation check, the audience) follows the draft, not the trend.
+     */
+    const reportedType = isContaminated ? DATA_CONTAMINATION_TYPE : formData.Type;
+
     // TARP trigger is resolved per site: some clients only quote a trigger for a
     // progressive trend, or when a genuine alarm was raised. The site's own TARP
     // document wins; sites not yet migrated fall back to the hard-coded map.
@@ -714,7 +842,7 @@ const AddDeformationForm = ({
     // a trigger in its own right, so the alarm row is weighed against the trend
     // row — without that, Leonora's email-only linear row printed EMAIL ONLY
     // over a red alarm the same chart says to phone in.
-    const responseRequirement = responseRequirementForType(tarpDocument, formData.Type, {
+    const responseRequirement = responseRequirementForType(tarpDocument, reportedType, {
         // The Alarm tick is the engineer's statement that one fired; the regions
         // may not be chosen yet, and erring towards the alarm row errs towards
         // a phone call.
@@ -729,18 +857,11 @@ const AddDeformationForm = ({
     // draft goes back to the site with DTG copied in.
     const draftAudience = resolveDraftAudience(responseRequirement?.trigger ?? null, siteName);
 
-    // Is this record standing a TARP level DOWN? The prior state is the record
-    // being updated plus any precursors the engineer ticked.
-    const priorRecordIds = [
-        ...(precursors !== null && precursors !== undefined ? [precursors] : []),
-        ...(formData.Precursorss || []),
-    ].map(String);
-
     const priorTypes = activeRecords
         .filter(record => priorRecordIds.includes(String(record.id)))
         .map(record => record.def_type);
 
-    const transition = resolveTarpTransition(priorTypes, formData.Type, tarpDocument);
+    const transition = resolveTarpTransition(priorTypes, reportedType, tarpDocument);
 
     // The language the client reads. Indonesian sites are emailed in Bahasa
     // Indonesia, with times on the SITE clock — see config/emailLocale.ts.
@@ -749,19 +870,33 @@ const AddDeformationForm = ({
 
     // Both the bracket and the trigger wording are the site's, not ours — see
     // config/emailSubject.ts.
-    const composed = composeDeformationSubject({
-        type: formData.Type,
+    const subjectInput = {
         sensor: cleanSensor,
         alarmRegions: selectedRegions,
         policy: tarpPolicy,
         notificationTime: formData.NotificationTime,
         locale: emailLocale
-    });
+    };
+
+    // The record the engineer filled in, at its own level — this is what gets
+    // stored on `tarp_level`. A linear trend is still a TARP 3 even when the
+    // data behind it is contaminated; withholding the level from the RECORD
+    // would lose the fact rather than qualify it.
+    const composedTrend = composeDeformationSubject({ ...subjectInput, type: formData.Type });
+
+    // What the draft says. Identical to the above unless the finding carries the
+    // caveat, in which case the caveat is what is reported.
+    const composed = contaminatedFrom
+        ? composeDeformationSubject({ ...subjectInput, type: reportedType, contaminatedFrom })
+        : composedTrend;
     const emailSubject = composed.subject;
 
     // `composed.bracket` is the English key in every locale; the body reads it to
     // pick its tone and translates on the way out.
-    const emailFormData = { ...formData, alarmRegions: selectedRegions };
+    const emailFormData = { ...formData, alarmRegions: selectedRegions, ContaminatedFrom: contaminatedFrom };
+    // The FINDINGS line, shown back to the engineer so the wording they are
+    // about to send is never a surprise.
+    const finding = composeFinding(reportedType, emailLocale, contaminatedFrom);
     const emailBody = generateEmailBody(
         emailFormData, cleanSensor, composed.bracket, userName, crosscheckerName, draftOptions
     );
@@ -912,6 +1047,52 @@ const AddDeformationForm = ({
                         />
                     </div>
 
+
+                    {/* DATA CONTAMINATION — the caveat, ticked on the trend's
+                        own form. Hidden once the TYPE is the caveat: there is
+                        nothing left for it to qualify. */}
+                    {formData.Type && formData.Type !== DATA_CONTAMINATION_TYPE && (
+                        <div className="col-span-2">
+                            <label
+                                htmlFor="data-contamination"
+                                className={`flex items-start gap-3 cursor-pointer select-none rounded-md border px-3 py-2 ${withContamination
+                                    ? 'border-[#FF33CC]/60 bg-[#FF33CC]/10'
+                                    : 'border-[var(--dtg-border-light)]'
+                                    }`}
+                            >
+                                <Checkbox
+                                    id="data-contamination"
+                                    checked={withContamination}
+                                    onCheckedChange={handleContaminationToggle}
+                                    className="mt-0.5 border-[#FF33CC]"
+                                />
+                                <span className="min-w-0">
+                                    <span className={`block text-sm font-semibold ${withContamination ? 'text-[#FF33CC]' : 'text-[var(--dtg-text-primary)]'}`}>
+                                        Data Contamination
+                                    </span>
+                                    <span className="block text-xs text-[var(--dtg-text-muted)]">
+                                        {withContamination
+                                            ? `Reported as "${finding}". The ${formData.Type} record is saved first, then archived behind a Data Contamination record that points back at it — one draft, and no TARP trigger quoted.`
+                                            : 'Tick when machinery or another obstruction is interfering with this reading.'}
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+                    )}
+
+                    {/* The caveat reported on its own (approach 2). It borrows
+                        its wording from the record it was raised against, so say
+                        which one that is — or that there is none. */}
+                    {formData.Type === DATA_CONTAMINATION_TYPE && (
+                        <div className="col-span-2 flex items-start gap-2 rounded-md border border-[#FF33CC]/40 bg-[#FF33CC]/10 px-3 py-2">
+                            <FileQuestion size={14} className="mt-0.5 shrink-0 text-[#FF33CC]" />
+                            <p className="text-xs text-[var(--dtg-text-secondary)]">
+                                {contaminationTrend
+                                    ? <>Reported as <strong>{finding}</strong> — the precursor names the trend this caveat qualifies.</>
+                                    : <>Reported as <strong>{finding}</strong>. Tick the trend this qualifies under Precursors(s) and the draft will name it.</>}
+                            </p>
+                        </div>
+                    )}
 
                     <div className="col-span-2">
                         <label className="block text-xs font-semibold text-[var(--dtg-gray-500)] mb-1">Notes</label>

@@ -275,3 +275,63 @@ export async function performDeformationUpdateFlow(client, originalId, insertPay
 
   return { ok: true, inserted: insertRes ? insertRes.data : null };
 }
+
+/**
+ * Report a trend and the data contamination behind it in ONE submit — the
+ * checkbox on the deformation form (approach 1).
+ *
+ * The trend record already exists by the time this runs; the engineer filled it
+ * in and it was inserted the usual way. What is left is the caveat, and the
+ * caveat is the record that stands: the site is being told that the numbers
+ * behind that trend are interfered with, so the trend is archived behind it
+ * exactly as the Update flow archives the record it supersedes. Reporting the
+ * two together and reporting the contamination a day later therefore leave the
+ * database in the same state, which is the only way the client can be sure the
+ * two routes mean the same thing.
+ *
+ * Compensating, in the same shape as `performDeformationUpdateFlow`: the
+ * contamination goes in FIRST and the trend is archived only once it is safely
+ * stored, so a failure here leaves the trend record active and reportable
+ * rather than stranding it archived with nothing standing in its place.
+ *
+ * @param {object} client            Supabase-like client
+ * @param {string|number} trendId    id of the trend record just inserted
+ * @param {object} insertPayload     columns for the contamination record
+ *   (its `precursors` is merged with `trendId`, not overwritten)
+ * @returns {Promise<{ ok: boolean, stage?: 'insert'|'archive', error?: any, inserted?: any }>}
+ */
+export async function performContaminationSplit(client, trendId, insertPayload) {
+  const { precursors: extraPrecursors, ...rest } = insertPayload || {};
+  const precursors = [
+    trendId,
+    ...normalizePrecursorss(extraPrecursors).filter((id) => id !== trendId),
+  ];
+
+  const insertRes = await client
+    .from('def_records')
+    .insert([{ ...rest, precursors }])
+    .select('id')
+    .single();
+
+  if (insertRes && insertRes.error) {
+    return { ok: false, stage: 'insert', error: insertRes.error, inserted: null };
+  }
+
+  const archiveRes = await client
+    .from('def_records')
+    .update({ isactive: 'No' })
+    .eq('id', trendId);
+
+  if (archiveRes && archiveRes.error) {
+    // The contamination record is stored and points at the trend, so nothing is
+    // lost — but both are active, and the board would show the trend twice.
+    return {
+      ok: false,
+      stage: 'archive',
+      error: archiveRes.error,
+      inserted: insertRes ? insertRes.data : null,
+    };
+  }
+
+  return { ok: true, inserted: insertRes ? insertRes.data : null };
+}

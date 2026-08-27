@@ -36,11 +36,15 @@ import type { TarpColour } from './tarpDocument';
 /**
  * The bands a deformation can be reported in.
  *
- * 'darkred' is NOT a TARP-document band — no chart has a row for it. It is the
- * one deformation the ranking puts ABOVE the red band (Rapid Movement), so it
- * needs a rank and an ink of its own; see RISK_ORDER below.
+ * Two of these are NOT TARP-document bands — no chart has a row for either:
+ *
+ *   'darkred'  the one deformation the ranking puts ABOVE the red band (Rapid
+ *              Movement)
+ *   'pink'     Data Contamination, the one it puts BELOW every other finding
+ *
+ * Both need a rank and an ink of their own; see RISK_ORDER below.
  */
-export type RiskColour = TarpColour | 'darkred';
+export type RiskColour = TarpColour | 'darkred' | 'pink';
 
 /**
  * Deformation type → band colour.
@@ -56,6 +60,12 @@ export type RiskColour = TarpColour | 'darkred';
  *   grey     Fall of Ground — rock fall, failure, material detachment. Past
  *            tense: the ground has already moved, so there is no trend left to
  *            escalate. Still ranks above green, because something happened.
+ *   pink     Data Contamination — machinery, a parked truck, something in the
+ *            beam. The lowest band that is still a finding: nothing about the
+ *            SLOPE is being claimed, only that the reading cannot be trusted,
+ *            so it must not out-rank a real event. Above green all the same,
+ *            because the radar is not saying "nothing is happening" — it is
+ *            saying it cannot see.
  *   green    TARP 1 — nothing active.
  */
 export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
@@ -72,7 +82,8 @@ export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
     'Material Detachment': 'grey',
     // Not in the client wording, but it is a TYPE_MATRIX type and has to land
     // somewhere: a forecast is a prediction about a failure, not a live trend.
-    Forecast: 'grey'
+    Forecast: 'grey',
+    'Data Contamination': 'pink'
 };
 
 /**
@@ -92,7 +103,13 @@ const COLOUR_KEYWORD_RULES: Array<[string, RiskColour]> = [
     ['rock fall', 'grey'],
     ['material detachment', 'grey'],
     ['failure', 'grey'],
-    ['forecast', 'grey']
+    ['forecast', 'grey'],
+    // Last, and it has to be: contamination is the calmest band, so a free-typed
+    // value naming both a trend and the caveat ("Linear, data contamination")
+    // must keep the TREND's band. Matching here would colour it a band too calm,
+    // which is the one thing this table exists to prevent.
+    ['data contamination', 'pink'],
+    ['contamination', 'pink']
 ];
 
 /** Band colour of a deformation type, or null when the type is unrecognised. */
@@ -128,16 +145,17 @@ const TARP_LEVEL_COLOUR: Record<number, RiskColour> = { 4: 'red', 3: 'orange', 2
  * must not tie, or a sensor with both would headline whichever was newer.
  */
 export const COLOUR_RANK: Record<RiskColour, number> = {
-    darkred: 5,
-    red: 4,
-    orange: 3,
-    yellow: 2,
-    grey: 1,
+    darkred: 6,
+    red: 5,
+    orange: 4,
+    yellow: 3,
+    grey: 2,
+    pink: 1,
     green: 0
 };
 
 /** The same ranking as an ordered list, worst first — for legends and pickers. */
-export const RISK_ORDER: RiskColour[] = ['darkred', 'red', 'orange', 'yellow', 'grey', 'green'];
+export const RISK_ORDER: RiskColour[] = ['darkred', 'red', 'orange', 'yellow', 'grey', 'pink', 'green'];
 
 /**
  * Is `colour` at or above `floor` on the ranking?
@@ -155,7 +173,7 @@ export const atLeastBand = (colour: RiskColour | null | undefined, floor: RiskCo
  * Bands that no TARP chart carries a row for, so they can never be printed as a
  * band NAME — the record names itself instead ("Rapid Movement", "Rock Fall").
  */
-const UNNAMED_BANDS = new Set<RiskColour>(['darkred', 'grey']);
+const UNNAMED_BANDS = new Set<RiskColour>(['darkred', 'grey', 'pink']);
 
 export interface RiskRecordLike {
     def_type?: string | null;
@@ -255,6 +273,9 @@ const COLOUR_SUBTITLE: Record<RiskColour, string> = {
     orange: 'Moderate Risk',
     yellow: 'Intermediate Risk',
     grey: 'Event Recorded',
+    // Not a severity at all, which is the honest thing to print: the band says
+    // the reading is interfered with, not that the slope is at some level.
+    pink: 'Data Contamination',
     green: 'No Significant'
 };
 
@@ -359,8 +380,9 @@ export function resolveRiskPresentation(
         const colour = recordColour(driver);
         // The band name alone — "Orange", not "Orange Notification". The tile it
         // sits in is already labelled Risk, and the longer form crowded the
-        // checklist column. Grey and darkred have no band on the chart, so those
-        // events name themselves ("Rapid Movement", "Rock Fall").
+        // checklist column. Grey, darkred and pink have no band on the chart, so
+        // those events name themselves ("Rapid Movement", "Rock Fall",
+        // "Data Contamination").
         const label = UNNAMED_BANDS.has(colour)
             ? String(driver.def_type || NO_SIGNIFICANT)
             : titleCase(colour);
@@ -422,8 +444,8 @@ export const recordBadgeLabel = (
 
     if (mode !== 'notification') return record?.tarp_level ? String(record.tarp_level) : '';
 
-    // Grey and darkred carry no band on the chart, and the card already names
-    // the event.
+    // Grey, darkred and pink carry no band on the chart, and the card already
+    // names the event.
     const colour = recordColour(record ?? {});
     return UNNAMED_BANDS.has(colour) || colour === 'green' ? '' : titleCase(colour);
 };

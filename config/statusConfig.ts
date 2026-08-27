@@ -116,6 +116,13 @@ export const getCardColors = (val = "") => {
 // 'darkred' is Rapid Movement, the one band above red (see COLOUR_RANK). It is
 // the red-800/900 end of the same ramp rather than a new hue, so the scale still
 // reads as one gradient and the extra step is unmistakable next to a TARP 4.
+//
+// 'pink' is Data Contamination, the one band below every other finding. It sits
+// OFF the red-to-green ramp on purpose: the band makes no claim about the slope
+// at all, and any point on that ramp would read as one. #FF33CC is the ink the
+// client's own wording uses, written as an arbitrary value because Tailwind has
+// no step at that hue — and arbitrary values still have to be literal here, for
+// the same reason the rest of this file is a switch.
 // ---------------------------------------------------------------------------
 
 export const getBandColor = (colour: RiskColour | null | undefined) => {
@@ -124,6 +131,7 @@ export const getBandColor = (colour: RiskColour | null | undefined) => {
     case 'red': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'orange': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'yellow': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    case 'pink': return 'bg-[#FF33CC]/20 text-[#FF33CC] border-[#FF33CC]/30';
     case 'green': return 'bg-green-500/20 text-green-400 border-green-500/30';
     default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
   }
@@ -135,6 +143,7 @@ export const getBandDotColor = (colour: RiskColour | null | undefined) => {
     case 'red': return 'bg-red-500';
     case 'orange': return 'bg-orange-500';
     case 'yellow': return 'bg-yellow-500';
+    case 'pink': return 'bg-[#FF33CC]';
     case 'green': return 'bg-green-500';
     default: return 'bg-gray-500';
   }
@@ -146,6 +155,7 @@ export const getBandCardColor = (colour: RiskColour | null | undefined) => {
     case 'red': return 'bg-red-500/20';
     case 'orange': return 'bg-orange-500/20';
     case 'yellow': return 'bg-yellow-500/20';
+    case 'pink': return 'bg-[#FF33CC]/20';
     case 'green': return 'bg-green-500/20';
     default: return 'bg-gray-500/20';
   }
@@ -157,6 +167,7 @@ export const getBandBorderColor = (colour: RiskColour | null | undefined) => {
     case 'red': return 'border-red-500/30';
     case 'orange': return 'border-orange-500/30';
     case 'yellow': return 'border-yellow-500/30';
+    case 'pink': return 'border-[#FF33CC]/30';
     case 'green': return 'border-green-500/30';
     default: return 'border-gray-500/30';
   }

@@ -181,7 +181,8 @@ const FINDINGS_ID: Record<string, string> = {
     'Rock Fall': 'Jatuhan Batuan',
     'Rapid Movement': 'Pergerakan Cepat',
     'Blast Event': 'Kejadian Peledakan',
-    'Rainfall Event': 'Kejadian Curah Hujan'
+    'Rainfall Event': 'Kejadian Curah Hujan',
+    'Data Contamination': 'Kontaminasi Data'
 };
 
 /** Downtime statuses, as they appear in a subject line. */
@@ -335,6 +336,14 @@ export interface EmailStrings {
     on: string;
     /** Subject: "Red and Orange Alarms - ". */
     alarms: (colours: string) => string;
+    /**
+     * Subject and FINDINGS: a trend named together with the data-contamination
+     * caveat — "Linear Deformation Trend with Data Contamination". Both halves
+     * arrive already translated.
+     */
+    contaminated: (finding: string, caveat: string) => string;
+    /** Pre-filled Notes when the engineer ticks Data Contamination. */
+    contaminationNote: string;
 
     // Body field labels.
     sensor: string;
@@ -407,6 +416,8 @@ export interface EmailStrings {
 const EN: EmailStrings = {
     on: 'on',
     alarms: (colours) => `${colours} Alarms - `,
+    contaminated: (finding, caveat) => `${finding} with ${caveat}`,
+    contaminationNote: 'This finding is interfered by the machinery activity close to the area',
 
     sensor: 'SENSOR',
     findings: 'FINDINGS',
@@ -481,6 +492,8 @@ const EN: EmailStrings = {
 const ID: EmailStrings = {
     on: 'pada',
     alarms: (colours) => `Alarm ${colours} - `,
+    contaminated: (finding, caveat) => `${finding} dengan ${caveat}`,
+    contaminationNote: 'Temuan ini terinterferensi oleh aktivitas alat berat di sekitar area',
 
     sensor: 'SENSOR',
     findings: 'TEMUAN',

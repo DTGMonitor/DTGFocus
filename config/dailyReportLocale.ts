@@ -322,7 +322,8 @@ const REMARKS: Record<
         progressive: (range: string) => string;
         regressive: string;
         rapid: string;
-        /** Anything the five rules above do not name — the type speaks for itself. */
+        contaminated: string;
+        /** Anything the rules above do not name — the type speaks for itself. */
         fallback: (type: string) => string;
     }
 > = {
@@ -332,6 +333,7 @@ const REMARKS: Record<
         progressive: (range) => `Accelerating movement, velocity ${range}.`,
         regressive: 'Movement returning to a stable condition.',
         rapid: 'Movement exceeds the radar reading limitation.',
+        contaminated: 'Reading interfered with; movement could not be assessed.',
         fallback: (type) => `${type} recorded.`,
     },
     id: {
@@ -340,6 +342,7 @@ const REMARKS: Record<
         progressive: (range) => `Pergerakan akseleratif, kecepatan ${range}.`,
         regressive: 'Pergerakan menuju stabil.',
         rapid: 'Pergerakan melebihi limitasi radar.',
+        contaminated: 'Pembacaan terinterferensi; pergerakan tidak dapat dinilai.',
         fallback: (type) => `${type} teramati.`,
     },
 };
@@ -368,6 +371,7 @@ export function dailyRemark(
     if (!type || key === 'no significant') return t.noSignificant;
     if (key === 'rapid movement') return t.rapid;
     if (key === 'regressive') return t.regressive;
+    if (key === 'data contamination') return t.contaminated;
 
     const unit = hasValue(velocity?.unit) ? translateUnit(String(velocity!.unit), locale) : '';
     const withUnit = (value: string) => (unit ? `${value} ${unit}` : value);
@@ -412,6 +416,7 @@ const SUBTITLES_ID: Record<string, string> = {
     'Moderate Risk': 'Risiko Menengah',
     'Intermediate Risk': 'Risiko Sedang',
     'Event Recorded': 'Kejadian Tercatat',
+    'Data Contamination': 'Kontaminasi Data',
     'No Significant': 'Tidak Signifikan',
 };
 

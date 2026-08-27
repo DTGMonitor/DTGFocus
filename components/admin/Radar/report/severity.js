@@ -23,6 +23,11 @@ export const SEV = {
   // that a rapid movement prints the same ink wherever it appears, but it is
   // deliberately absent from SEVERITY_LEGEND: no parameter can be assessed at it.
   extreme: '#7F0000',
+  // Also not a DQP tier — the risk band BELOW every other finding (Data
+  // Contamination). Deliberately off the red-to-green ramp: the band makes no
+  // claim about the slope, and any ramp colour would read as one. Absent from
+  // SEVERITY_LEGEND for the same reason `extreme` is.
+  contaminated: '#FF33CC',
 };
 
 /**
@@ -152,6 +157,8 @@ export const ALARM_CAUSE_COLORS = {
   'Progressive Deformation Trend': SEV.critical,
   'Linear Deformation Trend': SEV.subOptimal,
   'Regressive Deformation Trend': SEV.acceptable,
+  // Valid — the caveat band: the reading, not the slope.
+  'Data Contamination': SEV.contaminated,
   // Valid — Fall of Ground.
   'Failure Pattern Indication': '#3F3F46',
   'Slip Pattern Indication': '#57534E',
@@ -204,6 +211,7 @@ const CAUSE_KEYWORD_RULES = [
   // orange of a TARP 3 Linear would understate it.
   ['linear accelerating', SEV.critical],
   ['linear', SEV.subOptimal],
+  ['contamination', SEV.contaminated],
   // False-alarm causes, so the short forms land in the cool family too.
   ['machinery', '#2563eb'],
   ['atmospheric', '#0891b2'],
@@ -294,6 +302,9 @@ export function bandColor(colour) {
   if (c === 'red') return { color: SEV.critical, onColor: '#ffffff' };
   if (c === 'orange') return { color: SEV.subOptimal, onColor: '#1f2937' };
   if (c === 'yellow') return { color: SEV.acceptable, onColor: '#1f2937' };
+  // Magenta carries dark text far better than white — 6.6:1 against near-black,
+  // 3.2:1 against white — so it follows yellow and orange, not red.
+  if (c === 'pink') return { color: SEV.contaminated, onColor: '#1f2937' };
   if (c === 'green') return { color: SEV.optimal, onColor: '#ffffff' };
   return { color: SEV.neutral, onColor: '#ffffff' };
 }

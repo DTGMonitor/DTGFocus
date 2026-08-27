@@ -14,7 +14,7 @@
 // Both the deformation form and the TARP tab's preview call this, so what an
 // engineer reviews on the chart is exactly what the client receives.
 
-import { generateEmailSubject, getWorkLogDetails } from './formConfig';
+import { DATA_CONTAMINATION_TYPE, generateEmailSubject, getWorkLogDetails } from './formConfig';
 import type { EmailLocale } from './emailLocale';
 import {
     DEFAULT_TARP_POLICY,
@@ -38,6 +38,12 @@ export interface DeformationSubjectInput {
     notificationTime?: string | null;
     /** Language of the subject line. Defaults to English. */
     locale?: EmailLocale;
+    /**
+     * The trend a data-contamination caveat qualifies — 'Linear' for a linear
+     * trend whose data is interfered with. Null when the finding carries no
+     * caveat, which is every record but the contaminated ones.
+     */
+    contaminatedFrom?: string | null;
 }
 
 export interface DeformationSubject {
@@ -67,7 +73,8 @@ export const composeDeformationSubject = ({
     alarmRegions = [],
     policy,
     notificationTime = null,
-    locale = 'en'
+    locale = 'en',
+    contaminatedFrom = null
 }: DeformationSubjectInput): DeformationSubject => {
     const activePolicy = policy || DEFAULT_TARP_POLICY;
     const hasAlarm = alarmRegions.length > 0;
@@ -77,17 +84,27 @@ export const composeDeformationSubject = ({
     const alarmColours = alarmRegions.map(region => region?.type);
     const facts = { hasAlarm, alarmColours, policy: activePolicy };
 
-    const tarpLevel = resolveTarpLevel(type, facts);
-    const severityTarp = resolveSeverityTarpLevel(type, facts);
+    // A contaminated finding is reported at the Data Contamination row's level,
+    // never the trend's. The trend may well be there, but its numbers are the
+    // thing in doubt — quoting TARP Trigger 3 would ask the site to act on a
+    // reading DTG has just said it cannot vouch for. The trend still keeps its
+    // own level on its own record; this governs only what the DRAFT quotes.
+    const reportedType = contaminatedFrom ? DATA_CONTAMINATION_TYPE : type;
+
+    const tarpLevel = resolveTarpLevel(reportedType, facts);
+    const severityTarp = resolveSeverityTarpLevel(reportedType, facts);
 
     const logDetails = getWorkLogDetails(severityTarp, notificationTime);
-    const bracket = resolveSeverityBracket(type, facts) || logDetails.subject;
-    const triggerLabel = resolveSubjectLabel(type, facts);
+    const bracket = resolveSeverityBracket(reportedType, facts) || logDetails.subject;
+    const triggerLabel = resolveSubjectLabel(reportedType, facts);
 
+    // `type` — not `reportedType` — still names the finding: the wording is the
+    // one thing that must carry both halves.
     const subject = generateEmailSubject(bracket, tarpLevel, type, sensor, alarmRegions, {
         triggerLabel,
         alarmPrefixStyle: resolveAlarmPrefixStyle(activePolicy),
-        locale
+        locale,
+        contaminatedFrom
     });
 
     return {

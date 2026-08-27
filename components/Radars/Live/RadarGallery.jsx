@@ -43,6 +43,8 @@ const COLORS = {
   // Rapid Movement — the band above red (config/riskDisplay.ts).
   darkred: "#8B0000",
   grey: "#888888",
+  // Data Contamination — the band below every finding (config/riskDisplay.ts).
+  pink: "#FF33CC",
   purple: "#D86ECC"
 };
 
@@ -141,6 +143,8 @@ const riskColor = (colour) => {
       return COLORS.red;
     case "darkred":
       return COLORS.darkred;
+    case "pink":
+      return COLORS.pink;
     default:
       return COLORS.grey;
   }

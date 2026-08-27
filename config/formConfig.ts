@@ -137,8 +137,23 @@ export const TYPE_MATRIX: Record<string, TypeConfig> = {
     "Rainfall Event": {
         tarp: "TARP 2",
         fields: []
+    },
+    // Last in the list because it is last on the ranking (see riskDisplay.ts).
+    // Carries no TARP trigger: the numbers behind the trend are the thing in
+    // doubt, so there is nothing for the site to act on until the interference
+    // clears.
+    "Data Contamination": {
+        tarp: "",
+        fields: []
     }
 };
+
+/**
+ * The type reported when radar data is interfered with — machinery working the
+ * face, a truck parked in the beam. Named once, because the form, the subject
+ * builder and the risk ranking all have to agree on the exact string.
+ */
+export const DATA_CONTAMINATION_TYPE = "Data Contamination";
 
 // 3. Helper to get the list of fields
 export const getConfigForType = (type: string) => {
@@ -187,6 +202,38 @@ const getCleanFindingsEn = (type: string) => {
 const getCleanFindings = (type: string, locale: EmailLocale = 'en') =>
     translateFinding(type, getCleanFindingsEn(type), locale);
 
+/**
+ * The finding, with the data-contamination caveat where one applies.
+ *
+ * Contamination is rarely the whole finding: the engineer is reporting a trend
+ * whose data they cannot fully vouch for, so both halves have to be said — the
+ * shape of the trend, then the caveat. "Linear Deformation Trend with Data
+ * Contamination".
+ *
+ * `contaminatedFrom` is the TREND being qualified, and it is what both reporting
+ * routes hand in:
+ *
+ *   ticked on the trend's own form   type = 'Linear',            from = 'Linear'
+ *   raised against an earlier record type = 'Data Contamination', from = 'Linear'
+ *
+ * Both produce the same sentence, which is the point — the client must not be
+ * able to tell which way round the engineer reported it. Contamination raised
+ * with nothing to qualify passes `null` and names only itself.
+ */
+export const composeFinding = (
+    type: string,
+    locale: EmailLocale = 'en',
+    contaminatedFrom?: string | null
+) => {
+    const self = getCleanFindings(type, locale);
+    const trend = String(contaminatedFrom ?? '').trim();
+    if (!trend || trend === DATA_CONTAMINATION_TYPE) return self;
+    return emailStrings(locale).contaminated(
+        getCleanFindings(trend, locale),
+        getCleanFindings(DATA_CONTAMINATION_TYPE, locale)
+    );
+};
+
 export interface EmailSubjectOptions {
     /**
      * The token that names the trigger, resolved from the site's TARP document
@@ -205,6 +252,8 @@ export interface EmailSubjectOptions {
      * client's own TARP document names it, in either language.
      */
     locale?: EmailLocale;
+    /** The trend a data-contamination caveat qualifies. See `composeFinding`. */
+    contaminatedFrom?: string | null;
 }
 
 export const generateEmailSubject = (
@@ -217,7 +266,7 @@ export const generateEmailSubject = (
 ) => {
     const locale = options.locale ?? 'en';
     const t = emailStrings(locale);
-    const cleanType = getCleanFindings(type, locale);
+    const cleanType = composeFinding(type, locale, options.contaminatedFrom);
     const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
     const tarpTrigger = options.triggerLabel ?? (match ? `TARP Trigger ${match[1]}:` : "");
 
@@ -401,7 +450,7 @@ export const generateEmailBody = (
     // 4. ASSEMBLE THE FINAL EMAIL
     return `
 ${pad(t.sensor, width)}${sensor}
-${pad(t.findings, width)}${getCleanFindings(formData.Type, locale)}
+${pad(t.findings, width)}${composeFinding(formData.Type, locale, formData.ContaminatedFrom)}
 ${pad(t.location, width)}${formData.Location}
 ${pad(t.surfaceArea, width)}${formData.SurfaceArea || "-"} m2
 ${timeEventLine}
