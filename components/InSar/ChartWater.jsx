@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import Papa from "papaparse";
+import React, { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   ComposedChart,
   Bar,
@@ -14,95 +14,151 @@ import {
   ReferenceLine
 } from "recharts";
 
-const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
+/**
+ * Water-body area and rainfall for one site, month by month.
+ *
+ * The series used to come from a CSV checked into public/ (Jan–Sep 2025 only,
+ * hand-updated). It now comes from `client_images`, which is where the pipeline
+ * writes each month's figures — one row per product per month, carrying the
+ * measured `tsf7`/`tsf8` areas and `rainfall` alongside the image path. MNDWI is
+ * the row read here because it is the product the areas are measured from; the
+ * other two are the same month's imagery.
+ *
+ * @param siteId            clients.id — the site whose series to read
+ * @param availableOptions  called with {years, months, default:{year, month}}
+ *                          once the series loads, so the period picker offers
+ *                          exactly what exists and opens on the newest month
+ * @param metaData          called with the site and record-count facts the
+ *                          Data Availability card prints
+ */
+const WaterChart = ({ selectedMonth, selectedYear, onStatusChange, availableOptions, metaData, siteId }) => {
   const [chartData, setChartData] = useState([]);
   const latestDate = chartData.length > 0
-    ? chartData[chartData.length - 1].Date
+    ? chartData[chartData.length - 1].date
     : null;
 
+  // Held in refs so a parent that passes inline callbacks does not re-run the
+  // fetch on every render.
+  const availableOptionsRef = useRef(availableOptions);
+  const metaDataRef = useRef(metaData);
+
+  // Declared before the fetch effect so it has already run by the time that one
+  // fires on mount — and the fetch reads the refs asynchronously in any case.
   useEffect(() => {
-    Papa.parse("/data/INSAR/Data/Telfer/WaterBodySummary.csv", {
-      header: true,
-      download: true,
-      complete: (result) => {
-        const cleaned = result.data
-          .filter((row) => row.Date && row.TSF7 && row.TSF8)
-          .map((row) => ({
-            Date: new Date(row.Date).getTime(), // <— numeric timestamp
-            TSF7: parseFloat(row.TSF7),
-            TSF8: parseFloat(row.TSF8),
-            Rainfall: parseFloat(row.Rainfall),
-          }))
+    availableOptionsRef.current = availableOptions;
+    metaDataRef.current = metaData;
+  });
 
-          .sort((a, b) => a.Date - b.Date);
+  useEffect(() => {
+    if (!siteId) return;
+    let cancelled = false;
 
-        // ✅ Add status fields by comparing with previous month
-        const withStatus = cleaned.map((item, index, arr) => {
-          if (index === 0)
-            return { ...item, TSF7_Status: "N/A", TSF8_Status: "N/A" };
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("client_images")
+        .select(`
+          date,
+          subcategory,
+          rainfall,
+          tsf7,
+          tsf8,
+          image_url,
+          client:clients(
+            site_name,
+            location,
+            company,
+            latitude,
+            longitude)`)
+        .eq("subcategory", "MNDWI")
+        // Scoped to the site being viewed. The table holds every client's
+        // figures, so an unfiltered read would put one site's water bodies on
+        // another site's dashboard.
+        .eq("client_id", siteId)
+        .order("date", { ascending: true });
 
-          const prev = arr[index - 1];
-          const getStatus = (curr, prev) => {
-            if (curr === 0) return "Dry";
-            if (curr < prev) return "Decreasing";
-            if (curr > prev) return "Increasing";
-            return "Stable";
-          };
+      if (error) {
+        console.error("Error fetching data:", error);
+        return;
+      }
+      if (cancelled) return;
 
-          return {
-            ...item,
-            TSF7_Status: getStatus(item.TSF7, prev.TSF7),
-            TSF8_Status: getStatus(item.TSF8, prev.TSF8),
-          };
+      const withStatus = (data || []).map((row, index, arr) => {
+        if (index === 0) return { ...row, TSF7_Status: "N/A", TSF8_Status: "N/A" };
+        const prev = arr[index - 1];
+        const getStatus = (curr, previous) => {
+          if (curr === 0) return "Dry";
+          if (curr < previous) return "Decreasing";
+          if (curr > previous) return "Increasing";
+          return "Stable";
+        };
+        return {
+          ...row,
+          TSF7_Status: getStatus(row.tsf7, prev.tsf7),
+          TSF8_Status: getStatus(row.tsf8, prev.tsf8),
+        };
+      });
+
+      setChartData(withStatus);
+
+      if (availableOptionsRef.current && withStatus.length > 0) {
+        const years = [...new Set(withStatus.map((r) => new Date(r.date).getFullYear()))]
+          .sort((a, b) => b - a);
+        const months = [...new Set(withStatus.map((r) =>
+          new Date(r.date).toLocaleString("en-US", { month: "long" })))];
+        const newest = new Date(withStatus[withStatus.length - 1].date);
+        availableOptionsRef.current({
+          years,
+          months,
+          default: {
+            year: newest.getFullYear().toString(),
+            month: newest.toLocaleString("en-US", { month: "long" }),
+          },
         });
+      }
 
-        setChartData(withStatus);
-      },
-    });
-  }, []);
+      if (metaDataRef.current && (data || []).length > 0) {
+        const client = data[0].client || {};
+        metaDataRef.current({
+          totalRecords: data.length,
+          siteName: client.site_name,
+          location: client.location,
+          company: client.company,
+          coordinates: { lat: client.latitude, lon: client.longitude },
+        });
+      }
+    };
 
-  // ✅ Whenever selectedMonth changes, find that month’s record and report status
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId]);
+
+  // Whenever the selected period changes, report that month's status.
   useEffect(() => {
-    if (!selectedMonth || chartData.length === 0) return;
+    if (!selectedMonth || !selectedYear || chartData.length === 0) return;
 
     const selectedRecord = chartData.find((d) => {
-      const dateObj = new Date(d.Date); // ✅ convert timestamp back to Date
-
+      const dateObj = new Date(d.date);
       const monthName = dateObj.toLocaleString("en-US", { month: "long" });
-      const monthKey =
-        dateObj.getFullYear() +
-        "-" +
-        String(dateObj.getMonth() + 1).padStart(2, "0");
-
       return (
-        monthName.toLowerCase() === selectedMonth.toLowerCase() ||
-        monthKey === selectedMonth
+        String(dateObj.getFullYear()) === String(selectedYear) &&
+        monthName.toLowerCase() === selectedMonth.toLowerCase()
       );
     });
 
-    if (selectedRecord && onStatusChange) {
-      onStatusChange([
-        ["TSF-7", selectedRecord.TSF7_Status],
-        ["TSF-8", selectedRecord.TSF8_Status],
-      ]);
-    }
-  }, [selectedMonth, chartData, onStatusChange]);
+    if (!onStatusChange) return;
+    onStatusChange(
+      selectedRecord
+        ? [
+          ["TSF-7", selectedRecord.TSF7_Status],
+          ["TSF-8", selectedRecord.TSF8_Status],
+        ]
+        : [["TSF-7", "No Data"], ["TSF-8", "No Data"]]
+    );
+  }, [selectedMonth, selectedYear, chartData, onStatusChange]);
 
 
-  const monthMap = {
-    January: "01",
-    February: "02",
-    March: "03",
-    April: "04",
-    May: "05",
-    June: "06",
-    July: "07",
-    August: "08",
-    September: "09",
-    October: "10",
-    November: "11",
-    December: "12"
-  };
   
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -125,7 +181,7 @@ const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
         >
           <div><strong>{date}</strong></div>
           {payload.map((item) => {
-            let unit = item.dataKey === "Rainfall" ? "mm" : "km²";
+            let unit = item.dataKey === "rainfall" ? "mm" : "km²";
             return (
               <div key={item.dataKey}>
                 {item.name}: <span style={{ color: item.color }}>{item.value} {unit}</span>
@@ -178,7 +234,7 @@ const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
 
           <CartesianGrid stroke="#444" strokeDasharray="3 3" />
           <XAxis
-            dataKey="Date"
+            dataKey="date"
             stroke="#ccc"
             fontSize={12}
             tickFormatter={(timestamp) =>
@@ -222,7 +278,7 @@ const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
           <Line
             yAxisId="left"
             type="monotone"
-            dataKey="TSF7"
+            dataKey="tsf7"
             stroke="#FFC000"
             label={(props) => renderLabel({ ...props, stroke: "#FFC000" })}
             dot={false}
@@ -234,7 +290,7 @@ const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
           <Line
             yAxisId="left"
             type="monotone"
-            dataKey="TSF8"
+            dataKey="tsf8"
             stroke="#FFFF00"
             label={(props) => renderLabel({ ...props, stroke: "#FFFF00" })}
             dot={false}
@@ -242,7 +298,7 @@ const WaterChart = ({ selectedMonth, selectedYear, onStatusChange }) => {
             strokeWidth={2}
             strokeDasharray="5 5"
           />
-          <Bar yAxisId="right" dataKey="Rainfall" fill="url(#rainPattern)" name="Monthly Rain" label={(props) => renderLabel({ ...props, stroke: "#4A90E2" })} />
+          <Bar yAxisId="right" dataKey="rainfall" fill="url(#rainPattern)" name="Monthly Rain" label={(props) => renderLabel({ ...props, stroke: "#4A90E2" })} />
         </ComposedChart>
       </ResponsiveContainer>
       {latestDate && (

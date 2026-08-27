@@ -2,7 +2,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import MainPage from "@/components/client/MainPage"
+import Dashboard from "@/components/client/Dashboard";
 
 export default function ClientHome() {
   const { user, loading } = useAuth();
@@ -16,5 +16,5 @@ export default function ClientHome() {
 
   if (loading) return <div>Loading session...</div>;
 
-  return <MainPage />;
+  return <Dashboard />;
 }

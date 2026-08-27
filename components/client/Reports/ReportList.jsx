@@ -9,7 +9,13 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 
-const ReportsList = ({refreshTrigger}) => {
+/**
+ * @param page  Optional `reports.type` to pin the list to ('radar', 'insar', …).
+ *   The client dashboard gives each sensor family its own Reports tab, so the
+ *   tab has to narrow the library the way the deployed build does. Omitted (the
+ *   admin board) means every type, with the type dropdown left free.
+ */
+const ReportsList = ({refreshTrigger, page = null}) => {
     const { userSite, loading: siteLoading } = useUserSite();
 
     const clientId = userSite?.site?.id;
@@ -28,7 +34,7 @@ const ReportsList = ({refreshTrigger}) => {
         if (clientId || userRole === 'admin') {
             fetchReports(clientId);
         }
-    }, [clientId, userRole, refreshTrigger]);
+    }, [clientId, userRole, refreshTrigger, page]);
 
     const fetchReports = async (id) => {
         try {
@@ -37,8 +43,13 @@ const ReportsList = ({refreshTrigger}) => {
 
             let query = supabase
                 .from('reports')
-                .select('*')
-                .order('created_at', { ascending: false });
+                .select('*');
+
+            if (page) {
+                query = query.eq('type', page);
+            }
+
+            query = query.order('created_at', { ascending: false });
 
             if (userRole !== 'admin') {
                 query = query.ilike('filename', `${id}/%`);
@@ -205,18 +216,22 @@ const ReportsList = ({refreshTrigger}) => {
                         className="pl-10 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]"
                     />
                 </div>
-                <Select value={reportType} onValueChange={setReportType}>
-                    <SelectTrigger className="w-48 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
-                        <SelectItem value="all">All Types</SelectItem>
-                        <SelectItem value="radar">Radar</SelectItem>
-                        <SelectItem value="insar">InSAR</SelectItem>
-                        <SelectItem value="prism">Prism</SelectItem>
-                        <SelectItem value="vwp">VWP</SelectItem>
-                    </SelectContent>
-                </Select>
+                {/* A tab that already pins the type has nothing to offer here —
+                    every other choice would come back empty. */}
+                {!page && (
+                    <Select value={reportType} onValueChange={setReportType}>
+                        <SelectTrigger className="w-48 bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
+                            <SelectItem value="all">All Types</SelectItem>
+                            <SelectItem value="radar">Radar</SelectItem>
+                            <SelectItem value="insar">InSAR</SelectItem>
+                            <SelectItem value="prism">Prism</SelectItem>
+                            <SelectItem value="vwp">VWP</SelectItem>
+                        </SelectContent>
+                    </Select>
+                )}
             </div>
 
             <div className="flex flex-col border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] rounded-lg overflow-hidden mt-5">

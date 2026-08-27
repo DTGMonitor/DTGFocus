@@ -3,10 +3,10 @@ import { useMemo, Fragment, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getRiskColorSolid } from "@/config/statusConfig";
 import { getAllowedStatuses, canBeNotApplicable } from "@/config/parameterConfig";
-import { supabase } from "@/lib/supabaseClient";
-import { ExternalLink, X, Loader, ImageDown, FilePlus2, BookOpen, Pencil } from 'lucide-react';
+import { ExternalLink, Loader, ImageDown, FilePlus2, BookOpen, Pencil } from 'lucide-react';
 import { exportDqpTableImage } from "./dqpImageExport";
 import DqpGuidanceModal from "./DqpGuidanceModal";
+import DqpAppendixPreview from "@/components/Reusable/DqpAppendixPreview";
 import toast from 'react-hot-toast';
 
 const isRowInvalid = (item) => {
@@ -24,34 +24,14 @@ const canAddAction = (item) => item.value !== 'Optimal' && item.value !== 'N/A';
 
 export const QualityTable = ({ data, onUpdate, onEdit, exportTitle = 'Data Quality', exportSubtitle = '', radarNumber = '' }) => {
     const [previewItem, setPreviewItem] = useState(null);
-    const [previewImages, setPreviewImages] = useState([]);
-    const [loadingPreview, setLoadingPreview] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isGuidanceOpen, setIsGuidanceOpen] = useState(false);
 
-    // A row carries N figures, each with its own caption. They are signed as a
-    // batch so the preview opens in one round trip rather than one per figure.
-    const handleViewImage = async (item) => {
-        const images = item.images ?? [];
-        if (!images.length) return;
+    // Signing and layout live in DqpAppendixPreview, shared with the client
+    // radar detail so the two show a finding's appendix identically.
+    const handleViewImage = (item) => {
+        if (!(item.images ?? []).length) return;
         setPreviewItem(item);
-        setPreviewImages([]);
-        setLoadingPreview(true);
-        try {
-            const signed = await Promise.all(images.map(async (img) => {
-                const { data, error } = await supabase.storage
-                    .from('Radar')
-                    .createSignedUrl(img.image_url, 3600);
-                if (error) throw error;
-                return { ...img, url: data.signedUrl };
-            }));
-            setPreviewImages(signed);
-        } catch (error) {
-            console.error('Error loading image:', error);
-            setPreviewItem(null); // close modal on error
-        } finally {
-            setLoadingPreview(false);
-        }
     };
     
     const processedGroups = useMemo(() => {
@@ -311,64 +291,11 @@ export const QualityTable = ({ data, onUpdate, onEdit, exportTitle = 'Data Quali
                 groups={processedGroups}
                 radarNumber={radarNumber}
             />
-        {previewItem && (
-                <div
-                    className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
-                    onClick={() => setPreviewItem(null)}
-                >
-                    <div
-                        className="w-full max-w-4xl bg-[var(--dtg-bg-card)] rounded-lg overflow-hidden flex flex-col relative border border-[var(--dtg-border-medium)] max-h-[90vh]"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="px-5 py-3 border-b border-[var(--dtg-border-medium)] flex justify-between items-center flex-shrink-0">
-                            <h3 className="m-0 text-[var(--dtg-text-primary)] text-base">
-                                Image Preview
-                                {previewImages.length > 1 && (
-                                    <span className="ml-2 text-sm text-[var(--dtg-text-secondary)]">
-                                        ({previewImages.length} figures)
-                                    </span>
-                                )}
-                            </h3>
-                            <button
-                                onClick={() => setPreviewItem(null)}
-                                className="bg-transparent border-none text-[var(--dtg-gray-400)] cursor-pointer p-1 flex items-center hover:text-[var(--dtg-text-primary)]"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="p-5 overflow-y-auto">
-                            {loadingPreview ? (
-                                <div className="h-96 flex items-center justify-center text-[var(--dtg-text-primary)]">
-                                    <Loader className="animate-spin mr-2" /> Loading Image...
-                                </div>
-                            ) : (
-                                // Stacked and scrollable rather than a carousel: the captions
-                                // only make sense read against each other, and the report
-                                // prints them in this same order.
-                                <div className="space-y-6">
-                                    {previewImages.map((img, i) => (
-                                        <div key={img.id ?? i}>
-                                            <img
-                                                src={img.url}
-                                                alt={`DQP appendix figure ${i + 1}`}
-                                                className="w-full h-auto max-h-[65vh] object-contain rounded"
-                                            />
-                                            <p className="text-center text-sm text-[var(--dtg-text-secondary)] mt-3 italic">
-                                                <strong>Figure {i + 1}. </strong>
-                                                {img.caption || previewItem.parameter?.name}
-                                            </p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {previewItem.appendix && (
-                                 <p className="text-justify text-sm text-[var(--dtg-text-secondary)] mt-2">{previewItem.appendix}</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+        <DqpAppendixPreview
+            item={previewItem}
+            fallbackCaption={previewItem?.parameter?.name}
+            onClose={() => setPreviewItem(null)}
+        />
         </>
     );
 };

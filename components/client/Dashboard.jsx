@@ -1,72 +1,91 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { FaArrowRight } from "react-icons/fa";
 import { MdLocationOn } from "react-icons/md";
 import { SlClock } from "react-icons/sl";
 import { FaCalendarAlt } from "react-icons/fa";
 
-const MonitoringSelection = () => {
+/**
+ * The client landing page — five dashboard cards, one per sensor family.
+ *
+ * A port of the deployed build's `/:client/home`, with two differences:
+ *
+ *   - routes are Next's `/tools/<client>/…` rather than the deployed `/<client>/…`
+ *   - the header is this repo's own FOCUS LogoSection wherever a page carries one
+ *
+ * Which cards a site may open is data, not code: `site_dashboards` lists the
+ * dashboard_keys the site is entitled to, and a card without one falls through
+ * to the "No data found" panel instead of routing. An admin sees all five, the
+ * same way the deployed build does.
+ */
+const Dashboard = () => {
   const router = useRouter();
+  const params = useParams();
+  const client = params?.client;
 
   const [activeCards, setActiveCards] = useState([]);
-  // Cards showing their site picker instead of their front face.
-  const [pickerCards, setPickerCards] = useState([]);
-  const [sites, setSites] = useState([]);
   const [location, setLocation] = useState("");
   const [company, setCompany] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ---- MONITORING DOMAIN CONFIG ----
-  const allDomains = [
+  // ---- DASHBOARD CONFIG ----
+  // `key` is the dashboard_key stored on site_dashboards — do not rename one
+  // without migrating the rows.
+  const allDashboards = [
     {
       id: 1,
-      key: "SURFACE",
-      title: "SURFACE",
-      url: `/images/home/Surface.png`,
+      key: "RADAR",
+      title: "RADAR",
+      url: "/images/home/Radar.png",
       Description:
-        "Slope stability, radar alerts, and satellite ground movement above ground",
-      Path: `/admin/Radar`,
+        "Real time alerts radar status, data quality, and deformation tracking",
+      Path: `/tools/${client}/RadarStatusHub`,
       bgColor: "rgba(19,80,27,1)",
       gradColor: "linear-gradient(90deg, #1C4A0B 0%, #2D6E15 50%, #37841C 100%)",
     },
     {
       id: 2,
-      key: "UNDERGROUND",
-      title: "UNDERGROUND",
-      url: `/images/home/Underground.png`,
-      Description:
-        "Convergence monitoring, scan QA/QC, and deformation tracking in the drifts",
-      Path: null,
+      key: "INSAR",
+      title: "INSAR",
+      url: "/images/home/InSar.png",
+      Description: "Satellite analysis for long-term ground movement",
+      Path: `/tools/${client}/WB_insar`,
       bgColor: "rgba(8,79,106,1)",
       gradColor: "linear-gradient(90deg, #004562 0%, #00678F 50%, #007BAB 100%)",
     },
     {
       id: 3,
-      key: "SENSIMAP",
-      title: "SENSI MAP",
-      url: `/images/home/Sensitivity.svg`,
+      key: "PRISM",
+      title: "PRISM",
+      url: "/images/home/Prism.png",
       Description:
-        "Radar line-of-sight sensitivity maps and slope monitoring position planning",
-      Path: `/admin/SensitivityTools`,
-      bgColor: "rgba(74,32,122,1)",
-      gradColor: "linear-gradient(90deg, #3A1E63 0%, #6D3FB5 50%, #8B5CF6 100%)",
+        "Measure three-dimensional ground movement with millimeter accuracy",
+      Path: `/tools/${client}/PrismViewer`,
+      bgColor: "rgba(112,48,160,1)",
+      gradColor: "linear-gradient(90deg, #29084E 0%, #401174 50%, #4E168B 100%)",
     },
     {
       id: 4,
-      key: "CLIENTVIEW",
-      title: "CLIENT VIEW",
-      url: `/images/home/ClientView.png`,
-      Description:
-        "Open any site's client dashboard exactly as that site's team sees it",
-      // Resolved from the site picker below, not fixed: this card opens
-      // /tools/<stock_code>/home, which needs a site chosen first.
-      Path: null,
-      needsSite: true,
-      bgColor: "rgba(19,80,27,1)",
-      gradColor: "linear-gradient(90deg, #0B4F4C 0%, #10807A 50%, #14B8A6 100%)",
+      key: "VWP",
+      title: "VWP",
+      url: "/images/home/VWP.png",
+      Description: "Monitor pore water pressure with piezometer data",
+      Path: `/tools/${client}/VWP`,
+      bgColor: "rgba(231,100,0,1)",
+      gradColor: "linear-gradient(90deg, #863700 0%, #C25300 50%, #E76400 100%)",
+    },
+    {
+      id: 5,
+      key: "RAINFALL",
+      title: "RAINFALL",
+      url: "/images/home/Rainfall.png",
+      Description: "Get the realtime rainfall data to support analysis",
+      Path: `/tools/${client}/Rainfall`,
+      bgColor: "rgba(0,0,255,1)",
+      gradColor: "linear-gradient(90deg, #05012E 0%, #1504FD 50%, #28B8E4 100%)",
     },
   ];
 
@@ -78,11 +97,7 @@ const MonitoringSelection = () => {
     });
 
   const handleExplore = (item) => {
-    if (item.needsSite && item.hasData) {
-      setPickerCards((prev) =>
-        prev.includes(item.id) ? prev : [...prev, item.id]
-      );
-    } else if (item.hasData) {
+    if (item.hasData) {
       router.push(item.Path);
     } else {
       setActiveCards((prev) =>
@@ -94,14 +109,6 @@ const MonitoringSelection = () => {
   const handleBack = (e, id) => {
     e.stopPropagation();
     setActiveCards((prev) => prev.filter((cardId) => cardId !== id));
-    setPickerCards((prev) => prev.filter((cardId) => cardId !== id));
-  };
-
-  // A site is addressed by its stock_code — that is what [client] is in
-  // /tools/[client], and what middleware.ts matches a user's sites against.
-  const openClientView = (e, site) => {
-    e.stopPropagation();
-    router.push(`/tools/${site.stock_code}/home`);
   };
 
   // ---- DATE & TIME ----
@@ -120,7 +127,7 @@ const MonitoringSelection = () => {
     year: "numeric",
   });
 
-  // ---- FETCH USER ----
+  // ---- FETCH USER & ENTITLEMENTS ----
   useEffect(() => {
     const init = async () => {
       setLoading(true);
@@ -131,11 +138,11 @@ const MonitoringSelection = () => {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        router.push("/"); // redirect to login if no session
+        router.push("/login");
         return;
       }
 
-      const { data: userSite } = await supabase
+      const { data: userSite, error } = await supabase
         .from("user_sites")
         .select(
           "role, site_id, clients!fk_user_sites_clients(site_name, location, company, stock_code)"
@@ -143,45 +150,60 @@ const MonitoringSelection = () => {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (userSite?.role === "admin") {
-        setLocation("All Sites");
-        setCompany("Admin");
-      } else if (userSite?.clients) {
+      if (error || !userSite) {
+        setLocation("No site assigned");
+        setCompany("");
+        setItems([]);
+        setLoading(false);
+        return;
+      }
+
+      let allowedKeys = [];
+
+      if (userSite.role === "admin") {
+        // An admin lands here by picking a site on the monitoring board, so the
+        // header names the site in the URL rather than the admin's own row.
+        const { data: viewed } = await supabase
+          .from("clients")
+          .select("site_name, location, company")
+          .eq("stock_code", client)
+          .maybeSingle();
+
+        setLocation(
+          viewed ? `${viewed.site_name}, ${viewed.location}` : "All Sites"
+        );
+        setCompany(viewed?.company || "Admin");
+        allowedKeys = allDashboards.map((d) => d.key);
+      } else if (userSite.clients) {
         setLocation(
           `${userSite.clients.site_name}, ${userSite.clients.location}`
         );
         setCompany(userSite.clients.company);
+
+        const { data: dashboards, error: dashError } = await supabase
+          .from("site_dashboards")
+          .select("dashboard_key")
+          .eq("site_id", userSite.site_id);
+
+        if (dashError) {
+          console.error("Error fetching dashboards:", dashError);
+        } else if (dashboards) {
+          allowedKeys = dashboards.map((d) => d.dashboard_key);
+        }
       } else {
-        setLocation("No site assigned");
+        setLocation("Unknown Site");
         setCompany("");
       }
 
-      // Sites the CLIENT VIEW card can open. Only stock_code-bearing rows are
-      // addressable — /tools/[client] is keyed on it.
-      const { data: clientSites } = await supabase
-        .from("clients")
-        .select("id, site_name, location, company, stock_code")
-        .not("stock_code", "is", null)
-        .order("site_name", { ascending: true });
-
-      const siteList = clientSites || [];
-      setSites(siteList);
-
-      // SURFACE and SENSITIVITY are reachable — the underground app is not ported
-      // yet, so its card falls through to the "No access" panel. Per-site gating
-      // can be layered on later the same way site_dashboards works for the
-      // surface dashboard picker.
       setItems(
-        allDomains.map((d) => ({
-          ...d,
-          hasData: d.needsSite ? siteList.length > 0 : d.Path !== null,
-        }))
+        allDashboards.map((d) => ({ ...d, hasData: allowedKeys.includes(d.key) }))
       );
       setLoading(false);
     };
 
     init();
-  }, [router]);
+    // `client` is in the URL, so an admin switching sites re-reads entitlements.
+  }, [router, client]);
 
   // ---- UI RENDER ----
   if (loading)
@@ -195,7 +217,7 @@ const MonitoringSelection = () => {
           alignItems: "center",
         }}
       >
-        Loading monitoring domains...
+        Loading dashboards...
       </div>
     );
 
@@ -204,6 +226,7 @@ const MonitoringSelection = () => {
       style={{
         width: "100vw",
         height: "100vh",
+        boxSizing: "border-box",
         padding: "10px",
         overflowY: "auto",
         backgroundImage: `url("/background/radarBackground.png")`,
@@ -218,7 +241,7 @@ const MonitoringSelection = () => {
       }}
     >
       {/* Header */}
-      <div style={{ textAlign: "center", width: "100%", maxWidth: "800px" }}>
+      <div style={{ textAlign: "center", width: "100%", maxWidth: "800px", padding: "0 20px" }}>
         <p style={{ fontSize: "36px", fontWeight: "bold" }}>
           <span
             style={{
@@ -232,7 +255,8 @@ const MonitoringSelection = () => {
           <span style={{ color: "#fff" }}> {company} Team</span>
         </p>
         <p style={{ fontSize: "16px", color: "#A6A6A6" }}>
-          Select the monitoring domain you want to work in
+          Explore real-time monitoring summaries of slope movement and ground
+          conditions
         </p>
       </div>
 
@@ -264,7 +288,7 @@ const MonitoringSelection = () => {
           }}
         >
           <h2 style={{ fontSize: "16px", fontWeight: "bold", margin: 0 }}>
-            CHOOSE YOUR MONITORING
+            CHOOSE YOUR DASHBOARD
           </h2>
         </div>
         <div style={{ display: "flex", gap: 10, marginRight: 50 }}>
@@ -279,7 +303,7 @@ const MonitoringSelection = () => {
         </div>
       </div>
 
-      {/* Domain Grid */}
+      {/* Dashboard Grid */}
       <div
         style={{
           flex: 1,
@@ -323,82 +347,8 @@ const MonitoringSelection = () => {
                 (e.currentTarget.style.transform = "scale(1)")
               }
             >
-              {/* Site picker — CLIENT VIEW only */}
-              {pickerCards.includes(item.id) ? (
-                <>
-                  <div
-                    style={{
-                      border: `1px solid ${item.bgColor}`,
-                      borderRadius: "40px",
-                      width: "80%",
-                      marginBottom: "15px",
-                    }}
-                  >
-                    <h2 style={{ fontSize: "20px", fontWeight: "bold", margin: 5 }}>
-                      {item.title}
-                    </h2>
-                  </div>
-                  <p style={{ color: "#ccc", fontSize: "13px", margin: "0 0 10px" }}>
-                    Choose a site to open its client dashboard
-                  </p>
-                  <div
-                    style={{
-                      width: "100%",
-                      flex: 1,
-                      minHeight: 0,
-                      overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    {sites.map((site) => (
-                      <button
-                        key={site.id}
-                        type="button"
-                        onClick={(e) => openClientView(e, site)}
-                        style={{
-                          background: setAlpha(item.bgColor, 0.25),
-                          border: "1px solid #595959",
-                          borderRadius: "8px",
-                          padding: "8px 12px",
-                          color: "#fff",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                        }}
-                      >
-                        <span style={{ fontWeight: "bold", fontSize: "14px" }}>
-                          {site.site_name}{" "}
-                          <span style={{ color: "#9BE7DC", fontWeight: "normal" }}>
-                            ({site.stock_code})
-                          </span>
-                        </span>
-                        <span style={{ fontSize: "11px", color: "#bbb" }}>
-                          {site.company}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={(e) => handleBack(e, item.id)}
-                    style={{
-                      backgroundColor: "#20625C",
-                      border: "none",
-                      padding: "6px 16px",
-                      color: "#fff",
-                      borderRadius: "3px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    BACK
-                  </button>
-                </>
-              ) : /* Notification View */
-              activeCards.includes(item.id) ? (
+              {/* Notification View */}
+              {activeCards.includes(item.id) ? (
                 <>
                   <div
                     style={{
@@ -427,9 +377,9 @@ const MonitoringSelection = () => {
                     <line x1="12" y1="17" x2="12.01" y2="17" />
                   </svg>
                   <p style={{ fontWeight: "bold" }}>
-                    No access{" "}
+                    No data found{" "}
                     <span style={{ fontWeight: "normal" }}>
-                      to this monitoring domain.
+                      for this dashboard.
                     </span>
                   </p>
                   <p
@@ -491,6 +441,7 @@ const MonitoringSelection = () => {
                     style={{
                       width: "80%",
                       height: "47%",
+                      margin: "0 auto 10px auto",
                       display: "flex",
                       justifyContent: "center",
                       alignItems: "center",
@@ -550,4 +501,4 @@ const MonitoringSelection = () => {
   );
 };
 
-export default MonitoringSelection;
+export default Dashboard;

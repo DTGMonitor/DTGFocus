@@ -492,13 +492,21 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
         if (errorWF) throw errorWF;
         const wallMap = (wallFolders || []).reduce((acc, wf) => ({ ...acc, [wf.id]: wf }), {});
 
-        const assessmentIds = latestWall.map((a) => a.dqp_record_id);
-        // inside loadData(), replace your assessment_values fetch + pivot logic with this:
+        // A sensor that has never had a DQP record carries a NULL dqp_record_id
+        // on the view. PostgREST serialises a null inside `in.(...)` as the
+        // literal string "null", which Postgres then tries to read as a bigint
+        // and rejects (22P02) — one such sensor failed the whole gallery with
+        // "Failed to load data.". Drop them: they have no values to fetch, and
+        // the pivot below already treats a missing record as an empty tree.
+        const assessmentIds = latestWall
+          .map((a) => a.dqp_record_id)
+          .filter((id) => id !== null && id !== undefined);
 
         // fetch both level 1 & 2 with the fields we need
-        const { data: allValues, error: error2 } = await supabase
-          .from("dqp_values")
-          .select(`
+        const { data: allValues, error: error2 } = assessmentIds.length
+          ? await supabase
+              .from("dqp_values")
+              .select(`
     dqp_record_id,
     value,
     notes,
@@ -506,8 +514,9 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
     ${DQP_IMAGE_COLUMNS},
     parameters!inner(id, name, level, parent_id)
   `)
-          .in("dqp_record_id", assessmentIds)
-          .in("parameters.level", [0, 1, 2]);
+              .in("dqp_record_id", assessmentIds)
+              .in("parameters.level", [0, 1, 2])
+          : { data: [], error: null };
 
         if (error2) throw error2;
 

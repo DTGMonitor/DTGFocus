@@ -7,6 +7,7 @@ import { FaFolder, FaSyncAlt, FaRegBell } from "react-icons/fa";
 import { ImExit } from "react-icons/im";
 import { IoMdMenu } from "react-icons/io";
 import GaugeLive from "@/components/Radars/Live/gaugelive";
+import DqpAppendixPreview from "@/components/Reusable/DqpAppendixPreview";
 import { defTypeColour, labelColour, recordColour, tarpPriority, COLOUR_RANK } from "@/config/riskDisplay";
 
 function splitRadarName(radar) {
@@ -151,6 +152,10 @@ function getIssues(record) {
             status: child.value || "",
             comments: child.comments || "",
             appendix: child.appendix || null,
+            // Carried through so the appendix panel can show the finding's
+            // figures, not just its text — pivotParameterTree already attaches
+            // them (RadarGallery resolves the ids before pivoting).
+            images: Array.isArray(child.images) ? child.images : [],
           });
         }
       }
@@ -161,6 +166,13 @@ function getIssues(record) {
 };
 
 const IssueCard = ({ issue }) => {
+  // `appendix` is the analyst's narrative, not a URL — the old markup linked it
+  // as an href, which went nowhere, and the figures beside it were never shown
+  // at all. Open the same panel the admin sensor detail's Data Quality table
+  // opens instead.
+  const [showAppendix, setShowAppendix] = useState(false);
+  const hasAppendix = Boolean(issue.appendix) || (issue.images?.length > 0);
+
   const statusColors = {
     "Acceptable": "#e7be09ff",   // yellow
     "Sub-Optimal": "#c2550dff",  // orange
@@ -195,10 +207,34 @@ const IssueCard = ({ issue }) => {
         </strong>
       </div>
       <p style={{ margin: "5px 0", fontSize: "12px" }}>{issue.comments}</p>
-      {issue.appendix && (
-        <a href={issue.appendix} style={{ color: "#4FC3F7", fontWeight: "bold" }}>
-          [Appendix A]
-        </a>
+      {hasAppendix && (
+        <button
+          type="button"
+          onClick={() => setShowAppendix(true)}
+          title={
+            issue.images?.length
+              ? `View appendix (${issue.images.length} figure${issue.images.length > 1 ? "s" : ""})`
+              : "View appendix"
+          }
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            color: "#4FC3F7",
+            fontWeight: "bold",
+            fontSize: "12px",
+            cursor: "pointer",
+          }}
+        >
+          [Appendix{issue.images?.length > 1 ? ` · ${issue.images.length} figures` : ""}]
+        </button>
+      )}
+      {showAppendix && (
+        <DqpAppendixPreview
+          item={issue}
+          fallbackCaption={issue.level2}
+          onClose={() => setShowAppendix(false)}
+        />
       )}
     </div>
   );

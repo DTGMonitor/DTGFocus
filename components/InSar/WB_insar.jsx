@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import LogoSection from "@/components/Reusable/HeaderComponents/LogoSection";
 import WaterChart from "@/components/InSar/ChartWater";
+import { supabase } from "@/lib/supabaseClient";
+import { useUserSite } from "@/components/Reusable/useUserSite";
 import "cesium-navigation-es6/dist/styles/cesium-navigation.css";
-import Papa from "papaparse";
-import MonthSlider from "@/components/Reusable/Slider";
 import { FaFilter } from "react-icons/fa";
 import InSARCard from "@/components/InSar/CardLeft";
 import NavSection from "@/components/Reusable/HeaderComponents/NavSection";
@@ -102,35 +102,127 @@ const Viewer = ({ title, url, transform, setTransform }) => {
   )
 };
 
+const MONTH_NUMBER = {
+  January: "01", February: "02", March: "03", April: "04",
+  May: "05", June: "06", July: "07", August: "08",
+  September: "09", October: "10", November: "11", December: "12",
+};
+
+/**
+ * Fixed facts about the imagery this page shows. They describe the Sentinel-2
+ * product the water-body pipeline runs on, not the site, so they are the same
+ * for every client and are not worth a column. Total/Processed come from the
+ * record count, so they are filled in per site below.
+ */
+const SENTINEL2_FACTS = {
+  Satellite: "Sentinel 2",
+  Instrument: "MSI",
+  Product: "Level 2-A",
+  Origin: "ESA",
+  Orbit: "117",
+  "Data Source": "Copernicus Browser (https://browser.dataspace.copernicus.eu/)",
+};
+
 const WB_insar = () => {
   const { client } = useParams();
-  const [year, setYear] = useState("2025");
-  const [month, setMonth] = useState("September");
-  const [latestDate, setLatestDate] = useState(null);
-  const [summaryData, setSummaryData] = useState([]);
+  const { userSite, loading: userLoading } = useUserSite();
+
+  const [siteId, setSiteId] = useState(null);
+  const [year, setYear] = useState("");
+  const [month, setMonth] = useState("");
+  const [yearOptions, setYearOptions] = useState([]);
+  const [monthOptions, setMonthOptions] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [images, setImages] = useState({ falseColor: "", trueColor: "", mndwi: "" });
+  const [imagesLoading, setImagesLoading] = useState(true);
   const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
   const [rows, setRows] = useState([]);
 
-  const basePath = `/data/INSAR/Water/${year}`;
-
-  // -------- Left cards --------
+  // -------- Which site's data --------
+  // A client user has a site of their own. An admin opening a client dashboard
+  // does not, so the site is read from the [client] route segment — that is the
+  // stock_code the URL is keyed on.
   useEffect(() => {
-    fetch("/data/INSAR/Data/InSAR_Summary.csv")
-      .then((res) => res.text())
-      .then((csvText) => {
-        Papa.parse(csvText, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (result) => setSummaryData(result.data || []),
-        });
-      });
+    if (userLoading) return;
+    let cancelled = false;
+
+    const resolve = async () => {
+      const own = userSite?.site?.id;
+      if (own) {
+        if (!cancelled) setSiteId(own);
+        return;
+      }
+      if (!client) return;
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("stock_code", client)
+        .maybeSingle();
+      if (error) console.error("Error resolving site:", error);
+      if (!cancelled) setSiteId(data?.id ?? null);
+    };
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [client, userSite?.site?.id, userLoading]);
+
+  // -------- Period options, from whatever months the series actually has --------
+  const handleAvailableOptions = useCallback(({ years, months, default: fallback }) => {
+    setYearOptions(years.map(String));
+    setMonthOptions(months);
+    // Open on the newest month rather than a hardcoded one, so a new upload is
+    // what the page shows without a code change.
+    setYear((current) => current || fallback.year);
+    setMonth((current) => current || fallback.month);
   }, []);
 
-  // Choose the row to render
-  const rowToRender =
-    summaryData.length > 0
-      ? summaryData[1]
-      : null;
+  // -------- Imagery for the selected month --------
+  useEffect(() => {
+    if (!year || !month || !siteId) return;
+    let cancelled = false;
+
+    const loadImages = async () => {
+      setImagesLoading(true);
+      try {
+        const mm = MONTH_NUMBER[month] || month;
+        const products = ["False Color", "True Color", "MNDWI"];
+        const [falseColor, trueColor, mndwi] = await Promise.all(
+          products.map(async (product) => {
+            const { data, error } = await supabase.storage
+              .from("Insar")
+              .createSignedUrl(`${siteId}/${year}-${mm}_${product}.png`, 3600);
+            if (error) throw error;
+            return data.signedUrl;
+          })
+        );
+        if (!cancelled) setImages({ falseColor, trueColor, mndwi });
+      } catch (error) {
+        console.error("Error loading images:", error);
+        if (!cancelled) setImages({ falseColor: "", trueColor: "", mndwi: "" });
+      } finally {
+        if (!cancelled) setImagesLoading(false);
+      }
+    };
+
+    loadImages();
+    return () => { cancelled = true; };
+  }, [year, month, siteId]);
+
+  // The Data Availability card: the site's own facts plus the fixed Sentinel-2
+  // ones. Record count doubles as Total and Processed — every month written to
+  // the table has been processed.
+  const rowToRender = meta
+    ? {
+      ...SENTINEL2_FACTS,
+      Site: meta.siteName || "Unknown Site",
+      Location: meta.location || "Unknown Location",
+      Lat: meta.coordinates?.lat ?? 0,
+      Lon: meta.coordinates?.lon ?? 0,
+      "Total Data": meta.totalRecords || 0,
+      "Processed Data": meta.totalRecords || 0,
+      Notes: meta.company || "",
+    }
+    : null;
 
   const cardStyle = {
     backgroundColor: "#262626",
@@ -167,17 +259,39 @@ const WB_insar = () => {
     return "#ccc";
   };
 
-  const monthOptions = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"
-  ];
-
-  const yearOptions = [
-    "2025"
-  ];
-
   return (
-    <div style={{ flex: 1, paddingTop: "10px" }}>
+    // Full-viewport flex column, as the deployed build has it. The old root was
+    // `flex: 1`, which only meant something inside the Insar.jsx tab container
+    // — on its own route it resolved to auto height, so the row below (which
+    // asks for height: 100%) collapsed to its content and left the chart short
+    // with dead space under it. A definite height here is what lets that row
+    // shrink to exactly the space the header leaves.
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        boxSizing: "border-box",
+        overflowY: "auto",
+        overflowX: "hidden",
+        // Hardcoded, like the header block below and every card on this page:
+        // the InSAR viewer is dark-only, so the themed token would hand it a
+        // white ground under white text.
+        backgroundColor: "#050910",
+        color: "#f5f5f5",
+        fontFamily: "Inter, sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        padding: "10px",
+        gap: "10px",
+      }}
+    >
+      {/* The header lived in the Insar.jsx tab container, so the /WB_insar
+          route rendered the map with no logo and no tabs. The deployed build
+          puts it on the page itself — do the same, so the route is complete
+          however it is reached. */}
       <div style={{ display: "flex", flexDirection: "column", background: "#050910" }}>
+        <LogoSection Subtitle="InSAR" />
+        <NavSection menuItems={insarMenuItems} routed />
       </div>
       <div style={{
         display: "flex",
@@ -197,27 +311,42 @@ const WB_insar = () => {
         }}>
           {/*Maps */}
           <div style={{ borderRadius: "10px", flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "10px" }}>
-            <Viewer
-              title="False Color Map"
-              url={`${basePath}/False Color/${month}_False Color.png`}
-              transform={transform}
-              setTransform={setTransform}
-            />
-            <Viewer
-              title="True Color Map"
-              url={`${basePath}/True Color/${month}_True Color.png`}
-              transform={transform}
-              setTransform={setTransform}
-            />
-            <Viewer
-              title="MNDWI Color Map"
-              url={`${basePath}/MNDWI/${month}_MNDWI.png`}
-              transform={transform}
-              setTransform={setTransform}
-            />
+            {imagesLoading ? (
+              <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "20px" }}>
+                Loading images...
+              </div>
+            ) : (
+              <>
+                <Viewer
+                  title="False Color Map"
+                  url={images.falseColor || null}
+                  transform={transform}
+                  setTransform={setTransform}
+                />
+                <Viewer
+                  title="True Color Map"
+                  url={images.trueColor || null}
+                  transform={transform}
+                  setTransform={setTransform}
+                />
+                <Viewer
+                  title="MNDWI Color Map"
+                  url={images.mndwi || null}
+                  transform={transform}
+                  setTransform={setTransform}
+                />
+              </>
+            )}
           </div>
 
-          <WaterChart selectedMonth={month} selectedYear={year} onStatusChange={setRows} />
+          <WaterChart
+            selectedMonth={month}
+            selectedYear={year}
+            onStatusChange={setRows}
+            availableOptions={handleAvailableOptions}
+            metaData={setMeta}
+            siteId={siteId}
+          />
 
         </div>
         {/* RIGHT: Filters & cards */}

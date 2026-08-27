@@ -23,7 +23,10 @@ function AlarmSummaryPage() {
   const [showCumulative, setShowCumulative] = useState("Cumulative");
   const [viewMode, setViewMode] = useState("Total");
   const [reasonFilter, setReasonFilter] = useState("All");
+  // Guarded: this page has its own route now, so the initializer also runs
+  // during the server render, where there is no localStorage.
   const [selectedArea, setSelectedArea] = useState(() => {
+    if (typeof window === "undefined") return "All";
     return localStorage.getItem("selectedArea") || "All";
   });
 

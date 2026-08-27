@@ -1,13 +1,20 @@
 // src/config/menuConfig.js
+//
+// `:client` is the site's stock_code, filled in from the [client] route param by
+// NavSection's routed mode. These two lists are the client-facing tab sets and
+// mirror the deployed dashboard one-for-one — every entry here must have a
+// matching route under app/tools/[client]/.
 export const radarMenuItems = [
   { label: "LIVE RADAR", path: "/tools/:client/RadarStatusHub", icon: "CgMediaLive" },
   { label: "ALARM SUMMARY", path: "/tools/:client/AlarmSummaryPage", icon: "BsAlarm" },
   { label: "AVAILABILITY SUMMARY", path: "/tools/:client/AvailabilitySummaryPage", icon: "SlSpeedometer" },
   { label: "DATA QUALITY SUMMARY", path: "/tools/:client/DataQualitySummaryPage", icon: "PiPresentationChart" },
+  { label: "REPORTS", path: "/tools/:client/Reports", icon: "HiOutlineDocumentChartBar" },
 ];
 
 export const insarMenuItems = [
   { label: "WATER BODY", path: "/tools/:client/WB_insar", icon: "FaArrowUpFromGroundWater" },
+  { label: "REPORTS", path: "/tools/:client/Report_insar", icon: "HiOutlineDocumentChartBar" },
 ];
 
 export const homeMenuItems = [
