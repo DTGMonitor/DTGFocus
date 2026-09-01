@@ -126,8 +126,11 @@ const SENTINEL2_FACTS = {
 const WB_insar = () => {
   const { client } = useParams();
   const { userSite, loading: userLoading } = useUserSite();
+  const isAdmin = userSite?.role === "admin";
 
-  const [siteId, setSiteId] = useState(null);
+  const [siteOptions, setSiteOptions] = useState([]);
+  const [selectedSite, setSelectedSite] = useState(null);
+  const siteId = selectedSite?.id ?? null;
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
   const [yearOptions, setYearOptions] = useState([]);
@@ -139,32 +142,52 @@ const WB_insar = () => {
   const [rows, setRows] = useState([]);
 
   // -------- Which site's data --------
-  // A client user has a site of their own. An admin opening a client dashboard
-  // does not, so the site is read from the [client] route segment — that is the
-  // stock_code the URL is keyed on.
+  // Every site is listed, as on Rainfall, so an admin can switch between them —
+  // this page resolves a real site_id and has no all-sites reading, so without
+  // a picker the all-sites view had nothing to show. The opening choice is the
+  // user's own site if they have one, else the site the [client] segment names
+  // (that segment is a stock_code), else the first site. A client user is
+  // pinned to their own site: the control is theirs to read, not to change.
   useEffect(() => {
     if (userLoading) return;
     let cancelled = false;
 
-    const resolve = async () => {
-      const own = userSite?.site?.id;
-      if (own) {
-        if (!cancelled) setSiteId(own);
-        return;
-      }
-      if (!client) return;
+    const loadSites = async () => {
       const { data, error } = await supabase
         .from("clients")
-        .select("id")
-        .eq("stock_code", client)
-        .maybeSingle();
-      if (error) console.error("Error resolving site:", error);
-      if (!cancelled) setSiteId(data?.id ?? null);
+        .select("id, site_name, location, stock_code")
+        .order("site_name");
+      if (error) {
+        console.error("Error loading sites:", error);
+        return;
+      }
+      if (cancelled) return;
+
+      const sites = data || [];
+      setSiteOptions(sites);
+      if (sites.length === 0) return;
+
+      const own = sites.find((s) => s.id === userSite?.site?.id);
+      const routed = client ? sites.find((s) => s.stock_code === client) : null;
+      setSelectedSite(own || routed || sites[0]);
     };
 
-    resolve();
+    loadSites();
     return () => { cancelled = true; };
   }, [client, userSite?.site?.id, userLoading]);
+
+  // A month picked for one site means nothing for the next one, and the series
+  // a site actually has may not include it. Clear the period on every site
+  // change so handleAvailableOptions below can open on the new site's newest
+  // month instead of holding a selection that has no imagery behind it.
+  useEffect(() => {
+    setYear("");
+    setMonth("");
+    setYearOptions([]);
+    setMonthOptions([]);
+    setMeta(null);
+    setRows([]);
+  }, [siteId]);
 
   // -------- Period options, from whatever months the series actually has --------
   const handleAvailableOptions = useCallback(({ years, months, default: fallback }) => {
@@ -178,7 +201,11 @@ const WB_insar = () => {
 
   // -------- Imagery for the selected month --------
   useEffect(() => {
-    if (!year || !month || !siteId) return;
+    if (!year || !month || !siteId) {
+      setImages({ falseColor: "", trueColor: "", mndwi: "" });
+      setImagesLoading(false);
+      return;
+    }
     let cancelled = false;
 
     const loadImages = async () => {
@@ -315,6 +342,10 @@ const WB_insar = () => {
               <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "20px" }}>
                 Loading images...
               </div>
+            ) : !images.falseColor && !images.trueColor && !images.mndwi ? (
+              <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "20px", color: "#8fbfba" }}>
+                No water-body imagery for {selectedSite?.site_name || "this site"}.
+              </div>
             ) : (
               <>
                 <Viewer
@@ -372,6 +403,40 @@ const WB_insar = () => {
               <FaFilter size={18} color="#E97132" />
               IMAGE SELECTION
             </div>
+
+            {/* Site Picker */}
+            <label style={{ display: "block", marginBottom: "10px", padding: "10px", border: "1px solid #0C7266", borderRadius: "10px" }}>
+              <span style={{ display: "block", marginBottom: "4px", color: "#ccc", fontSize: "14px" }}>Site Selection</span>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <img
+                  src="/icons/Location.svg"
+                  alt=""
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    objectFit: "contain",
+                  }} />
+                <select
+                  disabled={!isAdmin}
+                  value={selectedSite?.id || ""}
+                  onChange={(e) =>
+                    setSelectedSite(siteOptions.find((s) => s.id === Number(e.target.value)) || null)
+                  }
+                  style={{ ...selectStyle, cursor: isAdmin ? "pointer" : "not-allowed" }}
+                >
+                  {siteOptions.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.site_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedSite?.location && (
+                <span style={{ display: "block", marginTop: "6px", color: "#8fbfba", fontSize: "12px" }}>
+                  {selectedSite.location}
+                </span>
+              )}
+            </label>
 
             {/* Date Picker */}
             <label style={{ display: "block", marginBottom: "10px", padding: "10px", border: "1px solid #0C7266", borderRadius: "10px" }}>

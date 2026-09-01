@@ -17,9 +17,11 @@
  * client user can never reach it: middleware only lets them through for a code
  * listed in their own `sites`, and this is in nobody's.
  *
- * The one exception is InSAR, which resolves a real `site_id` from the segment
- * and so has no all-sites reading. It degrades to its empty state here rather
- * than showing the wrong site's imagery.
+ * InSAR and Prism are the pages that resolve a real site rather than reading
+ * across all of them, so they have no all-sites reading of their own. Both now
+ * carry the same site picker Rainfall does: the segment still supplies the
+ * opening site when it names one, and an admin on this sentinel picks from the
+ * list instead of being shown nothing.
  */
 export const ALL_SITES_CLIENT = 'all-sites';
 

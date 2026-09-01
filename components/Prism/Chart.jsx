@@ -16,14 +16,22 @@ import { timeParse, timeFormat } from "d3-time-format";
 const parseTime = timeParse("%-d/%-m/%Y");
 const formatTime = timeFormat("%b %Y");
 
-const PrismChart = ({ IDs = [], fromYear = null, toYear = null }) => {
+const PrismChart = ({ IDs = [], fromYear = null, toYear = null, dataUrl = null }) => {
     const [metric, setMetric] = useState("CummulativeDisplacement");
     const [chartData, setChartData] = useState([]);
     const [prismKeys, setPrismKeys] = useState([]);
 
     useEffect(() => {
-        fetch("/data/PRISM/Telfer/Data/prism_data.csv")
-            .then((res) => res.text())
+        if (!dataUrl) {
+            setChartData([]);
+            setPrismKeys([]);
+            return;
+        }
+        fetch(dataUrl)
+            .then((res) => {
+                if (!res.ok) throw new Error("No prism series at " + dataUrl);
+                return res.text();
+            })
             .then((csvText) => {
                 const parsed = Papa.parse(csvText, {
                     header: true,
@@ -56,8 +64,15 @@ const PrismChart = ({ IDs = [], fromYear = null, toYear = null }) => {
 
                 const uniqueIDs = [...new Set(filtered.map((row) => row.ID))];
                 setPrismKeys(uniqueIDs);
+            })
+            // A site whose folder has no series file leaves the chart empty
+            // rather than rejecting into nothing.
+            .catch((err) => {
+                console.error("Error loading prism series:", err);
+                setChartData([]);
+                setPrismKeys([]);
             });
-    }, [metric, IDs, fromYear, toYear]);
+    }, [metric, IDs, fromYear, toYear, dataUrl]);
 
     const latestDate =
         chartData.length > 0
