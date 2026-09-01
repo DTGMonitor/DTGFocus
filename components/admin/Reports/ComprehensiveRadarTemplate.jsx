@@ -9,10 +9,17 @@
  * non-optimal parameters, appendices), so pages have to be discovered by
  * measurement rather than hand-placed.
  *
- * Block order:
+ * Block order (the DEFAULT — see below):
  *   Header → Executive Summary → Key Findings → Deformation image → Deformation
  *   timeline → Data Quality → System Performance → Alarm Improvement →
  *   Procedural Updates (TARP) → Glossary → Appendix[] → Disclaimer
+ *
+ * That order is no longer written into the block array. Blocks are built into a
+ * KEYED BAG — one key per section, matching config/reportSections.ts — and the
+ * site's saved layout decides which of them print and in what order, and where
+ * its own custom tables, paragraphs and image slots sit among them
+ * (composeLayoutBlocks). A site with no saved layout gets exactly the order
+ * above, which is the report this template has always produced.
  *
  * Unlike RadarTemplate, this destructures `reportInfo`. RadarTemplate is declared
  * ({ data, sensor, exportMode }) while both call sites pass reportInfo, so it is
@@ -30,7 +37,11 @@ import { useAppendixImages, resolveAppendixImages } from '@/components/admin/Rad
 
 import { ExecutiveSummary } from '@/components/admin/Radar/report/blocks/ExecutiveSummary';
 import { KeyFindings, buildKeyFindings } from '@/components/admin/Radar/report/blocks/KeyFindings';
-import { DeformationImage, DeformationTimeline } from '@/components/admin/Radar/report/blocks/DeformationTimeline';
+import {
+  DeformationImage,
+  DeformationTimeline,
+  buildTimelineChunks,
+} from '@/components/admin/Radar/report/blocks/DeformationTimeline';
 import { DataQuality } from '@/components/admin/Radar/report/blocks/DataQuality';
 import { SystemPerformance } from '@/components/admin/Radar/report/blocks/SystemPerformance';
 import { AlarmImprovements } from '@/components/admin/Radar/report/blocks/AlarmImprovements';
@@ -39,6 +50,9 @@ import { Glossary, AppendixItem, Disclaimer } from '@/components/admin/Radar/rep
 
 import { buildStatusGroups, buildAppendixItems } from '@/utils/reportDqp';
 import { chunkImprovements } from '@/utils/reportAlarmImprovements';
+import { composeLayoutBlocks } from '@/components/admin/Radar/report/layoutBlocks';
+import { COMPREHENSIVE_SECTIONS } from '@/config/reportSections';
+import { defaultLayout, layoutSignature } from '@/utils/reportLayout';
 
 /**
  * Re-exported: the export path in ReportTemplateModal has always imported this
@@ -73,6 +87,13 @@ const fmtLongDate = (d) =>
   new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /**
+ * The timeline's block keys. The first slice keeps the historical `def-timeline`
+ * so the figure's join is asked about the same pair of blocks whether or not the
+ * section is sliced at all.
+ */
+const timelineKey = (i) => (i === 0 ? 'def-timeline' : `def-timeline-${i}`);
+
+/**
  * @param {object} data        A useComprehensiveReportData() result payload.
  * @param {object} sensor
  * @param {object} reportInfo  { generatedBy, site, company, period, ... }
@@ -84,6 +105,12 @@ const fmtLongDate = (d) =>
  * @param {object[]} appendixItems  Pre-resolved appendix items (see
  *   resolveAppendixImages). REQUIRED on the export path — without it the figures
  *   resolve after the capture and the PDF loses pages.
+ * @param {object[]} layout   The site's normalized layout entries
+ *   (utils/reportLayout). Omitted falls back to the default order.
+ * @param {object} layoutValues  This report's content for the layout's custom
+ *   sections, keyed by section id. Owned by the caller for the same reason as
+ *   `annotation`: the export mounts a second copy of this template, and state
+ *   held here would start empty in it.
  */
 export function ComprehensiveRadarTemplate({
   data,
@@ -94,7 +121,14 @@ export function ComprehensiveRadarTemplate({
   annotation,
   imageRef,
   appendixItems: preResolvedAppendix,
+  layout,
+  layoutValues,
 }) {
+  const layoutEntries = useMemo(
+    () => (Array.isArray(layout) && layout.length > 0 ? layout : defaultLayout(COMPREHENSIVE_SECTIONS)),
+    [layout]
+  );
+  const customValues = useMemo(() => layoutValues ?? {}, [layoutValues]);
   // Stabilised: `data?.dqpRows ?? []` would be a fresh array each render, so every
   // downstream useMemo would recompute and the pagination effect would re-fire.
   const dqpRows = useMemo(() => data?.dqpRows ?? [], [data?.dqpRows]);
@@ -122,11 +156,26 @@ export function ComprehensiveRadarTemplate({
   );
   const improvementChunks = useMemo(() => chunkImprovements(improvementRows), [improvementRows]);
 
+  // Pre-chunked for the same reason: a radar with several active events produced
+  // one timeline block taller than the sheet, and a block the paginator cannot
+  // fit is clipped, not split — the last cards printed under the footer and the
+  // rest of the section vanished. One block per chain (long chains split inside
+  // themselves) lets the page break fall between cards.
+  const timelineChunks = useMemo(() => buildTimelineChunks(data?.timelines ?? []), [data?.timelines]);
+  // A report with no active chains still prints the section, saying so.
+  const timelineBlocks = timelineChunks.length > 0 ? timelineChunks : [null];
+
   // Declared before the blocks: they close over bumpMeasure.
   // `annotation.image` is a dep because adding a figure changes the block's
   // height and the pages must re-pack around it.
+  // The layout arrives as a SIGNATURE and not as the entries themselves: both
+  // the entries and the values are new objects on every keystroke in the layout
+  // editor, so passing them would re-measure the whole report on each one — and
+  // passing neither would leave the page breaks describing a table that has
+  // since grown a row.
   const { pages, measureRef, measureLayer, bumpMeasure } = useReportPagination([
     data, appendixItems, statusGroups, improvementChunks, annotation?.image, annotation?.boundaries,
+    layoutSignature(layoutEntries, customValues),
   ]);
 
   const metaItems = [
@@ -154,8 +203,18 @@ export function ComprehensiveRadarTemplate({
    * measurement copy) would win. Every click would then be measured against an
    * off-screen element and the drawn zones would land in the wrong place.
    */
-  const buildBlocks = (interactive, timelineJoinsImage) => {
-    const out = [
+  const buildBlocks = (interactive, timelineJoins) => {
+    /**
+     * One key per section in the catalogue, each holding EVERY block that
+     * section produces this period. A section whose data is empty contributes
+     * an empty array and therefore no blocks, exactly as it did when this was a
+     * push-sequence — a period with no TARP change has never printed a
+     * Procedural Updates heading over nothing, and switching the section on in
+     * a layout must not change that.
+     */
+    const groups = {};
+
+    groups.header = [
       <HeaderBlock
         key="header"
         title={comprehensiveTitle(data?.window?.days)}
@@ -166,6 +225,9 @@ export function ComprehensiveRadarTemplate({
         logoSrc={logoSrc || FALLBACK_LOGO}
         onImageLoad={bumpMeasure}
       />,
+    ];
+
+    groups.executive = [
       <ExecutiveSummary
         key="kpi"
         risk={data?.risk}
@@ -175,15 +237,25 @@ export function ComprehensiveRadarTemplate({
         alarms={data?.alarms}
         reportWindow={data?.window}
       />,
-      <KeyFindings key="findings" findings={findings} />,
     ];
 
+    groups.findings = [<KeyFindings key="findings" findings={findings} />];
+
+    // The figure and the timeline are ONE section: the timeline continues the
+    // figure's frame when they land on the same page, and a layout that could
+    // separate them would leave a welded block with nothing above it.
+    groups.deformation = [];
+
     if (hasImageBlock) {
-      out.push(
+      groups.deformation.push(
         <DeformationImage
           key="def-img"
           annotation={annotation}
           interactive={interactive}
+          // The SAME decision in both passes. Keyed off `interactive` — as it
+          // was — the hidden measurement copy drew nothing where the visible one
+          // draws a drop zone, and every page was packed that much too full.
+          placeholder={hasImageBlock}
           imageRef={imageRef}
           onImageLoad={bumpMeasure}
           figure={1}
@@ -191,91 +263,118 @@ export function ComprehensiveRadarTemplate({
       );
     }
 
-    out.push(
-      <DeformationTimeline
-        key="def-timeline"
-        timelines={data?.timelines ?? []}
-        crosscheckers={data?.crosscheckers ?? []}
-        error={data?.timelineError}
-        // The image block already carried the section bar, if it rendered.
-        withHeader={!hasImageBlock}
-        // Continue the figure's frame when the two end up on the same page.
-        joinPrev={timelineJoinsImage}
-        // The same instant AND horizon the chains were trimmed against.
-        now={data?.timelineNow}
-        recentMs={data?.timelineWindowMs}
-        // Whether a card's badge quotes a TARP level or names the band.
-        riskMode={data?.riskPresentation?.mode}
-      />
-    );
+    // One block per chunk. Only the first carries the section bar and the
+    // partial-resolution notice; a continuation joins the block above when the
+    // paginator kept the two together, so a section broken mid-page still reads
+    // as one framed timeline and one broken across a page break does not weld
+    // itself to nothing.
+    timelineBlocks.forEach((chunk, i) => {
+      groups.deformation.push(
+        <DeformationTimeline
+          key={timelineKey(i)}
+          chunk={chunk}
+          crosscheckers={data?.crosscheckers ?? []}
+          error={i === 0 ? data?.timelineError : null}
+          // The image block already carried the section bar, if it rendered.
+          withHeader={!hasImageBlock && i === 0}
+          // Continue the frame above when the two end up on the same page, and
+          // leave the frame open for the block below when it continues here.
+          joinPrev={timelineJoins.has(i)}
+          joinNext={timelineJoins.has(i + 1)}
+          // The same instant AND horizon the chains were trimmed against.
+          now={data?.timelineNow}
+          recentMs={data?.timelineWindowMs}
+          // Whether a card's badge quotes a TARP level or names the band.
+          riskMode={data?.riskPresentation?.mode}
+        />
+      );
+    });
 
-    out.push(
+    groups.dataQuality = [
       <DataQuality
         key="dq"
         radarRecord={data?.radarRecord}
         groups={statusGroups}
         appendixByParamId={appendixByParamId}
-      />
-    );
+      />,
+    ];
 
-    out.push(
+    groups.systemPerformance = [
       <SystemPerformance
         key="sysperf"
         availability={data?.availability}
         alarmCauses={data?.alarms?.causes ?? []}
         alarmFolders={data?.alarms?.byFolder ?? []}
-      />
-    );
+      />,
+    ];
 
-    // Alarm improvements sit directly under System Performance: that section
-    // reports what the alarms did, this one what was asked of the site about
-    // them. Only when something was raised or resolved inside the window — a
-    // period with no exchange gets no section at all.
-    improvementChunks.forEach((chunk, i) => {
-      out.push(
-        <AlarmImprovements
-          key={`alarm-improvements-${i}`}
-          rows={chunk}
-          summary={data?.alarmImprovements?.summary}
-          withHeader={i === 0}
-          withLegend={i === improvementChunks.length - 1}
-        />
-      );
-    });
+    // Alarm improvements sit directly under System Performance BY DEFAULT: that
+    // section reports what the alarms did, this one what was asked of the site
+    // about them. Only when something was raised or resolved inside the window
+    // — a period with no exchange gets no section at all.
+    groups.alarmImprovements = improvementChunks.map((chunk, i) => (
+      <AlarmImprovements
+        key={`alarm-improvements-${i}`}
+        rows={chunk}
+        summary={data?.alarmImprovements?.summary}
+        withHeader={i === 0}
+        withLegend={i === improvementChunks.length - 1}
+      />
+    ));
 
     // Only when the TARP actually changed inside the window — an unchanged plan
     // gets no section at all (the block also guards this).
-    if ((data?.tarp?.updates?.length ?? 0) > 0) {
-      out.push(<ProceduralUpdates key="tarp-updates" tarp={data.tarp} />);
-    }
+    groups.tarpUpdates =
+      (data?.tarp?.updates?.length ?? 0) > 0
+        ? [<ProceduralUpdates key="tarp-updates" tarp={data.tarp} />]
+        : [];
 
-    out.push(<Glossary key="glossary" radarNumber={sensor?.radar_number} />);
+    groups.glossary = [<Glossary key="glossary" radarNumber={sensor?.radar_number} />];
 
     // One block per appendix item — the paginator places them, so there is no
     // fixed items-per-page constant to drift out of sync with the export loop.
-    appendixItems.forEach((item, i) => {
-      out.push(
-        <AppendixItem
-          key={`appendix-${item.letter}`}
-          item={figureOffset ? { ...item, figure: item.figure + figureOffset } : item}
-          onImageLoad={bumpMeasure}
-          withHeader={i === 0}
-        />
-      );
-    });
+    groups.appendix = appendixItems.map((item, i) => (
+      <AppendixItem
+        key={`appendix-${item.letter}`}
+        item={figureOffset ? { ...item, figure: item.figure + figureOffset } : item}
+        onImageLoad={bumpMeasure}
+        withHeader={i === 0}
+      />
+    ));
 
-    out.push(<Disclaimer key="disclaimer" />);
-    return out;
+    groups.disclaimer = [<Disclaimer key="disclaimer" />];
+
+    return composeLayoutBlocks({
+      entries: layoutEntries,
+      groups,
+      values: customValues,
+      onImageLoad: bumpMeasure,
+    });
   };
 
   // Two passes: whether the timeline can continue the figure's frame depends on
   // where the paginator put it, and the paginator needs blocks to measure first.
   // The measured pass is unjoined — the join only removes a 1px border, so it
   // cannot shift the packing that decides it (no feedback loop).
-  const measureBlocks = buildBlocks(false, false);
+  const measureBlocks = buildBlocks(false, new Set());
   const effectivePages = resolvePages(pages, measureBlocks);
-  const timelineJoinsImage = blocksAreAdjacent(effectivePages, measureBlocks, 'def-img', 'def-timeline');
-  const displayBlocks = buildBlocks(!exportMode, timelineJoinsImage);
+
+  // Slice 0 joins the deformation figure above it; every later slice joins the
+  // slice it continues.
+  const timelineJoins = new Set(
+    timelineBlocks
+      .map((_, i) => i)
+      .filter((i) =>
+        blocksAreAdjacent(
+          effectivePages,
+          measureBlocks,
+          i === 0 ? 'def-img' : timelineKey(i - 1),
+          timelineKey(i)
+        )
+      )
+  );
+
+  const displayBlocks = buildBlocks(!exportMode, timelineJoins);
 
   return (
     <>

@@ -10,10 +10,17 @@
  * and the analysis section carries however many figures and graphs the analyst
  * attached, so no fixed page layout can hold it.
  *
- * Block order:
+ * Block order (the DEFAULT — see below):
  *   Header + cards → Summary → Scan-area figure → Movement table → Legend →
  *   Analysis figure[+ its graphs]… → Glossary intro → Glossary group[] →
  *   Appendix[]
+ *
+ * That order is no longer written into the block array. Blocks are built into a
+ * KEYED BAG — one key per section, matching config/reportSections.ts — and the
+ * site's saved layout decides which of them print and in what order, and where
+ * its own custom tables, paragraphs and image slots sit among them
+ * (composeLayoutBlocks). A site with no saved layout gets exactly the order
+ * above, which is the report this template has always produced.
  *
  * Two things about this report are unlike the other two:
  *
@@ -53,6 +60,9 @@ import {
   DailyFooter,
 } from '@/components/admin/Radar/report/blocks/DailyGlossary';
 import { DailyAppendixItem } from '@/components/admin/Radar/report/blocks/DailyAppendix';
+import { composeLayoutBlocks } from '@/components/admin/Radar/report/layoutBlocks';
+import { TABULATION_SECTIONS } from '@/config/reportSections';
+import { defaultLayout, layoutSignature } from '@/utils/reportLayout';
 
 import {
   dailyStrings,
@@ -127,6 +137,14 @@ const GRAPH_MAX_H = 250;
  * @param {object[]} appendixItems  Pre-resolved appendix items (see
  *   resolveAppendixImages). REQUIRED on the export path — without it the figures
  *   resolve after the capture and the PDF loses pages.
+ * @param {object[]} layout   The site's normalized layout entries
+ *   (utils/reportLayout). Omitted falls back to the default order, which is the
+ *   report this template produced before layouts existed.
+ * @param {object} layoutValues  This report's content for the layout's custom
+ *   sections, keyed by section id. Owned by the caller for the same reason as
+ *   `manual`: the export mounts a second copy of this template, and state held
+ *   here would start empty in it — the custom sections would print blank in the
+ *   PDF while looking correct on screen.
  */
 export function DailyRadarTemplate({
   data,
@@ -144,7 +162,14 @@ export function DailyRadarTemplate({
   onManualChange,
   generator,
   appendixItems: preResolvedAppendix,
+  layout,
+  layoutValues,
 }) {
+  const layoutEntries = useMemo(
+    () => (Array.isArray(layout) && layout.length > 0 ? layout : defaultLayout(TABULATION_SECTIONS)),
+    [layout]
+  );
+  const customValues = useMemo(() => layoutValues ?? {}, [layoutValues]);
   const strings = useMemo(() => dailyStrings(locale), [locale]);
   const glossary = useMemo(() => dailyGlossaryGroups(locale), [locale]);
 
@@ -248,6 +273,11 @@ export function DailyRadarTemplate({
       // after the first render (useAppendixImages), and a block that measured
       // at heading-height with no image would leave the pages packed short.
       appendixItems,
+      // A string, not the entries and values themselves: both are new objects on
+      // every keystroke in the layout editor, so passing them would re-measure
+      // the whole report on each one — and passing neither would leave the page
+      // breaks describing a table that has since grown a row.
+      layoutSignature(layoutEntries, customValues),
     ],
     { usableHeight: DAILY_USABLE_H }
   );
@@ -275,7 +305,17 @@ export function DailyRadarTemplate({
    * place.
    */
   const buildBlocks = (interactive, joins) => {
-    const out = [
+    /**
+     * One key per section in the catalogue, each holding EVERY block that
+     * section produces today — three movement slices, eleven glossary groups.
+     * A section whose data is empty contributes an empty array and therefore no
+     * blocks, exactly as it did when this was a push-sequence: a day with no
+     * appendix has never printed a heading over nothing, and switching the
+     * section on in a layout must not change that.
+     */
+    const groups = {};
+
+    groups.header = [
       <DailyHeader
         key="header"
         title={strings.reportTitle}
@@ -290,6 +330,9 @@ export function DailyRadarTemplate({
         dataUpdateValue={manual?.dataUpdate}
         onDataUpdateChange={(v) => onManualChange?.('dataUpdate', v)}
       />,
+    ];
+
+    groups.summary = [
       <DailySummary
         key="summary"
         strings={strings}
@@ -304,36 +347,39 @@ export function DailyRadarTemplate({
       />,
     ];
 
-    if (hasScanImage) {
-      out.push(
-        <DailyScanArea
-          key="scan"
-          strings={strings}
-          annotation={annotation}
-          interactive={interactive}
-          imageRef={imageRef}
-          onImageLoad={bumpMeasure}
-          maxHeight={SCAN_IMAGE_MAX_H}
-        />
-      );
-    }
+    groups.scan = hasScanImage
+      ? [
+          <DailyScanArea
+            key="scan"
+            strings={strings}
+            annotation={annotation}
+            interactive={interactive}
+            // The same decision in BOTH passes — see DailyScanArea. Keyed off
+            // `interactive`, the hidden measurement copy drew nothing where the
+            // visible one draws a drop zone, and the page was packed that much
+            // too full: the block after it printed under the footer.
+            placeholder={hasScanImage}
+            imageRef={imageRef}
+            onImageLoad={bumpMeasure}
+            maxHeight={SCAN_IMAGE_MAX_H}
+          />,
+        ]
+      : [];
 
     // One block per slice of the table. Only the first carries the section bar;
     // a continuation repeats the column headers (every block renders a complete
     // table) but not the heading, which would read as a second table.
-    movementBlocks.forEach((blockSplit, i) => {
-      out.push(
-        <DailyMovementTable
-          key={movementKey(i)}
-          strings={strings}
-          split={blockSplit}
-          withHeader={i === 0}
-          joinPrev={joins.movement.has(i)}
-        />
-      );
-    });
+    groups.movement = movementBlocks.map((blockSplit, i) => (
+      <DailyMovementTable
+        key={movementKey(i)}
+        strings={strings}
+        split={blockSplit}
+        withHeader={i === 0}
+        joinPrev={joins.movement.has(i)}
+      />
+    ));
 
-    out.push(
+    groups.legend = [
       <DailyLegend
         key="legend"
         strings={strings}
@@ -341,24 +387,28 @@ export function DailyRadarTemplate({
         currentQuality={normaliseQualityTier(data?.quality?.label)}
         currentRisk={data?.riskPresentation?.label ?? null}
         qualityNote={data?.quality?.note}
-      />
-    );
+      />,
+    ];
 
     // One block per analysis image and one per graph. Grouping an image with its
     // graphs would produce a block taller than a page as soon as an area carries
     // three curves, and the paginator never splits a block.
+    groups.analysis = [];
     analysisFigures.forEach((figure, i) => {
       if (!includeFigure(i)) return;
       const name = figure.name || strings.analysisAreaFallback(i + 1);
       const api = figureApis[i];
 
-      out.push(
+      groups.analysis.push(
         <DailyAnalysisImage
           key={`analysis-${figure.id}`}
           strings={strings}
           api={api}
           areaName={name}
           interactive={interactive}
+          // Same decision in both passes; `includeFigure` is already computed
+          // outside buildBlocks for exactly this reason.
+          placeholder={includeFigure(i)}
           imageRef={figureRefs?.[i]}
           onImageLoad={bumpMeasure}
           withHeader={i === 0}
@@ -367,7 +417,7 @@ export function DailyRadarTemplate({
       );
 
       figure.graphs.forEach((graph) => {
-        out.push(
+        groups.analysis.push(
           <DailyAnalysisGraph
             key={`graph-${graph.id}`}
             strings={strings}
@@ -381,27 +431,32 @@ export function DailyRadarTemplate({
       });
     });
 
-    out.push(<DailyGlossaryIntro key="glossary-intro" strings={strings} />);
-    glossary.forEach((group) => {
-      out.push(<DailyGlossaryGroup key={`glossary-${group.letter}`} strings={strings} group={group} />);
-    });
+    groups.glossary = [
+      <DailyGlossaryIntro key="glossary-intro" strings={strings} />,
+      ...glossary.map((group) => (
+        <DailyGlossaryGroup key={`glossary-${group.letter}`} strings={strings} group={group} />
+      )),
+    ];
 
     // One block per appendix entry — the paginator places them, exactly as in
     // the Comprehensive report, so there is no items-per-page constant here to
     // drift out of sync with anything.
-    appendixItems.forEach((item, i) => {
-      out.push(
-        <DailyAppendixItem
-          key={`appendix-${item.letter}`}
-          strings={strings}
-          item={item}
-          onImageLoad={bumpMeasure}
-          withHeader={i === 0}
-        />
-      );
-    });
+    groups.appendix = appendixItems.map((item, i) => (
+      <DailyAppendixItem
+        key={`appendix-${item.letter}`}
+        strings={strings}
+        item={item}
+        onImageLoad={bumpMeasure}
+        withHeader={i === 0}
+      />
+    ));
 
-    return out;
+    return composeLayoutBlocks({
+      entries: layoutEntries,
+      groups,
+      values: customValues,
+      onImageLoad: bumpMeasure,
+    });
   };
 
   // Two passes: whether a block can continue the frame above it depends on where
@@ -456,10 +511,10 @@ export function DailyRadarTemplate({
       {/* The preview centres the sheets in the modal; the export container is
           already exactly one page wide, so the wrapper would only add margin. */}
       {exportMode ? (
-        <ReportPages blocks={displayBlocks} pages={effectivePages} renderFooter={renderFooter} />
+        <ReportPages blocks={displayBlocks} pages={effectivePages} renderFooter={renderFooter} usableHeight={DAILY_USABLE_H} />
       ) : (
         <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <ReportPages blocks={displayBlocks} pages={effectivePages} renderFooter={renderFooter} />
+          <ReportPages blocks={displayBlocks} pages={effectivePages} renderFooter={renderFooter} usableHeight={DAILY_USABLE_H} />
         </div>
       )}
 

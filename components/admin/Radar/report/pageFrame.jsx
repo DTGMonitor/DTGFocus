@@ -17,7 +17,43 @@
  *      capture each page, and by the print stylesheet to force page breaks.
  */
 
-import { PAGE_W, PAGE_H, PAD_X, PAD_TOP, BLOCK_GAP, INK, MUTED, LINE, DARK } from './constants';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+
+import { PAGE_W, PAGE_H, PAD_X, PAD_TOP, BLOCK_GAP, USABLE_H, INK, MUTED, LINE, DARK } from './constants';
+
+// SSR-safe layout effect, as in useReportPagination.
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
+/**
+ * Shout, in dev, when a page renders more than it can show.
+ *
+ * The sheet is `overflow: hidden`, so anything past the fold is not merely ugly
+ * — it is content MISSING from the preview and from the PDF, with nothing on the
+ * page to say so. The paginator cannot catch this on its own: it measures a
+ * SECOND, hidden copy of the blocks, and every bug in this family is the two
+ * copies disagreeing. (The one that prompted this: an empty figure drew a ~190px
+ * drop zone in the visible copy and nothing at all in the measured one, so every
+ * page was packed that much too full.)
+ *
+ * So the check is made against what is actually on the sheet. It runs on the
+ * packed page — the only moment the answer can change — and costs one rect read
+ * per page in development.
+ */
+function useOverflowWarning(ref, { usableHeight, pageNum, idxsKey }) {
+  useIsoLayoutEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    const height = ref.current?.getBoundingClientRect().height ?? 0;
+    // jsdom and the detached export container both measure 0; only a real,
+    // laid-out page can trip this.
+    if (height > usableHeight + 1) {
+      console.warn(
+        `[report] page ${pageNum} renders ${Math.round(height)}px of blocks into ${Math.round(usableHeight)}px ` +
+          'of page — the tail is being clipped. The measured pass and the displayed pass disagree about a ' +
+          'block\'s height (geometry must not depend on `interactive`), or a single block is taller than a page.'
+      );
+    }
+  }, [ref, usableHeight, pageNum, idxsKey]);
+}
 
 /**
  * Dark uppercase band that introduces a section.
@@ -103,7 +139,10 @@ export function FooterLogo() {
  * how much taller it is, via useReportPagination's `usableHeight`, or the
  * blocks will be packed into space the footer covers.
  */
-export function PageSheet({ blocks, idxs, pageNum, total, renderFooter }) {
+export function PageSheet({ blocks, idxs, pageNum, total, renderFooter, usableHeight = USABLE_H }) {
+  const contentRef = useRef(null);
+  useOverflowWarning(contentRef, { usableHeight, pageNum, idxsKey: idxs.join(',') });
+
   return (
     <div
       className="pbr-page"
@@ -122,7 +161,7 @@ export function PageSheet({ blocks, idxs, pageNum, total, renderFooter }) {
         overflow: 'hidden',
       }}
     >
-      <div>
+      <div ref={contentRef}>
         {idxs.map((bi, j) => {
           const nextJoins = j < idxs.length - 1 && blocks[idxs[j + 1]]?.props?.joinPrev;
           return (
@@ -170,8 +209,15 @@ export function PageSheet({ blocks, idxs, pageNum, total, renderFooter }) {
   );
 }
 
-/** The stacked A4 page sheets for the on-screen preview. */
-export function ReportPages({ blocks, pages, renderFooter }) {
+/**
+ * The stacked A4 page sheets for the on-screen preview.
+ *
+ * `usableHeight` is only used by the dev-time overflow check, and must be the
+ * SAME number the report gave its paginator — a report with a taller footer (the
+ * daily one) passes its own, or the check would measure against space that
+ * report never had.
+ */
+export function ReportPages({ blocks, pages, renderFooter, usableHeight = USABLE_H }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
       {pages.map((idxs, pageIdx) => (
@@ -182,6 +228,7 @@ export function ReportPages({ blocks, pages, renderFooter }) {
           pageNum={pageIdx + 1}
           total={pages.length}
           renderFooter={renderFooter}
+          usableHeight={usableHeight}
         />
       ))}
     </div>

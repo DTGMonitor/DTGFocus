@@ -191,67 +191,45 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, r
 }
 
 /**
- * One chain of events, captioned when the report carries more than one.
+ * The caption that names a chain — which event it is, and where.
  *
- * Without the caption two chains are just two runs of cards with a gap between
- * them — indistinguishable from one chain whose spacing happened to widen.
+ * Without it two chains are just two runs of cards with a gap between them —
+ * indistinguishable from one chain whose spacing happened to widen. It rides on
+ * the FIRST chunk of a chain only: a chain split across a page break repeats no
+ * caption, the same way a continued table repeats no section bar.
  */
-function TimelineChain({ timeline, index, count, crosscheckers, now, recentMs, riskMode }) {
-  const nodes = timeline?.trimmed ?? [];
-  if (nodes.length === 0) return null;
-  const current = nodes[nodes.length - 1];
-
+function ChainCaption({ index, count, location }) {
   return (
-    <div style={{ marginBottom: index < count - 1 ? 10 : 0 }}>
-      {count > 1 ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span
-            style={{
-              fontSize: 8,
-              fontWeight: 800,
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-              color: '#fff',
-              background: MUTED,
-              padding: '1px 6px',
-              borderRadius: 2,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Event {index + 1} of {count}
-          </span>
-          <span
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              color: MUTED,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {current?.location ?? '—'}
-          </span>
-          <span style={{ flex: 1, height: 1, background: LINE }} />
-        </div>
-      ) : null}
-
-      {nodes.map((node, i) => {
-        const last = i === nodes.length - 1;
-        return (
-          <TimelineNode
-            key={node.id ?? i}
-            node={node}
-            isCurrent={last}
-            isRoot={i === 0 && timeline.headIsTrueRoot && nodes.length > 1}
-            isLast={last}
-            muted={!last && !isRecent(node, now, recentMs)}
-            crosscheckers={crosscheckers}
-            riskMode={riskMode}
-          />
-        );
-      })}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+      <span
+        style={{
+          fontSize: 8,
+          fontWeight: 800,
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase',
+          color: '#fff',
+          background: MUTED,
+          padding: '1px 6px',
+          borderRadius: 2,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Event {index + 1} of {count}
+      </span>
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 600,
+          color: MUTED,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {location ?? '—'}
+      </span>
+      <span style={{ flex: 1, height: 1, background: LINE }} />
     </div>
   );
 }
@@ -266,66 +244,168 @@ const fmtDay = (iso) => {
 };
 
 /**
- * One wall folder's chains, under a labelled header.
+ * The label that introduces one wall folder's chains.
  *
  * Rendered only when the report spans more than one folder (a wall-folder change
  * within the window). Because different folders can scan different locations, the
  * header keeps each folder's events attributed to it rather than fused with the
  * current folder's — the current folder is badged Current, a retired one Archived
  * with the day it was decommissioned.
+ *
+ * Like the chain caption, it rides on the FIRST chunk of the folder's run.
  */
-function FolderTimelineSection({ group, crosscheckers, now, recentMs, isLastGroup, riskMode }) {
-  const { folder, isArchived, timelines } = group;
+function FolderHeader({ group }) {
+  const { folder, isArchived } = group;
   const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at) : null;
 
   return (
-    <div style={{ marginBottom: isLastGroup ? 0 : 12 }}>
-      <div
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 6,
+        paddingBottom: 3,
+        borderBottom: `1px solid ${LINE}`,
+      }}
+    >
+      <span
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          marginBottom: 6,
-          paddingBottom: 3,
-          borderBottom: `1px solid ${LINE}`,
+          fontSize: 9,
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: INK,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
         }}
       >
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            color: INK,
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {folderDisplayLabel(folder)}
-        </span>
-        <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
-          {isArchived ? (
-            <Badge text={archivedDay ? `Archived ${archivedDay}` : 'Archived'} color={MUTED} bg="#fff" border={LINE} />
-          ) : (
-            <Badge text="Current folder" color={MUTED} bg="#fff" border={LINE} />
-          )}
-        </span>
-      </div>
+        {folderDisplayLabel(folder)}
+      </span>
+      <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
+        {isArchived ? (
+          <Badge text={archivedDay ? `Archived ${archivedDay}` : 'Archived'} color={MUTED} bg="#fff" border={LINE} />
+        ) : (
+          <Badge text="Current folder" color={MUTED} bg="#fff" border={LINE} />
+        )}
+      </span>
+    </div>
+  );
+}
 
-      {timelines.map((t, ti) => (
-        <TimelineChain
-          key={t.folder?.id != null ? `${t.folder.id}-${ti}` : ti}
-          timeline={t}
-          index={ti}
-          count={timelines.length}
-          crosscheckers={crosscheckers}
-          now={now}
-          recentMs={recentMs}
-          riskMode={riskMode}
-        />
-      ))}
+/**
+ * Cards one block may carry before the chain it draws is split across blocks.
+ *
+ * A card runs ~70px at its tallest (four metadata lines plus the evidence row),
+ * so eight of them plus a caption stay well inside the ~990px a page has left
+ * once the footer is reserved. The paginator never splits a block, so this is
+ * the only thing standing between a long chain and a card printed under the
+ * footer — see useReportPagination.
+ */
+export const NODES_PER_TIMELINE_BLOCK = 8;
+
+/**
+ * Flatten the report's chains into block-sized chunks the paginator can place.
+ *
+ * The section used to be ONE block holding every chain, which the paginator
+ * could only give a page to and let overflow: a radar with three active events
+ * printed its last card half under the footer and lost the rest. Each chunk is
+ * now its own block, so page breaks fall BETWEEN cards.
+ *
+ * Chunks are cut at chain boundaries first — a chain is the unit a reader
+ * follows — and only a chain longer than `nodesPerBlock` is split inside itself.
+ * Folder grouping is decided ONCE here, over every chain in the report, because
+ * a per-block decision would see one chain and drop the folder labels the moment
+ * the section was split.
+ *
+ * @param {Array<{trimmed: object[], headIsTrueRoot: boolean, folder?: object}>} timelines
+ * @param {{nodesPerBlock?: number}} options
+ * @returns {object[]} Chunk descriptors, in print order. Empty when the report
+ *   has no active chains — the caller renders its own empty state.
+ */
+export function buildTimelineChunks(timelines = [], { nodesPerBlock = NODES_PER_TIMELINE_BLOCK } = {}) {
+  const visible = (timelines ?? []).filter((t) => (t?.trimmed?.length ?? 0) > 0);
+  if (visible.length === 0) return [];
+
+  // Group by folder only when the report actually spans more than one — a radar
+  // that never changed folders renders exactly as before (a flat run of chains).
+  const distinctFolders = new Set(visible.map((t) => t.folder?.id ?? '—')).size;
+  const sections =
+    distinctFolders > 1
+      ? groupTimelinesByFolder(visible, null).map((g) => ({ header: g, key: g.folderId, timelines: g.timelines }))
+      : [{ header: null, key: 'flat', timelines: visible }];
+
+  const size = Number.isFinite(nodesPerBlock) && nodesPerBlock > 0 ? nodesPerBlock : NODES_PER_TIMELINE_BLOCK;
+  const chunks = [];
+
+  sections.forEach((section, si) => {
+    const lastSection = si === sections.length - 1;
+    section.timelines.forEach((timeline, ti) => {
+      const nodes = timeline.trimmed ?? [];
+      const lastChain = ti === section.timelines.length - 1;
+
+      for (let start = 0; start < nodes.length; start += size) {
+        const slice = nodes.slice(start, start + size);
+        const tail = start + slice.length >= nodes.length;
+        chunks.push({
+          key: `${section.key}-${ti}-${start}`,
+          // Header and caption belong to the run, not to every slice of it.
+          folder: ti === 0 && start === 0 ? section.header : null,
+          caption: start === 0,
+          index: ti,
+          count: section.timelines.length,
+          timeline,
+          nodes: slice,
+          offset: start,
+          chainLength: nodes.length,
+          tail,
+          // Only consulted when several chunks share one box (the unpaginated
+          // path). Chunks rendered as separate blocks are spaced by the page
+          // frame instead — see PageSheet's BLOCK_GAP.
+          gapAfter: !tail ? 0 : lastChain ? (lastSection ? 0 : 12) : 10,
+        });
+      }
+    });
+  });
+
+  return chunks;
+}
+
+/**
+ * One chunk: its folder header and chain caption if it opens a run, then the
+ * slice of cards it carries.
+ */
+function TimelineChunkView({ chunk, gap = 0, crosscheckers, now, recentMs, riskMode }) {
+  const { folder, caption, index, count, timeline, nodes, offset, chainLength, tail } = chunk;
+  const current = (timeline?.trimmed ?? [])[chainLength - 1];
+
+  return (
+    <div style={{ marginBottom: gap }}>
+      {folder ? <FolderHeader group={folder} /> : null}
+      {caption && count > 1 ? (
+        <ChainCaption index={index} count={count} location={current?.location} />
+      ) : null}
+
+      {nodes.map((node, i) => {
+        // Only the chain's real tail is Current — a chunk that ends mid-chain
+        // ends on an ordinary card, and its rail keeps running so the reader can
+        // see the movement continues over the page break.
+        const isTail = tail && i === nodes.length - 1;
+        return (
+          <TimelineNode
+            key={node.id ?? `${offset + i}`}
+            node={node}
+            isCurrent={isTail}
+            isRoot={offset === 0 && i === 0 && timeline?.headIsTrueRoot && chainLength > 1}
+            isLast={isTail}
+            muted={!isTail && !isRecent(node, now, recentMs)}
+            crosscheckers={crosscheckers}
+            riskMode={riskMode}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -343,16 +423,30 @@ function FolderTimelineSection({ group, crosscheckers, now, recentMs, isLastGrou
  * ComprehensiveRadarTemplate's `figureOffset`. The caption only renders once an
  * image is actually present: an empty drop zone is not a figure, and numbering
  * it would leave the export (which drops the empty block) one ahead.
+ *
+ * WHETHER THE EMPTY BOX IS DRAWN IS `placeholder`, NOT `interactive`.
+ *
+ * The two used to be the same test, and that silently trimmed the report. Every
+ * template is mounted twice — once for the analyst and once, non-interactively,
+ * into the hidden layer that MEASURES the page breaks. With no image uploaded,
+ * the measured copy rendered nothing at all while the visible copy rendered a
+ * ~190px drop zone, so the paginator packed each page ~190px too full and the
+ * last block on it printed under the footer. Geometry may never depend on
+ * `interactive`; the caller passes the SAME `placeholder` to both passes (see
+ * ComprehensiveRadarTemplate's `hasImageBlock`).
  */
 export function DeformationImage({
   annotation,
   interactive = false,
+  // Defaulted to `interactive` only so a caller that predates the split behaves
+  // as it did. Every caller inside these reports passes it explicitly.
+  placeholder = interactive,
   imageRef,
   onImageLoad,
   figure = 1,
   caption = 'Deformation overview.',
 }) {
-  if (!annotation?.image && !interactive) return null;
+  if (!annotation?.image && !placeholder) return null;
   return (
     <div>
       <SectionBar title="Deformation / Event" />
@@ -384,9 +478,20 @@ export function DeformationImage({
 
 /**
  * @param {{chain: object[], trimmed: object[], headIsTrueRoot: boolean}[]} timelines
+ *   Every chain in the report. Ignored when `chunk` is given.
+ * @param {object|null} chunk   ONE chunk from buildTimelineChunks — the block
+ *   form. A section long enough to outrun a page arrives as several blocks, each
+ *   drawing its own slice, because the paginator clips a block it cannot fit
+ *   rather than splitting it. Omitted renders every chain in one box, which is
+ *   what this block did before it learned to split.
  * @param {object[]} crosscheckers
- * @param {string|null} error   Partial-resolution notice.
+ * @param {string|null} error   Partial-resolution notice. Print it on the FIRST
+ *   chunk only; repeating it once per block would read as several failures.
  * @param {boolean} withHeader  Render the section bar (false when the image block already did).
+ * @param {boolean} joinNext    The NEXT block continues this one on the same
+ *   page: drop the bottom border so the two read as one frame. Like `joinPrev`
+ *   this is only knowable after pagination, so the caller resolves it from the
+ *   packed pages — see ComprehensiveRadarTemplate.
  * @param {boolean} joinPrev    This block sits directly under the image block on the
  *   same page: drop the top border so the two boxes read as one framed section
  *   rather than two stacked ones with a seam between them. The page frame closes
@@ -406,21 +511,17 @@ export function DeformationImage({
  */
 export function DeformationTimeline({
   timelines = [],
+  chunk = null,
   crosscheckers = [],
   error = null,
   withHeader = false,
   joinPrev = false,
+  joinNext = false,
   now = null,
   recentMs = DAY_MS,
   riskMode = 'tarp',
 }) {
-  const visible = timelines.filter((t) => (t.trimmed?.length ?? 0) > 0);
-
-  // Group by folder only when the report actually spans more than one — a radar
-  // that never changed folders renders exactly as before (a flat run of chains).
-  const distinctFolders = new Set(visible.map((t) => t.folder?.id ?? '—')).size;
-  const grouped = distinctFolders > 1;
-  const folderGroups = grouped ? groupTimelinesByFolder(visible, null) : [];
+  const chunks = chunk ? [chunk] : buildTimelineChunks(timelines);
 
   return (
     <div>
@@ -432,7 +533,10 @@ export function DeformationTimeline({
         style={{
           borderLeft: `1px solid ${LINE}`,
           borderRight: `1px solid ${LINE}`,
-          borderBottom: `1px solid ${LINE}`,
+          // The block below continues this one on the same page: closing the
+          // edge would rule a line between two chains that the section never
+          // drew when it was a single box.
+          borderBottom: joinNext ? 'none' : `1px solid ${LINE}`,
           // The section bar or the figure above already closes this edge.
           borderTop: withHeader || joinPrev ? 'none' : `1px solid ${LINE}`,
           padding: '8px 10px',
@@ -444,29 +548,18 @@ export function DeformationTimeline({
           </div>
         ) : null}
 
-        {visible.length === 0 ? (
+        {chunks.length === 0 ? (
           <div style={{ fontSize: 10, color: MUTED, padding: '6px 0' }}>
             No active deformation events for this period.
           </div>
-        ) : grouped ? (
-          folderGroups.map((g, gi) => (
-            <FolderTimelineSection
-              key={g.folderId}
-              group={g}
-              crosscheckers={crosscheckers}
-              now={now}
-              recentMs={recentMs}
-              isLastGroup={gi === folderGroups.length - 1}
-              riskMode={riskMode}
-            />
-          ))
         ) : (
-          visible.map((t, ti) => (
-            <TimelineChain
-              key={ti}
-              timeline={t}
-              index={ti}
-              count={visible.length}
+          chunks.map((c, ci) => (
+            <TimelineChunkView
+              key={c.key}
+              chunk={c}
+              // Spacing between chunks that share this box. The last one adds
+              // none: a block is spaced from the next by the page frame.
+              gap={ci < chunks.length - 1 ? c.gapAfter : 0}
               crosscheckers={crosscheckers}
               now={now}
               recentMs={recentMs}

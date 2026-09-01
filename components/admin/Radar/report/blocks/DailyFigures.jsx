@@ -43,11 +43,16 @@ export function DailyScanArea({
   strings,
   annotation,
   interactive = false,
+  // See DeformationImage: whether the empty box is DRAWN is a question about
+  // geometry, and geometry may not depend on `interactive` — the hidden
+  // measurement pass is non-interactive and has to measure what the analyst is
+  // looking at. The caller passes the same value to both passes (`hasScanImage`).
+  placeholder = interactive,
   imageRef,
   onImageLoad,
   maxHeight = IMAGE_MAX_H,
 }) {
-  if (!annotation?.image && !interactive) return null;
+  if (!annotation?.image && !placeholder) return null;
 
   return (
     <div>
@@ -90,12 +95,15 @@ export function DailyAnalysisImage({
   api,
   areaName,
   interactive = false,
+  // As DailyScanArea. The caller passes its `includeFigure(i)` decision, which
+  // is already computed outside buildBlocks precisely so the two passes agree.
+  placeholder = interactive,
   imageRef,
   onImageLoad,
   withHeader = false,
   maxHeight = IMAGE_MAX_H,
 }) {
-  if (!api?.image && !interactive) return null;
+  if (!api?.image && !placeholder) return null;
 
   return (
     <div>

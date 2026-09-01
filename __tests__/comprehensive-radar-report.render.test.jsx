@@ -11,7 +11,10 @@ import { StrictMode, useState } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 import { ComprehensiveRadarTemplate } from '@/components/admin/Reports/ComprehensiveRadarTemplate';
-import { DeformationTimeline } from '@/components/admin/Radar/report/blocks/DeformationTimeline';
+import {
+  DeformationTimeline,
+  buildTimelineChunks,
+} from '@/components/admin/Radar/report/blocks/DeformationTimeline';
 import { AnnotatedImage } from '@/components/admin/Radar/report/AnnotatedImage';
 import {
   useImageAnnotation,
@@ -135,6 +138,26 @@ describe('ComprehensiveRadarTemplate', () => {
     // reportInfo must actually reach the page — RadarTemplate silently drops it.
     expect(screen.getAllByText('Max Lepper').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Edition:').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The bug this guards: the deformation figure's empty drop zone rendered on
+   * the SHEET but not into the hidden measurement layer, because both were
+   * keyed off `interactive`. The paginator therefore packed every page ~190px
+   * too full and the last block on it printed under the footer, clipped.
+   *
+   * jsdom performs no layout, so the heights cannot be compared — but the two
+   * copies existing is the invariant that was broken, and it is checkable.
+   */
+  it('measures the empty figure it displays, so pages are not packed too full', async () => {
+    renderReport(buildData(), { annotation: stubAnnotation() });
+    // One on the page sheet, one in the measurement layer. Never one.
+    expect((await screen.findAllByText(/Drag, drop or paste/i))).toHaveLength(2);
+  });
+
+  it('drops the empty figure from the export, where there is nothing to drop one into', () => {
+    renderReport(buildData(), { annotation: stubAnnotation(), exportMode: true });
+    expect(screen.queryByText(/Drag, drop or paste/i)).not.toBeInTheDocument();
   });
 
   it('renders the footer branding and page number on the sheet', async () => {
@@ -679,8 +702,8 @@ describe('DeformationTimeline', () => {
         now={NOW}
       />
     );
-    expect(screen.getByText('Chain 1 of 2')).toBeInTheDocument();
-    expect(screen.getByText('Chain 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Event 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Event 2 of 2')).toBeInTheDocument();
   });
 
   it('labels each wall folder and marks the archived one when the report spans more than one', () => {
@@ -716,12 +739,12 @@ describe('DeformationTimeline', () => {
 
   it('does not caption a lone chain', () => {
     render(<DeformationTimeline timelines={[chain([node()])]} now={NOW} />);
-    expect(screen.queryByText(/^Chain \d+ of/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Event \d+ of/)).not.toBeInTheDocument();
   });
 
   it('ignores empty chains rather than counting them', () => {
     render(<DeformationTimeline timelines={[chain([node()]), chain([])]} now={NOW} />);
-    expect(screen.queryByText(/^Chain \d+ of/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Event \d+ of/)).not.toBeInTheDocument();
   });
 
   it('mutes an event that is neither current nor from the last 24h', () => {
@@ -784,5 +807,106 @@ describe('DeformationTimeline', () => {
     expect(box(false)).toMatch(/border-top:\s*1px solid/);
     // The other three edges stay closed either way.
     expect(box(true)).toMatch(/border-bottom:\s*1px solid/);
+  });
+
+  it('drops the bottom border only when the block below continues it', () => {
+    const box = (joinNext) => {
+      const { container, unmount } = render(
+        <DeformationTimeline timelines={[chain([node()])]} joinNext={joinNext} now={NOW} />
+      );
+      const style = container.firstChild.firstChild.getAttribute('style');
+      unmount();
+      return style;
+    };
+    // A continued frame must not rule a line between two chains; a frame that
+    // ends — at a page break or at the section's end — has to close.
+    expect(box(true)).not.toMatch(/border-bottom:\s*\d/);
+    expect(box(false)).toMatch(/border-bottom:\s*1px solid/);
+  });
+});
+
+/**
+ * The paginator clips a block it cannot fit rather than splitting it, so a
+ * section that can outgrow a page has to arrive as several blocks. These pin the
+ * cut points — jsdom cannot measure, so what is verified is that the chunks
+ * carry every card exactly once and that headers ride only on the block that
+ * opens a run.
+ */
+describe('buildTimelineChunks', () => {
+  const NOW = new Date('2026-07-17T12:00:00Z').getTime();
+  const HOUR = 60 * 60 * 1000;
+  const node = (id) => ({
+    id,
+    def_type: 'Linear',
+    tarp_level: 'TARP 2',
+    location: 'WEST DOME',
+    created_at: new Date(NOW - HOUR).toISOString(),
+    detected_by: 'uuid-1',
+  });
+  const chainOf = (n, from = 0) => {
+    const nodes = Array.from({ length: n }, (_, i) => node(`n${from + i}`));
+    return { chain: nodes, trimmed: nodes, headIsTrueRoot: true };
+  };
+
+  it('gives every chain its own block so a page break can fall between them', () => {
+    const chunks = buildTimelineChunks([chainOf(2), chainOf(3, 10), chainOf(1, 20)]);
+    expect(chunks).toHaveLength(3);
+    expect(chunks.map((c) => c.nodes.length)).toEqual([2, 3, 1]);
+    // Each opens its own run, and each caption counts across the whole report.
+    expect(chunks.every((c) => c.caption)).toBe(true);
+    expect(chunks.map((c) => c.index)).toEqual([0, 1, 2]);
+    expect(chunks.every((c) => c.count === 3)).toBe(true);
+  });
+
+  it('splits a chain too long for one page, losing no card and repeating none', () => {
+    const chunks = buildTimelineChunks([chainOf(19)], { nodesPerBlock: 8 });
+    expect(chunks.map((c) => c.nodes.length)).toEqual([8, 8, 3]);
+    // Every card, in order, exactly once.
+    expect(chunks.flatMap((c) => c.nodes.map((n) => n.id))).toEqual(
+      Array.from({ length: 19 }, (_, i) => `n${i}`)
+    );
+    // The caption rides on the first slice only; only the last slice ends on the
+    // chain's tail, which is what makes exactly one card Current.
+    expect(chunks.map((c) => c.caption)).toEqual([true, false, false]);
+    expect(chunks.map((c) => c.tail)).toEqual([false, false, true]);
+    expect(chunks.map((c) => c.offset)).toEqual([0, 8, 16]);
+  });
+
+  it('keeps the folder header on the block that opens the folder, not on every one', () => {
+    const current = { id: 2, name: 'NEW WALL', area: 'North', type: 'Live' };
+    const archived = { id: 1, name: 'OLD WALL', area: 'North', type: 'Archive' };
+    const chunks = buildTimelineChunks(
+      [
+        { ...chainOf(9), folder: current, isCurrent: true },
+        { ...chainOf(1, 30), folder: archived, isCurrent: false },
+      ],
+      { nodesPerBlock: 8 }
+    );
+    // Current folder's chain splits in two; the archived folder follows.
+    expect(chunks.map((c) => c.nodes.length)).toEqual([8, 1, 1]);
+    expect(chunks.map((c) => Boolean(c.folder))).toEqual([true, false, true]);
+  });
+
+  it('returns nothing for a report with no active chains, so the caller can say so', () => {
+    expect(buildTimelineChunks([])).toEqual([]);
+    expect(buildTimelineChunks([{ chain: [], trimmed: [], headIsTrueRoot: true }])).toEqual([]);
+  });
+
+  it('renders one chunk per block, with the section split across them', () => {
+    const chunks = buildTimelineChunks([chainOf(2), chainOf(1, 10)]);
+    const { container } = render(
+      <>
+        {chunks.map((c, i) => (
+          <DeformationTimeline key={c.key} chunk={c} now={NOW} joinPrev={i > 0} />
+        ))}
+      </>
+    );
+    // Three cards across two blocks — nothing dropped by the split.
+    expect(container.querySelectorAll('[data-testid]')).toHaveLength(0);
+    expect(screen.getAllByText('Linear')).toHaveLength(3);
+    expect(screen.getByText('Event 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Event 2 of 2')).toBeInTheDocument();
+    // One Current badge per chain, and only on the chain's real tail.
+    expect(screen.getAllByText('Current')).toHaveLength(2);
   });
 });

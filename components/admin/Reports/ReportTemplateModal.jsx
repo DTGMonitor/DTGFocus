@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { X, FileText, Calendar, ArrowLeft } from 'lucide-react';
+import { X, FileText, Calendar } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserSite } from "../../Reusable/useUserSite";
 import { InsarTemplate } from '@/components/admin/Reports/InsarReportTemplates';
@@ -21,6 +21,17 @@ import { useDailyFigures } from '@/components/admin/Radar/report/useDailyFigures
 import { AnnotationToolbar } from '@/components/admin/Radar/report/AnnotatedImage';
 import { resolveEmailLocale } from '@/config/emailLocale';
 import { hasActiveRisk } from '@/utils/dailyStatusRows';
+import { useReportLayout } from '@/components/admin/Reports/useReportLayout';
+import { ReportLayoutEditor } from '@/components/admin/Reports/ReportLayoutEditor';
+import { useSiteReportDefaults } from '@/components/admin/Reports/useSiteReportDefaults';
+import { SiteDefaultControl } from '@/components/admin/Reports/SiteDefaultControl';
+import {
+    MIN_CUSTOM_DAYS,
+    MAX_CUSTOM_DAYS,
+    clampCustomDays,
+    applyDefaultToForm,
+    matchesDefault,
+} from '@/utils/reportDefaults';
 
 // Report configuration
 const REPORT_CONFIG = {
@@ -52,14 +63,32 @@ const TABULATION = 'Tabulation';
 /** The granularity that takes its span from the Days field rather than a preset. */
 const CUSTOM_FREQUENCY = 'custom';
 
-/** What a custom span may be. Beyond a year the window stops being a report. */
-const MIN_CUSTOM_DAYS = 1;
-const MAX_CUSTOM_DAYS = 366;
+/**
+ * The three selects, at module scope.
+ *
+ * Hoisted out of the component because the per-site defaults are validated
+ * against them (useSiteReportDefaults): a saved value the form no longer offers
+ * is dropped rather than forced into a <select> with no such option. Rebuilding
+ * these arrays on every render would re-map every site's default on every
+ * keystroke.
+ */
+const REPORT_TYPES = Object.keys(REPORT_CONFIG);
+const CATEGORIES = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive', TABULATION];
+const FREQUENCIES = [
+    { value: 'daily', label: 'Daily', alt: '24h' },
+    { value: 'weekly', label: 'Weekly', alt: '7d' },
+    { value: 'monthly', label: 'Monthly', alt: '30d' },
+    // Span comes from the Days field below, not from this entry.
+    { value: CUSTOM_FREQUENCY, label: 'Custom', alt: null },
+];
+const FREQUENCY_VALUES = FREQUENCIES.map((f) => f.value);
+const FREQUENCY_LABELS = Object.fromEntries(FREQUENCIES.map((f) => [f.value, f.label]));
 
-const clampCustomDays = (value) => {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n)) return 2;
-  return Math.min(MAX_CUSTOM_DAYS, Math.max(MIN_CUSTOM_DAYS, n));
+/** What the per-site defaults are checked against — see utils/reportDefaults.js. */
+const SELECTION_CATALOGUES = {
+    reportTypes: REPORT_TYPES,
+    categories: CATEGORIES,
+    frequencies: FREQUENCY_VALUES,
 };
 
 /**
@@ -152,6 +181,7 @@ const ReportTemplateRenderer = ({
     dailyData, dailyLocale, dailyFigures, dailyFigureRefs, dailyManual, onDailyManualChange,
     dailyGenerator,
     dailyLogo, onDailyLogoError,
+    layout, layoutValues,
 }) => {
     const config = REPORT_CONFIG[reportType];
     if (config?.template === 'InsarTemplate') return <InsarTemplate data={data} reportInfo={reportInfo} />;
@@ -173,6 +203,8 @@ const ReportTemplateRenderer = ({
                 manual={dailyManual}
                 onManualChange={onDailyManualChange}
                 generator={dailyGenerator}
+                layout={layout}
+                layoutValues={layoutValues}
             />
         );
     }
@@ -189,6 +221,8 @@ const ReportTemplateRenderer = ({
                 logoSrc={logoSrc}
                 annotation={annotation}
                 imageRef={imageRef}
+                layout={layout}
+                layoutValues={layoutValues}
             />
         );
     }
@@ -340,6 +374,70 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const annotation = useImageAnnotation(null);
     const imageRef = useRef(null);
 
+    /**
+     * The site's saved section layout, and this report's content for its custom
+     * sections. Held here for the same reason as `annotation` above.
+     *
+     * Only the two block-composed categories have measured blocks to reorder;
+     * the Data Quality, InSAR and Handover templates are fixed-page layouts on
+     * a different rendering path, so they get no editor rather than a broken
+     * one (see config/reportSections.ts).
+     */
+    const layout = useReportLayout(formData.clientID, formData.category, {
+        updatedBy: displayName,
+        enabled: isTabulation || isComprehensive,
+    });
+
+    /**
+     * The report each site USUALLY takes — Telfer's Data Quality assessment,
+     * Leonora's Comprehensive, Vale's Tabulation.
+     *
+     * Every site's row is loaded once, not per site: the modal switches clients
+     * freely and a fetch per switch would sit between choosing a site and the
+     * form settling on its report. See useSiteReportDefaults.
+     */
+    const siteDefaults = useSiteReportDefaults(SELECTION_CATALOGUES, { updatedBy: displayName });
+    const siteDefault = siteDefaults.forSite(formData.clientID);
+
+    /**
+     * Apply a site's default ONCE per site, and never over the analyst.
+     *
+     * The ref holds the site the defaults were last applied for — including a
+     * site that HAS no default, which is why it is set either way. Without that,
+     * a site with no row would be retried on every render; and re-applying on
+     * every render for a site that has one would undo the analyst's very next
+     * correction, which is worse than never applying at all.
+     *
+     * It deliberately waits for `ready`: the empty map before the rows land
+     * looks exactly like "this site has no default", and spending the one
+     * application on it would leave the form on the generic selection.
+     */
+    const appliedDefaultRef = useRef(null);
+    useEffect(() => {
+        if (!siteDefaults.ready) return;
+        const key = String(formData.clientID ?? '');
+        if (!key || appliedDefaultRef.current === key) return;
+        appliedDefaultRef.current = key;
+        if (!siteDefault) return;
+
+        setShowPreview(false);
+        setFormData((prev) => {
+            const next = applyDefaultToForm(prev, siteDefault);
+            // The same two derivations handleInputChange makes: the Tabulation
+            // report has no granularity to choose, and the Start Date follows
+            // whatever the frequency ended up being.
+            if (next.category === TABULATION) next.frequency = 'daily';
+            next.startDate = getStartDateForFreq(next.frequency, next.category, next.customDays);
+            return next;
+        });
+        // getStartDateForFreq is redeclared each render and reads only the site
+        // timezone, which cannot change without the site changing.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [siteDefaults.ready, siteDefault, formData.clientID]);
+
+    /** Does the form already sit on this site's saved default? */
+    const onSiteDefault = matchesDefault(siteDefault, formData, { customFrequency: CUSTOM_FREQUENCY });
+
     // Seed the figure with the sensor's deformation heatmap once it resolves.
     // Seeds once only: a later refetch must never clobber an analyst's upload.
     // Depends on setImage (a stable setState setter), not the annotation object,
@@ -470,16 +568,9 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         setAnnotationImage(comprehensiveData.deformationImage);
     }, [comprehensiveData?.deformationImage, setAnnotationImage]);
 
-    const frequencies = [
-        { value: 'daily', label: 'Daily', alt: '24h' },
-        { value: 'weekly', label: 'Weekly', alt: '7d' },
-        { value: 'monthly', label: 'Monthly', alt: '30d' },
-        // Span comes from the Days field below, not from this entry.
-        { value: CUSTOM_FREQUENCY, label: 'Custom', alt: null },
-    ];
-
-    const reportTypes = Object.keys(REPORT_CONFIG);
-    const categories = ['Water Body', 'Deformation', 'Data Quality', 'Comprehensive', TABULATION];
+    const frequencies = FREQUENCIES;
+    const reportTypes = REPORT_TYPES;
+    const categories = CATEGORIES;
 
     //filename
     const rawDate = formData.endDate || new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: 'numeric' }).split('T')[0];
@@ -539,6 +630,22 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
 
     // Update your handleInputChange to use it
     const handleInputChange = (field, value) => {
+        /**
+         * A preview goes STALE the moment the window it was built from changes.
+         *
+         * The form used to be a separate screen — you left it to see the
+         * preview, so the two could not disagree. Now they are side by side, and
+         * an analyst who nudges the End Date after generating would be looking
+         * at yesterday's report under today's dates, with "Generate & Save PDF"
+         * still live beside it.
+         *
+         * Every field on this form feeds the data layer, so the preview is
+         * dropped for all of them and has to be asked for again. The layout
+         * editor deliberately does NOT come through here: it re-renders the
+         * preview live, which is the whole point of the pane.
+         */
+        setShowPreview(false);
+
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
 
@@ -733,6 +840,12 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         figureRefs={dailyFigureRefs}
                         manual={dailyManual}
                         generator={dailyGenerator}
+                        // The layout AND its typed content, for the reason every
+                        // other piece of state on this call is passed explicitly:
+                        // this is a second, detached mount of the template, and
+                        // anything it would have owned itself starts empty here.
+                        layout={layout.entries}
+                        layoutValues={layout.values}
                         exportMode
                     />,
                     PAGE_W
@@ -761,6 +874,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                         logoSrc={logoDataUrl}
                         annotation={annotation}
                         appendixItems={appendixItems}
+                        layout={layout.entries}
+                        layoutValues={layout.values}
                         exportMode
                     />,
                     PAGE_W
@@ -1014,26 +1129,158 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
         }
     };
 
-    const handleBackToForm = () => {
-        setShowPreview(false);
-        setMessage('');
-    };
+    const previewReady = showPreview && generatedReport;
 
     return (
-        <div className="w-full z-[9999] h-full bg-[var(--dtg-gray-900)]/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5" onClick={onClose}>
-            <div className="max-w-8xl max-h-[90vh] overflow-y-auto bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                {showPreview && generatedReport ? (
-                    <div className="mt-0">
-                        <div className='flex items-start justify-between border-b mb-3'>
-                            <h2 className="text-2xl font-bold mb-4 text-[var(--dtg-gray-800)]">Preview - {fileName}
-                            </h2>
-                            <button onClick={onClose}><X size={24} /></button>
+        <div
+            className="w-full z-[9999] h-full bg-[var(--dtg-gray-900)]/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <div
+                className="flex flex-col w-full max-w-[1700px] h-[93vh] bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Title bar — spans both panes, so the report's name is stated
+                    once rather than repeated over each of them. */}
+                <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--dtg-border-medium)] shrink-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="text-[var(--dtg-primary-teal-dark)] shrink-0" size={22} />
+                        <h2 className="text-lg font-semibold text-[var(--dtg-gray-900)] truncate">
+                            {previewReady ? `Preview — ${fileName}` : 'Create New Report'}
+                        </h2>
+                    </div>
+                    <button onClick={onClose} aria-label="Close"><X size={22} /></button>
+                </div>
+
+                {/* Config left, paper right.
+                    `min-h-0` on the row and `overflow-y-auto` on each pane is what
+                    lets the two scroll INDEPENDENTLY — without it the flex children
+                    take their content height and the whole modal scrolls as one,
+                    which is the layout this replaced: the controls scrolled away
+                    the moment you looked at page three. */}
+                <div className="flex flex-1 min-h-0">
+                    <aside className="w-[430px] shrink-0 border-r border-[var(--dtg-border-medium)] overflow-y-auto p-4 space-y-4">
+                        {/* Client Selection */}
+                        {!sensor && (
+                            <div>
+                                <label className="text-[var(--dtg-gray-700)] block mb-1 text-sm">Client / Site *</label>
+                                <select
+                                    required
+                                    value={formData?.clientID}
+                                    onChange={(e) => handleInputChange('clientID', e.target.value)}
+                                    className="w-full text-[var(--dtg-gray-500)] px-3 py-2 border border-[var(--dtg-gray-300)] rounded-lg"
+                                >
+                                    <option value="">Select a Client</option>
+                                    {/* Each site's usual report, named in the list
+                                        itself — the selection changes the moment
+                                        one is picked, so saying which report that
+                                        will be BEFORE the click is what stops the
+                                        change reading as the form losing state. */}
+                                    {clientsList.map((client) => {
+                                        const usual = siteDefaults.forSite(client.id)?.category;
+                                        return (
+                                            <option key={client.id} value={client.id}>
+                                                {client.site_name}, {client.company}
+                                                {usual ? ` — ${usual}` : ''}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="reportTypeSelect" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-1">Report Type</label>
+                                <select id="reportTypeSelect" value={formData.reportType} onChange={(e) => handleInputChange('reportType', e.target.value)} className="w-full text-[var(--dtg-gray-500)] px-3 py-2 border border-[var(--dtg-gray-300)] rounded-lg">{reportTypes.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                            </div>
+                            <div>
+                                <label htmlFor="reportCategorySelect" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-1">Category</label>
+                                <select id="reportCategorySelect" value={formData.category} onChange={(e) => handleInputChange('category', e.target.value)} className="w-full text-[var(--dtg-gray-500)] px-3 py-2 border border-[var(--dtg-gray-300)] rounded-lg">{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                            </div>
                         </div>
-                        {/* Screen-only annotation controls — never part of the paginated paper. */}
-                        {isComprehensive && (
+
+                        {/* What this client usually takes. Under the two selects
+                            it describes, and above Frequency, which it also sets. */}
+                        <SiteDefaultControl
+                            siteName={siteName}
+                            siteDefault={siteDefault}
+                            matches={onSiteDefault}
+                            hasSite={Boolean(formData.clientID)}
+                            available={siteDefaults.available}
+                            status={siteDefaults.status}
+                            frequencyLabels={FREQUENCY_LABELS}
+                            customFrequency={CUSTOM_FREQUENCY}
+                            onSave={() => siteDefaults.save(formData.clientID, formData)}
+                            onClear={() => siteDefaults.clear(formData.clientID)}
+                        />
+
+                        <div>
+                            <label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2"><Calendar size={16} className="inline mr-2" />Frequency</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {frequencies.map(freq => (
+                                    <button key={freq.value} type="button" onClick={() => handleInputChange('frequency', freq.value)} className={`px-3 py-2 text-sm rounded-lg border-2 transition-colors ${formData.frequency === freq.value ? 'border-[var(--dtg-primary-teal-dark)] bg-teal text-[var(--dtg-primary-teal-dark)]' : 'border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] hover:border-gray-400'}`} disabled={loading}>
+                                        {freq.label || 'Unknown'}
+                                    </button>
+                                ))}
+                            </div>
+                            {/* The span itself, revealed only by Custom — an always-visible
+                                Days field would read as if it governed the presets too. */}
+                            {isCustomFrequency && (
+                                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                                    <label htmlFor="customDays" className="text-sm text-[var(--dtg-gray-700)]">Window length</label>
+                                    <input
+                                        id="customDays"
+                                        type="number"
+                                        min={MIN_CUSTOM_DAYS}
+                                        max={MAX_CUSTOM_DAYS}
+                                        step={1}
+                                        value={formData.customDays}
+                                        /* Kept raw while typing so the field can be cleared and
+                                           retyped; clamped on blur and again wherever it is read,
+                                           so a half-typed value never reaches the query. */
+                                        onChange={(e) => handleInputChange('customDays', e.target.value)}
+                                        onBlur={(e) => handleInputChange('customDays', clampCustomDays(e.target.value))}
+                                        className="w-20 px-2 py-1.5 border border-[var(--dtg-gray-300)] rounded-lg text-[var(--dtg-gray-700)]"
+                                        disabled={loading}
+                                    />
+                                    <span className="text-xs text-[var(--dtg-gray-500)]">
+                                        days — the {windowDays * 24} h ending at the End Date
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div><label htmlFor="reportStartDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-1">Start Date</label><input id="reportStartDate" type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className={`w-full px-3 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
+                            <div><label htmlFor="reportEndDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-1">End Date</label><input id="reportEndDate" type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className={`w-full px-3 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
+                        </div>
+
+                        {/* Says WHY the button is dead — a disabled control with no
+                            reason reads as a broken one. */}
+                        {invalidDateRange && <p className="text-sm text-red-600">Start Date must be on or before End Date.</p>}
+                        {previewWindow && (
+                            <p className="text-xs text-[var(--dtg-gray-500)]">
+                                Covers <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowStart)}</span>
+                                {' → '}
+                                <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowEnd)}</span>
+                                {reportTimeZone ? ` (${reportTimeZone})` : ' (UTC)'}
+                                {formData.endDate >= todayDay ? ` — the latest ${windowDays * 24} h.` : ' — a closed period.'}
+                            </p>
+                        )}
+
+                        {/* The section layout. Above the figure controls because it
+                            decides what the report CONTAINS, and those decide what
+                            goes in it. Editable before a preview exists — a layout
+                            belongs to the site, not to this report. */}
+                        <ReportLayoutEditor layout={layout} category={formData.category} />
+
+                        {/* Figure and annotation controls. Only meaningful once
+                            there is a report under them, so they appear with it. */}
+                        {previewReady && isComprehensive && (
                             <AnnotationToolbar annotation={annotation} label="Deformation figure" />
                         )}
-                        {isTabulation && (
+                        {previewReady && isTabulation && (
                             <DailyReportToolbar
                                 showAnalysis={dailyNeedsAnalysis}
                                 outstanding={dailyOutstanding}
@@ -1066,7 +1313,49 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                                 }
                             />
                         )}
-                        <div className="overflow-x-auto">
+
+                        {message && (
+                            <div className={`p-3 text-sm rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :
+                                message.includes('Error') ? 'bg-red-50 text-red-800' :
+                                    'bg-blue-50 text-blue-800'
+                                }`}>
+                                {message}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 pt-1 border-t border-[var(--dtg-border-medium)]">
+                            <button onClick={onClose} className="px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] rounded-lg">Cancel</button>
+                            <button
+                                onClick={handleGenerateReport}
+                                disabled={loading || !formData.startDate || invalidDateRange}
+                                className="flex-1 px-4 py-2 border-2 border-[var(--dtg-primary-teal-dark)] text-[var(--dtg-primary-teal-dark)] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? 'Loading...' : previewReady ? 'Refresh preview' : 'Preview Report'}
+                            </button>
+                        </div>
+
+                        {previewReady && (
+                            <button
+                                onClick={handleSavePDF}
+                                // A report missing its observations must not reach a
+                                // client. Says WHY it is dead in the label — a
+                                // disabled control with no reason reads as broken.
+                                disabled={loading || (isTabulation && dailyOutstanding.length > 0)}
+                                className="w-full px-4 py-2 bg-teal-600 text-[var(--dtg-text-primary)] rounded-lg hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading
+                                    ? 'Generating PDF...'
+                                    : isTabulation && dailyOutstanding.length > 0
+                                        ? `Fill in: ${dailyOutstanding.join(', ')}`
+                                        : 'Generate & Save PDF'}
+                            </button>
+                        )}
+                    </aside>
+
+                    {/* The paper. Dark ground so the A4 sheets read as sheets, which
+                        is also the background DailyReportToolbar was drawn against. */}
+                    <section className="flex-1 min-w-0 overflow-auto bg-[#0b0e11] p-4">
+                        {previewReady ? (
                             <ReportTemplateRenderer
                                 reportType={formData.reportType}
                                 category={formData.category}
@@ -1086,129 +1375,19 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
                                 dailyGenerator={dailyGenerator}
                                 dailyLogo={dailyLogo}
                                 onDailyLogoError={() => setFullLogoMissing(true)}
+                                layout={layout.entries}
+                                layoutValues={layout.values}
                             />
-                        </div>
-                        {message && (
-                            <div className={`mx-6 p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' :
-                                message.includes('Error') ? 'bg-red-50 text-red-800' :
-                                    'bg-blue-50 text-blue-800'
-                                }`}>
-                                {message}
-                            </div>
-                        )}<div className="flex gap-3 p-6 border-t mt-6">
-                            <button
-                                onClick={handleBackToForm}
-                                className="flex items-center gap-2 flex-1 px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-700)] rounded-lg hover:bg-gray-50 transition"
-                                disabled={loading}
-                            >
-                                <ArrowLeft size={18} />
-                                Back to Form
-                            </button>
-                            <button
-                                onClick={handleSavePDF}
-                                // A report missing its observations must not reach a
-                                // client. Says WHY it is dead in the label — a
-                                // disabled control with no reason reads as broken.
-                                disabled={loading || (isTabulation && dailyOutstanding.length > 0)}
-                                className="flex-1 px-4 py-2 bg-teal-600 text-[var(--dtg-text-primary)] rounded-lg hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {loading
-                                    ? 'Generating PDF...'
-                                    : isTabulation && dailyOutstanding.length > 0
-                                        ? `Fill in: ${dailyOutstanding.join(', ')}`
-                                        : 'Generate & Save PDF'}
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-[var(--dtg-bg-card)] rounded-lg shadow-xl overflow-y-auto w-full mt-4">
-                        <div className="flex items-center justify-between p-6 border-b"><div className="flex items-center gap-3"><FileText className="text-[var(--dtg-primary-teal-dark)]" size={24} /><h2 className="text-2xl font-semibold text-[var(--dtg-gray-900)]">Create New Report</h2></div><button onClick={onClose}><X size={24} /></button></div>
-                        <div className="p-6 space-y-6">
-                            {/* Client Selection */}
-                            {!sensor &&
-                                <div className="mb-4">
-                                    <label className="text-[var(--dtg-gray-700)] block mb-1 text-sm">Client / Site *</label>
-
-                                    <select
-                                        required
-                                        value={formData?.clientID}
-                                        onChange={(e) => handleInputChange('clientID', e.target.value)}
-                                        className="w-full text-[var(--dtg-gray-500)] px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg"
-                                    >
-                                        <option value="">Select a Client</option>
-                                        {clientsList.map((client) => (
-                                            <option key={client.id} value={client.id}>
-                                                {client.site_name}, {client.company}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            }
-
-
-                            <div className="grid grid-cols-2 gap-6">
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Report Type</label><select value={formData.reportType} onChange={(e) => handleInputChange('reportType', e.target.value)} className="w-full text-[var(--dtg-gray-500)] px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg">{reportTypes.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                                <div><label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Category</label><select value={formData.category} onChange={(e) => handleInputChange('category', e.target.value)} className="w-full text-[var(--dtg-gray-500)] px-4 py-2 border border-[var(--dtg-gray-300)] rounded-lg">{categories.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                            </div>
-
-                            {/* RESTORED FREQUENCY SELECTOR */}
-                            <div>
-                                <label className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2"><Calendar size={16} className="inline mr-2" />Frequency</label>
-                                <div className="grid grid-cols-4 gap-3">
-                                    {frequencies.map(freq => (
-                                        <button key={freq.value} type="button" onClick={() => handleInputChange('frequency', freq.value)} className={`px-4 py-2 rounded-lg border-2 transition-colors ${formData.frequency === freq.value ? 'border-[var(--dtg-primary-teal-dark)] bg-teal text-[var(--dtg-primary-teal-dark)]' : 'border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] hover:border-gray-400'}`} disabled={loading}>
-                                            {freq.label || 'Unknown'}
-                                        </button>
-                                    ))}
-                                </div>
-                                {/* The span itself, revealed only by Custom — an always-visible
-                                    Days field would read as if it governed the presets too. */}
-                                {isCustomFrequency && (
-                                    <div className="mt-3 flex items-center gap-3">
-                                        <label htmlFor="customDays" className="text-sm text-[var(--dtg-gray-700)]">Window length</label>
-                                        <input
-                                            id="customDays"
-                                            type="number"
-                                            min={MIN_CUSTOM_DAYS}
-                                            max={MAX_CUSTOM_DAYS}
-                                            step={1}
-                                            value={formData.customDays}
-                                            /* Kept raw while typing so the field can be cleared and
-                                               retyped; clamped on blur and again wherever it is read,
-                                               so a half-typed value never reaches the query. */
-                                            onChange={(e) => handleInputChange('customDays', e.target.value)}
-                                            onBlur={(e) => handleInputChange('customDays', clampCustomDays(e.target.value))}
-                                            className="w-24 px-3 py-2 border border-[var(--dtg-gray-300)] rounded-lg text-[var(--dtg-gray-700)]"
-                                            disabled={loading}
-                                        />
-                                        <span className="text-sm text-[var(--dtg-gray-500)]">
-                                            days — covers the {windowDays * 24} h ending at the End Date
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label htmlFor="reportStartDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">Start Date</label><input id="reportStartDate" type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
-                                <div><label htmlFor="reportEndDate" className="block text-sm font-medium text-[var(--dtg-gray-700)] mb-2">End Date</label><input id="reportEndDate" type="date" value={formData.endDate} onChange={(e) => handleInputChange('endDate', e.target.value)} className={`w-full px-4 py-2 border rounded-lg ${invalidDateRange ? 'border-red-500' : 'border-[var(--dtg-gray-300)]'}`} /></div>
-                            </div>
-                            {/* Says WHY the button is dead — a disabled control with no
-                                reason reads as a broken one. */}
-                            {invalidDateRange && <p className="text-sm text-red-600">Start Date must be on or before End Date.</p>}
-                            {previewWindow && (
-                                <p className="text-sm text-[var(--dtg-gray-500)]">
-                                    Covers <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowStart)}</span>
-                                    {' → '}
-                                    <span className="font-medium text-[var(--dtg-gray-700)]">{formatWindowBound(previewWindow.windowEnd)}</span>
-                                    {reportTimeZone ? ` (${reportTimeZone})` : ' (UTC)'}
-                                    {formData.endDate >= todayDay ? ` — the latest ${windowDays * 24} h.` : ' — a closed period.'}
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-center px-6">
+                                <p className="text-sm text-white/45 max-w-sm leading-relaxed">
+                                    Set the window on the left, then <span className="text-white/70">Preview Report</span>.
+                                    Section changes then show up here as you make them.
                                 </p>
-                            )}
-                            {message && <div className={`p-4 rounded-lg ${message.includes('successfully') ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'}`}>{message}</div>}
-                            <div className="flex gap-3 pt-4"><button onClick={onClose} className="flex-1 px-4 py-2 border border-[var(--dtg-gray-300)] text-[var(--dtg-gray-500)] rounded-lg">Cancel</button><button onClick={handleGenerateReport} disabled={loading || !formData.startDate || invalidDateRange} className="flex-1 px-4 py-2 bg-[var(--dtg-primary-teal-dark)] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">{loading ? 'Loading...' : 'Preview Report'}</button> </div>
-                        </div>
-                    </div>
-                )}
+                            </div>
+                        )}
+                    </section>
+                </div>
             </div>
         </div>
     );

@@ -69,6 +69,21 @@ export function useReportPagination(deps = [], { usableHeight = USABLE_H } = {})
     });
     if (cur.length) result.push(cur);
 
+    // A block taller than a page cannot be placed — the sheet clips it, so the
+    // overflow is not merely ugly, it is CONTENT SILENTLY MISSING from both the
+    // preview and the PDF. Nothing here can split it (only the builder knows
+    // where a split is legible), so say which block it is, loudly, in dev.
+    if (process.env.NODE_ENV !== 'production') {
+      heights.forEach((ht, i) => {
+        if (ht > usableHeight) {
+          console.warn(
+            `[report] block ${i} measures ${Math.round(ht)}px against a ${Math.round(usableHeight)}px page. ` +
+              'It will be clipped — pre-chunk it into several blocks (see chunkImprovements / buildTimelineChunks).'
+          );
+        }
+      });
+    }
+
     setPages(result.length ? result : [heights.map((_, i) => i)]);
   }, [measureTick, usableHeight, ...deps]);
 

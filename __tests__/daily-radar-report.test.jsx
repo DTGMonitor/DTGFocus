@@ -37,6 +37,7 @@ import { buildQualityNote, buildAppendixItems } from '@/utils/reportDqp';
 import { DailyAppendixItem } from '@/components/admin/Radar/report/blocks/DailyAppendix';
 import { DailySummary, DailyMovementTable, DailyLegend } from '@/components/admin/Radar/report/blocks/DailySummary';
 import { DailyHeader } from '@/components/admin/Radar/report/blocks/DailyHeader';
+import { DailyScanArea, DailyAnalysisImage } from '@/components/admin/Radar/report/blocks/DailyFigures';
 
 const rec = (over = {}) => ({
   id: over.id ?? 'r1',
@@ -807,5 +808,47 @@ describe('rendering', () => {
       />
     );
     expect(screen.getByText('07/08/2026 05:00 WITA')).not.toHaveStyle({ color: '#C00000' });
+  });
+});
+
+/**
+ * An empty figure occupies the page whether or not it can be typed into.
+ *
+ * Every template is mounted twice: once for the analyst, once non-interactively
+ * into the hidden layer that MEASURES the page breaks. These blocks used to draw
+ * their empty drop zone only when `interactive`, so the measured copy was ~190px
+ * shorter than the one on screen — the paginator packed each page that much too
+ * full and the block at the bottom printed under the footer, clipped.
+ */
+describe('daily figures — geometry does not depend on `interactive`', () => {
+  const strings = dailyStrings('en');
+
+  test('the scan area draws its drop zone in the measurement pass too', () => {
+    const { container, rerender } = render(
+      <DailyScanArea strings={strings} annotation={{ image: null }} interactive placeholder />
+    );
+    const shown = container.innerHTML.length;
+
+    // The measurement pass: same block, no handlers, SAME BOX.
+    rerender(<DailyScanArea strings={strings} annotation={{ image: null }} interactive={false} placeholder />);
+    expect(screen.getByText(/Drag, drop or paste/i)).toBeInTheDocument();
+    // Not byte-identical — the interactive copy carries a tabIndex and a
+    // drop-zone marker — but the same order of magnitude, not an empty node.
+    expect(container.innerHTML.length).toBeGreaterThan(shown * 0.8);
+  });
+
+  test('an analysis figure does the same', () => {
+    render(<DailyAnalysisImage strings={strings} api={{ image: null }} areaName="AREA 1" interactive={false} placeholder />);
+    expect(screen.getByText(/Drag, drop or paste/i)).toBeInTheDocument();
+    expect(screen.getByText('AREA 1')).toBeInTheDocument();
+  });
+
+  test('but an empty figure still prints nothing when nobody can fill it', () => {
+    // The export path: no image, no drop zone to offer — the block is dropped
+    // entirely, and the template leaves it out of BOTH passes to match.
+    const { container } = render(
+      <DailyScanArea strings={strings} annotation={{ image: null }} interactive={false} placeholder={false} />
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });
