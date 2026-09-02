@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import { getBandCardColor, getBandBorderColor, getBandDotColor } from "@/config/statusConfig";
 import { recordColour, recordBadgeLabel, getRiskDisplayMode } from "@/config/riskDisplay";
 import { Button } from "@/components/ui/button";
@@ -9,14 +8,16 @@ import {
 } from 'lucide-react';
 import AddDeformationForm from "./AddDeformationForm";
 import TimelineView from "./TimelineView";
-import { normalizePrecursorss } from "@/utils/tabHelpers";
-import toast from "react-hot-toast";
+import { isMergeEventRecord } from "@/utils/tabHelpers";
 
 const DeformationList = ({
     sensor,
     alarmRegion=[],
     rawList,
     filtered,
+    // Map<recordId, branchIds> — which chains a Rain/Blast is still the current
+    // record for. Only merge events appear in it. See resolveChainHeads.
+    openBranchesById,
     search,
     onSearchChange,
     userSite,
@@ -29,6 +30,7 @@ const DeformationList = ({
     onEdit,
     onHardDelete,
     onUpdate,
+    onArchive,
     onTimelineExpand,
     onTimelineCollapse,
     // --- New display props ---
@@ -49,67 +51,30 @@ const DeformationList = ({
         crosscheckers.find(c => String(c.id) === String(userid))?.full_name
         ;
 
-    const handleArchiveDeformation = async (item) => {
-        try {
-            // 1. Archive the record
-            const { error } = await supabase
-                .from('def_records')
-                .update({ isactive: 'No' })
-                .eq('id', item.id);
-
-            if (error) {
-                throw error;
-            }
-
-            // 2. Create work log entry
-            const workLogPayload = {
-                created_at: new Date().toISOString(),
-                subject: 7, 
-                wallfolder: sensor.wallfolder_id,
-                location: sensor.area,
-                category: 'deformation',
-                action: 'No action required',
-                notes: `${item.def_type} record has been archived`,
-                submitted_by: userID
-            };
-
-            const { error: logError } = await supabase.from('work_log').insert([workLogPayload]);
-            if (logError) {
-                console.error("Work Log Insert Failed:", logError);
-                toast.error('Record archived, but failed to create log entry.');
-            } else {
-                toast.success('Deformation record archived.');
-            }
-
-            // 3. Refresh UI
-            if (onSuccess) {
-                onSuccess();
-            }
-        } catch (error) {
-            console.error('Error archiving deformation:', error);
-            toast.error('Could not archive the record.');
-        }
-    };
-
     const renderList = () => {
         if (rawList.length === 0) return <div className="text-sm text-gray-500 mt-4">No deformation observed on this radar.</div>;
 
-        // Only Rain/Blast *events* get the multi-card treatment: a plain
-        // "individual" card (edit/update/archive/delete actions) plus ONE dedicated
-        // "timeline" card per selected precursor. Each timeline card expands that
-        // precursor's own continuous chain (root→precursor) with the event appended
-        // as the tail node. Every other record (deformations) renders as a single
-        // "full" card with actions + an inline timeline toggle, as before.
-        const EVENT_TYPES = new Set(['Rainfall Event', 'Blast Event']);
+        // A Rain/Blast event that several chains ran into gets the multi-card
+        // treatment: a plain "individual" card (edit/update/archive/delete
+        // actions) plus ONE "timeline" card per chain still sitting on it. Each
+        // timeline card expands that chain's own continuous history
+        // (root→precursor) with the event appended as the tail — the event IS
+        // that chain's current record until it is continued past.
+        //
+        // A chain that HAS moved on is not listed here: its continuation is a
+        // head in its own right and carries its own card. So is a Rain/Blast that
+        // started a chain of its own rather than joining any — with no branches
+        // to split out, it is an ordinary "full" card.
         const cards = filtered.flatMap((item) => {
-            if (!EVENT_TYPES.has(item.def_type)) {
+            const openBranches = openBranchesById?.get?.(String(item.id)) || [];
+            if (!isMergeEventRecord(item) || openBranches.length === 0) {
                 return [{ item, variant: 'full' }];
             }
             const entries = [{ item, variant: 'individual' }];
-            // One timeline card per precursor, titled by the precursor record.
-            // Precursors are hidden from top-level cards (referenced-precursor
-            // filter) but remain in rawList, so we resolve their display data there.
-            normalizePrecursorss(item.precursors).forEach((pid) => {
+            // One timeline card per open chain, titled by that chain's record.
+            // Those records are hidden from top-level cards (they are precursors
+            // of the event) but remain in rawList, so their display data is here.
+            openBranches.forEach((pid) => {
                 const precursorRecord = rawList.find((r) => String(r.id) === String(pid));
                 if (precursorRecord) {
                     entries.push({ item: precursorRecord, variant: 'timeline', parentEvent: item });
@@ -188,8 +153,11 @@ const DeformationList = ({
                                         )}
                                         {isTimelineCard && (
                                             <button
-                                                onClick={() => onUpdate?.(item)}
-                                                title="Update (archive head + continue timeline)"
+                                                /* This card IS one of the event's chains, so the
+                                                   branch needs no picking — it is handed straight
+                                                   to the update flow. */
+                                                onClick={() => onUpdate?.(item, parentEvent)}
+                                                title="Update (archive event + continue this chain)"
                                                 aria-label="Update timeline"
                                                 className="p-1 hover:text-blue-400 rounded text-gray-400"
                                             >
@@ -215,7 +183,7 @@ const DeformationList = ({
                                                     <RefreshCw size={14} />
                                                 </button>
                                                 <button
-                                                    onClick={() => handleArchiveDeformation(item)}
+                                                    onClick={() => onArchive?.(item)}
                                                     title="Archive record"
                                                     aria-label="Archive deformation record"
                                                     className="p-1 hover:text-yellow-400 rounded text-gray-400"

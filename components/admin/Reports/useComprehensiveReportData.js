@@ -18,7 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { resolveTimelineChain, normalizePrecursorss, resolveDetectedBy } from '@/utils/tabHelpers';
+import { resolveTimelineChain, resolveChainHeads, resolveDetectedBy } from '@/utils/tabHelpers';
 import { fetchCrosscheckers } from '@/utils/crosscheckers';
 import { trimChain, isTrimmedHeadTrueRoot } from '@/utils/reportTimeline';
 import { computeAvailability, windowForFrequency } from '@/utils/reportAvailability';
@@ -334,9 +334,11 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
 
       // ── Deformation: head records → resolve chain → trim ───────────────────
       const defRecords = defRes ?? [];
-      const referenced = new Set();
-      defRecords.forEach((d) => normalizePrecursorss(d.precursors).forEach((id) => referenced.add(String(id))));
-      const heads = defRecords.filter((d) => !referenced.has(String(d.id)));
+      // One head per LIVE chain. A Rainfall/Blast is the current node of every
+      // trend that ran into it, so continuing one of them out of the event does
+      // not retire the event for the others — `resolveChainHeads` is the same
+      // rule the board and the daily report use.
+      const { heads } = resolveChainHeads(defRecords);
 
       const fetchRecordById = async (id) => {
         const { data, error } = await supabase

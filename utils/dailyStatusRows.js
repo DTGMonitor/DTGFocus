@@ -28,7 +28,7 @@ import {
   labelColour,
   NO_SIGNIFICANT,
 } from '@/config/riskDisplay';
-import { normalizePrecursorss } from './tabHelpers';
+import { resolveChainHeads } from './tabHelpers';
 import { velocityUnit } from './reportDefDetails';
 import { dailyRemark } from '@/config/dailyReportLocale';
 
@@ -54,22 +54,21 @@ export const isExcludedFromStatus = (record) => {
 };
 
 /**
- * The head of each chain: every record no OTHER record in the set names as a
- * precursor.
+ * The head of each chain: every record no OTHER record in the set has moved past.
  *
- * Identical to the `heads` derivation in useComprehensiveReportData, so the two
- * reports agree on what is currently happening. Ids are compared as strings
- * because `precursors` is an INT[] while `id` arrives as whatever PostgREST
- * gave it — a numeric/string mismatch would silently mark every record a head
- * and print the whole chain.
+ * Identical to the `heads` derivation in useComprehensiveReportData and to the
+ * board's own card set, so the two reports and the screen agree on what is
+ * currently happening — `resolveChainHeads` is the one implementation all three
+ * call. A plain record is superseded as soon as anything names it; a Rainfall or
+ * Blast is the current node of every trend that ran into it and stays a head
+ * until each of them has been continued past it.
+ *
+ * Ids are compared as strings there because `precursors` is an INT[] while `id`
+ * arrives as whatever PostgREST gave it — a numeric/string mismatch would
+ * silently mark every record a head and print the whole chain.
  */
 export function chainHeads(records) {
-  const list = (records ?? []).filter(Boolean);
-  const referenced = new Set();
-  for (const r of list) {
-    for (const id of normalizePrecursorss(r?.precursors)) referenced.add(String(id));
-  }
-  return list.filter((r) => !referenced.has(String(r?.id)));
+  return resolveChainHeads(records).heads;
 }
 
 /**

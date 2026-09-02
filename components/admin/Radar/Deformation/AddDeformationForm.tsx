@@ -11,7 +11,7 @@ import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
 import { composeDeformationSubject } from '../../../../config/emailSubject';
 import { useTarpDocument } from '../Tarp/useTarpDocument';
 import { responseRequirementForType, resolveDraftAudience, resolveTarpTransition } from '../../../../config/tarpDocument';
-import { performContaminationSplit, performDeformationUpdateFlow } from '@/utils/tabHelpers';
+import { performContaminationSplit, performDeformationUpdateFlow, isMergeEventType } from '@/utils/tabHelpers';
 import { mergeSummaryIntoProperties } from '@/utils/patternRecognitionMapper';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -47,6 +47,17 @@ interface AddDeformationFormProps {
     // When `precursors` is provided, the original record is archived (isactive='No')
     // and the new record is inserted with precursors set to it, compensating on failure.
     precursors?: string | number | null;
+    // --- Chain continuity past a Rainfall/Blast merge event ---
+    // `chainBranchId` names which of the superseded record's OWN precursors this
+    // new record continues — a rainfall lists every trend that ran into it, and
+    // `precursors` alone cannot say which of them is this record's. It is stored
+    // under properties.chain_branch_id and read back by resolveTimelineChain.
+    chainBranchId?: string | number | null;
+    // Whether the superseded record leaves the board. False when other chains are
+    // still sitting on it (see DeformationTab); also forced false below when the
+    // record being written is ITSELF a rainfall/blast, because then the original
+    // is not being replaced — it is one of the chains running into the event.
+    archiveOriginal?: boolean;
     initialValues?: Partial<FormDataState>;
     // --- Pattern Recognition auto-fill support (Requirements 9.1–9.5) ---
     patternRecognitionSummary?: PRSummary | null;
@@ -125,6 +136,8 @@ const AddDeformationForm = ({
     onClose,
     onSuccess,
     precursors = null,
+    chainBranchId = null,
+    archiveOriginal = true,
     initialValues,
     patternRecognitionSummary = null,
     onRainfallSaved,
@@ -623,12 +636,22 @@ const AddDeformationForm = ({
                     ...fixedColumns,
                     properties,
                     precursors: selectedPrecursorss,
+                }, {
+                    chainBranchId,
+                    // A rainfall/blast does not REPLACE the trend it was raised
+                    // from — it is the point that trend now sits on, alongside
+                    // every other chain ticked below. Archiving it here would
+                    // take that chain off the board while the event still stands
+                    // as its current record.
+                    archiveOriginal: archiveOriginal && !isMergeEventType(formData.Type),
                 });
 
                 if (!flow.ok) {
                     if (flow.stage === 'insert') {
                         toast.error(
-                            'Archive succeeded but new record could not be created. The original record has been restored.'
+                            flow.compensated
+                                ? 'Archive succeeded but new record could not be created. The original record has been restored.'
+                                : 'The new record could not be created. Nothing was changed.'
                         );
                     } else {
                         toast.error('Failed to archive the original record. No changes were made.');
