@@ -28,7 +28,6 @@ const rowValues = (overrides = {}) => ({
   colour: 'orange',
   description: '',
   responseMethod: '',
-  responseNotice: '',
   dayShift: 'Email Geotech',
   nightShift: '',
   commentsText: '',
@@ -38,7 +37,6 @@ const rowValues = (overrides = {}) => ({
   requiresAlarm: 'yes',
   subjectLabel: '',
   subjectLabelAlarm: '',
-  severityBracket: '',
   ...overrides,
 });
 
@@ -72,20 +70,20 @@ describe('the trigger form reads as three sections', () => {
     openForm();
     const advanced = screen.getByRole('button', { name: /Advanced/i });
     expect(advanced).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByLabelText('Severity bracket')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Subject wording, no alarm')).not.toBeInTheDocument();
 
     fireEvent.click(advanced);
     expect(advanced).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByLabelText('Severity bracket')).toBeInTheDocument();
+    expect(screen.getByLabelText('Subject wording, no alarm')).toBeInTheDocument();
   });
 
   it('keeps a folded override in the saved values', () => {
     // Folding is a display state. A row that already overrides its wording must
     // still save that wording when an engineer edits something else entirely.
-    const { onSave } = openForm(rowValues({ severityBracket: '[URGENT]' }));
+    const { onSave } = openForm(rowValues({ subjectLabel: 'SLOPE FAILURE IMMINENT:' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ severityBracket: '[URGENT]' })
+      expect.objectContaining({ subjectLabel: 'SLOPE FAILURE IMMINENT:' })
     );
   });
 });
@@ -120,17 +118,6 @@ describe('fields that do not apply are hidden, not emptied', () => {
   it('asks a deformation row, where it is a real question', () => {
     openForm();
     expect(screen.getByLabelText(/Only counts when an alarm/i)).toBeInTheDocument();
-  });
-
-  it('asks for a deviation notice only where the chart will print one', () => {
-    // 'Email Geotech' against a call-first site: this row deviates.
-    openForm();
-    expect(screen.getByLabelText('Deviation notice')).toBeInTheDocument();
-  });
-
-  it('stays quiet on a row that matches the site default', () => {
-    openForm(rowValues({ dayShift: 'Call the supervisor', responseMethod: '' }));
-    expect(screen.queryByLabelText('Deviation notice')).not.toBeInTheDocument();
   });
 });
 
@@ -222,5 +209,171 @@ describe('validation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('Trigger is required');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subject wording
+//
+// The tokens were the part engineers could not read: {band} and {Colour} name
+// a fact without showing it, and a token the row cannot answer empties the
+// whole wording silently. So the help under each box resolves every token
+// against the row on screen.
+// ---------------------------------------------------------------------------
+
+describe('subject wording help', () => {
+  const hiddenValleyRow = (overrides = {}) => rowValues({
+    _subjectLabelTemplate: '{band}:',
+    _subjectLabelTemplateAlarm: '',
+    bandLabel: 'Orange Notification',
+    ...overrides,
+  });
+
+  it('shows what each token becomes on this row', () => {
+    const help = field('subjectLabel').help(hiddenValleyRow());
+    expect(help).toContain('{band} → “Orange Notification”');
+    expect(help).toContain('{level} → “3”');
+    expect(help).toContain('{Colour} → “Orange”');
+  });
+
+  it('shows the wording the row inherits, and what it ends up opening with', () => {
+    const help = field('subjectLabel').help(hiddenValleyRow());
+    expect(help).toContain('follows the site wording, “{band}:”');
+    expect(help).toContain('opens with “Orange Notification:”');
+  });
+
+  it('says so when a token the wording needs is not on the row', () => {
+    // A fall of ground: grey, in no band. "{band}:" cannot be filled, so the
+    // subject carries no wording at all — the case that printed
+    // "Grey Notification:" while nothing on the form admitted why.
+    const help = field('subjectLabel').help(
+      hiddenValleyRow({ bandLabel: '', colour: 'grey', tarpLevel: '' })
+    );
+    expect(help).toContain('{band} → nothing on this row');
+    expect(help).toContain('opens with no wording at all');
+  });
+
+  it('previews the alarm wording against an example alarm', () => {
+    const help = field('subjectLabelAlarm').help(hiddenValleyRow());
+    expect(help).toContain('With a red alarm');
+    expect(help).toContain('“Orange Notification:”');
+    expect(help).toContain('{AlarmColour} → “Red”');
+  });
+
+  it('follows the row\'s own no-alarm wording before the site\'s', () => {
+    // The same fallback chain resolveSubjectLabel walks.
+    const help = field('subjectLabelAlarm').help(
+      hiddenValleyRow({ subjectLabel: '{Colour} Notification:' })
+    );
+    expect(help).toContain('“Orange Notification:”');
+  });
+
+  it('lets a row override the wording outright', () => {
+    const help = field('subjectLabel').help(
+      hiddenValleyRow({ subjectLabel: 'SLOPE FAILURE IMMINENT:' })
+    );
+    expect(help).toContain('opens with “SLOPE FAILURE IMMINENT:”');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subject preview
+//
+// The help text says what a token resolves to. That is still a description of
+// a rule. The preview is the finished subject line, recomputed on every
+// keystroke through composeDeformationSubject — the same call the deformation
+// form makes — so what an engineer agrees to on save is what the client reads.
+// ---------------------------------------------------------------------------
+
+describe('subject preview', () => {
+  /** A Hidden Valley row: the band names itself, the alarm rides in the prefix. */
+  const previewRow = (overrides = {}) => {
+    const trigger = {
+      id: 1, sortOrder: 1, triggerLabel: 'Linear trend',
+      bandLabel: 'Orange Notification', colour: 'orange',
+      defType: 'Linear', tarpLevel: 3, requiresAlarm: false,
+      comments: [], subjectLabel: null, subjectLabelAlarm: null,
+    };
+    return rowValues({
+      _subjectLabelTemplate: '{band}:',
+      _subjectLabelTemplateAlarm: '',
+      _preview: {
+        trigger,
+        triggers: [trigger],
+        siteName: 'Hidden Valley',
+        document: {
+          id: 3,
+          subjectLabelTemplate: '{band}:',
+          subjectLabelTemplateAlarm: null,
+          alarmPrefixStyle: 'regions',
+          tarpLevelSource: 'trigger',
+          triggers: [trigger],
+        },
+      },
+      bandLabel: 'Orange Notification',
+      colour: 'orange',
+      defType: 'Linear',
+      tarpLevel: '3',
+      requiresAlarm: 'no',
+      ...overrides,
+    });
+  };
+
+  it('shows the finished subject, with and without an alarm', () => {
+    openForm(previewRow());
+    expect(screen.getByText(
+      '[MODERATE RISK] Orange Notification: Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      '[MODERATE RISK] Red Alarms - Orange Notification: '
+      + 'Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+  });
+
+  it('follows the band label as it is typed, before anything is saved', () => {
+    openForm(previewRow());
+    fireEvent.change(screen.getByLabelText('TARP band'), {
+      target: { value: 'Yellow Notification' },
+    });
+    expect(screen.getByText(
+      '[MODERATE RISK] Yellow Notification: Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+  });
+
+  it('empties the wording when the band label is cleared', () => {
+    // The fall-of-ground case, reachable from the form: no band, no token, and
+    // the finding names itself. Previously only discoverable by sending one.
+    openForm(previewRow());
+    fireEvent.change(screen.getByLabelText('TARP band'), { target: { value: '' } });
+    expect(screen.getByText(
+      '[MODERATE RISK] Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+  });
+
+  it('shows the gate on a row that only counts with an alarm', () => {
+    openForm(previewRow({ requiresAlarm: 'yes' }));
+    // Without an alarm the row is an observation: no level, no token.
+    expect(screen.getByText(
+      '[NOTIFICATION ONLY] Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      '[MODERATE RISK] Red Alarms - Orange Notification: '
+      + 'Linear Deformation Trend on R01 - Hidden Valley'
+    )).toBeInTheDocument();
+  });
+
+  it('says a row with no deformation type sends nothing', () => {
+    openForm(previewRow({ defType: '' }));
+    expect(screen.getByText(/answers no deformation type, so it sends no email/i))
+      .toBeInTheDocument();
+  });
+
+  it('stays visible when the wording overrides are folded away', () => {
+    // The preview is its own section, so the answer does not fold with the
+    // boxes that change it.
+    openForm(previewRow());
+    expect(screen.getByRole('button', { name: /Advanced/i }))
+      .toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('What the client receives')).toBeInTheDocument();
   });
 });

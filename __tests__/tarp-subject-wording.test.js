@@ -16,7 +16,6 @@ import {
     DEFAULT_SUBJECT_LABEL_TEMPLATE,
     renderSubjectLabel,
     resolveSubjectLabel,
-    resolveSeverityBracket,
     resolveAlarmPrefixStyle,
     getTarpPolicyForSensor
 } from '../config/tarpPolicy';
@@ -58,13 +57,21 @@ const leonoraRow = {
 /** Hidden Valley. Names its bands; the token itself says whether an alarm fired. */
 const hiddenValleyRow = {
     id: 3, site_id: 3, heading: 'Hidden Valley', version: 1, status: 'active',
-    subject_label_template: '{Colour} Notification:',
-    subject_label_template_alarm: '{Colour} Alarm:',
-    alarm_prefix_style: 'none',
+    // Migration 016: the BAND names itself. Not {Colour} — a colour is not a
+    // band, and the rows that sit in no band leave the label empty.
+    subject_label_template: '{band}:',
+    // Migration 015: ONE wording, alarm or not. The token is the severity
+    // statement — "Red Notification" is this site's "TARP Trigger 4" — and the
+    // alarm goes in the prefix, as at every other site.
+    subject_label_template_alarm: null,
+    alarm_prefix_style: 'regions',
     triggers: [
-        trigger({ id: 1, sort_order: 1, trigger_label: 'Progressive trend', colour: 'red', def_type: 'Progressive', tarp_level: 4 }),
-        trigger({ id: 2, sort_order: 2, trigger_label: 'Linear trend', colour: 'orange', def_type: 'Linear', tarp_level: 3 }),
-        trigger({ id: 3, sort_order: 3, trigger_label: 'Regressive trend', colour: 'yellow', def_type: 'Regressive', tarp_level: 2 })
+        trigger({ id: 1, sort_order: 1, trigger_label: 'Progressive trend', band_label: 'Red Notification', colour: 'red', def_type: 'Progressive', tarp_level: 4 }),
+        trigger({ id: 2, sort_order: 2, trigger_label: 'Linear trend', band_label: 'Orange Notification', colour: 'orange', def_type: 'Linear', tarp_level: 3 }),
+        trigger({ id: 3, sort_order: 3, trigger_label: 'Regressive trend', band_label: 'Yellow Notification', colour: 'yellow', def_type: 'Regressive', tarp_level: 2 }),
+        // Fall of ground. Grey is its colour, but no chart has a grey BAND — so
+        // no band label, no TARP level, and nothing for the subject to quote.
+        trigger({ id: 4, sort_order: 4, trigger_label: 'Fall of Ground', colour: 'grey', def_type: 'Failure' })
     ],
     contacts: [], revisions: []
 };
@@ -121,6 +128,17 @@ describe('renderSubjectLabel', () => {
 
     it('quotes the band label verbatim', () => {
         expect(renderSubjectLabel('{band}:', facts)).toBe('TARP Trigger 4 - Red:');
+    });
+
+    it('keeps the fired alarm and the row\'s band apart', () => {
+        // Different facts, and a template may ask for either. No site sets an
+        // {AlarmColour} wording today — with the alarm back in the prefix there
+        // is nothing for it to say — but a site that turns the prefix off has
+        // no other way to name the alarm that fired.
+        const withAlarm = { ...facts, colour: 'red', alarmColour: 'orange' };
+        expect(renderSubjectLabel('{AlarmColour} Alarm:', withAlarm)).toBe('Orange Alarm:');
+        expect(renderSubjectLabel('{Colour} Notification:', withAlarm)).toBe('Red Notification:');
+        expect(renderSubjectLabel('{AlarmColour} Alarm:', facts)).toBe('');
     });
 
     it('says nothing at all when the row lacks the fact the template asks for', () => {
@@ -293,21 +311,90 @@ describe('Hidden Valley — names the band, and the token says whether an alarm 
             .toBe('[NOTIFICATION ONLY] Yellow Notification: Regressive on R01 - Hidden Valley');
     });
 
-    it('says "<Colour> Alarm" when one did', () => {
+    it('keeps the band in the token and puts the alarm in the prefix', () => {
+        // The two slots answer different questions, so both facts survive: an
+        // ORANGE alarm beside a RED band says so, and neither overwrites the
+        // other. Structurally identical to Telfer's
+        // "Orange Alarms - TARP Trigger 4:".
+        expect(subject('Progressive', ORANGE)).toBe(
+            '[CRITICAL] Orange Alarms - Red Notification: '
+            + 'Progressive Deformation Trend on R01 - Hidden Valley');
+        expect(subject('Linear', RED)).toBe(
+            '[MODERATE RISK] Red Alarms - Orange Notification: '
+            + 'Linear Deformation Trend on R01 - Hidden Valley');
+    });
+
+    it('lists two regions at once, as every other site does', () => {
+        expect(subject('Linear', [...RED, ...ORANGE])).toBe(
+            '[MODERATE RISK] Red and Orange Alarms - Orange Notification: '
+            + 'Linear Deformation Trend on R01 - Hidden Valley');
+    });
+
+    it('quotes no band for a fall of ground, alarm or not', () => {
+        // The bug this whole arrangement exists to kill: grey is the row's
+        // COLOUR, and "Grey Notification:" cited a band the client's chart does
+        // not contain. The row sits in no band, so the token has nothing to say
+        // and the finding names itself.
+        expect(subject('Failure', [])).toBe(
+            '[NOTIFICATION ONLY] Failure Pattern Indication on R01 - Hidden Valley');
+        expect(subject('Failure', RED)).toBe(
+            '[NOTIFICATION ONLY] Red Alarms - Failure Pattern Indication on R01 - Hidden Valley');
+    });
+
+    it('reads the same way on every row that does sit in a band', () => {
+        // One shape for the whole chart: <alarm prefix> <band>: <finding>.
+        // The trend rows used to carry their own wording and drop the colon.
+        expect(subject('Regressive', RED)).toBe(
+            '[NOTIFICATION ONLY] Red Alarms - Yellow Notification: '
+            + 'Regressive on R01 - Hidden Valley');
+    });
+
+    it('needs no second wording for the alarm case', () => {
+        // subject_label_template_alarm is null: with the alarm out of the token
+        // there is nothing left for a second template to say, and the token is
+        // the same either way.
+        expect(subject('Progressive', RED)).toContain('Red Notification:');
+        expect(subject('Progressive', [])).toContain('Red Notification:');
+    });
+});
+
+describe('alarm_prefix_style: if-different', () => {
+    const sensor = 'R01 - Hidden Valley';
+    const ifDifferent = { ...hiddenValleyRow, alarm_prefix_style: 'if-different' };
+    const subject = (type, alarmRegions) => subjectFor(ifDifferent, type, { alarmRegions, sensor });
+
+    it('drops the prefix when the alarm matches the row\'s own band', () => {
+        // "Red Alarms - Red Notification:" says red twice and adds nothing.
         expect(subject('Progressive', RED))
-            .toBe('[CRITICAL] Red Alarm: Progressive Deformation Trend on R01 - Hidden Valley');
-        expect(subject('Linear', ORANGE))
-            .toBe('[MODERATE RISK] Orange Alarm: Linear Deformation Trend on R01 - Hidden Valley');
+            .toBe('[CRITICAL] Red Notification: Progressive Deformation Trend on R01 - Hidden Valley');
     });
 
-    it('takes the colour from the TARP band, not from the region the engineer ticked', () => {
-        // An orange region on a red row is still a Red Alarm — the chart wins.
-        expect(subject('Progressive', ORANGE))
-            .toBe('[CRITICAL] Red Alarm: Progressive Deformation Trend on R01 - Hidden Valley');
+    it('keeps it when they differ, which is the case that carries news', () => {
+        expect(subject('Progressive', ORANGE)).toBe(
+            '[CRITICAL] Orange Alarms - Red Notification: '
+            + 'Progressive Deformation Trend on R01 - Hidden Valley');
     });
 
-    it('does not also list the alarm colours, which would say it twice', () => {
-        expect(subject('Progressive', RED)).not.toContain('Alarms - ');
+    it('keeps it when only one of two regions is already named', () => {
+        expect(subject('Linear', [...RED, ...ORANGE])).toBe(
+            '[MODERATE RISK] Red and Orange Alarms - Orange Notification: '
+            + 'Linear Deformation Trend on R01 - Hidden Valley');
+    });
+
+    it('changes nothing at a site whose token quotes a number', () => {
+        // Telfer's ROW is red, but its token is "TARP Trigger 4:" and says
+        // nothing about red — so a red alarm there is still news. Comparing
+        // band colour to alarm colour instead of reading the token would have
+        // dropped this prefix.
+        const telferIfDifferent = { ...telferRow, alarm_prefix_style: 'if-different' };
+        expect(subjectFor(telferIfDifferent, 'Progressive', { alarmRegions: RED, sensor: 'R01 - Telfer' }))
+            .toBe('[CRITICAL] Red Alarms - TARP Trigger 4: Progressive Deformation Trend on R01 - Telfer');
+    });
+
+    it('shows the prefix when there is no record to compare against', () => {
+        // resolveAlarmPrefixStyle with no context cannot make the comparison,
+        // and repeating a fact is safer than losing one.
+        expect(resolveAlarmPrefixStyle({ alarmPrefixStyle: 'if-different' })).toBe('regions');
     });
 
     it('keeps the TARP level on the record even without an alarm', () => {
@@ -324,6 +411,7 @@ describe('per-row overrides', () => {
         ...hiddenValleyRow,
         triggers: [trigger({
             id: 1, sort_order: 1, trigger_label: 'Progressive trend',
+            band_label: 'Red Notification',
             colour: 'red', def_type: 'Progressive', tarp_level: 4, ...over
         })]
     });
@@ -347,20 +435,6 @@ describe('per-row overrides', () => {
             policy: policyFor(withRow({ subject_label: 'ROW WORDING:' }))
         });
         expect(label).toBe('ROW WORDING:');
-    });
-
-    it('overrides the risk bracket when the row says so', () => {
-        const row = withRow({ severity_bracket: 'EVACUATE' });
-        expect(subjectFor(row, 'Progressive', { sensor: 'R01 - HV' }))
-            .toBe('[EVACUATE] Red Notification: Progressive Deformation Trend on R01 - HV');
-    });
-
-    it('writes the body in the risk-derived tone even when the bracket is overridden', () => {
-        const composed = composeDeformationSubject({
-            type: 'Progressive', sensor: 'R01 - HV',
-            policy: policyFor(withRow({ severity_bracket: 'EVACUATE' }))
-        });
-        expect(composed.bracket).toBe('CRITICAL');
     });
 });
 
@@ -390,15 +464,5 @@ describe('a notification time still downgrades the bracket', () => {
             sensor: 'R01 - Hidden Valley',
             notificationTime: '2026-07-28T04:00:00Z'
         })).toBe('[NOTIFICATION ONLY] Red Notification: Progressive Deformation Trend on R01 - Hidden Valley');
-    });
-});
-
-describe('resolveSeverityBracket', () => {
-    it('is null when the row has no override, so the TARP level decides', () => {
-        expect(resolveSeverityBracket('Progressive', { policy: policyFor(telferRow) })).toBeNull();
-    });
-
-    it('is null for a type the document does not list', () => {
-        expect(resolveSeverityBracket('Rock Fall', { policy: policyFor(telferRow) })).toBeNull();
     });
 });

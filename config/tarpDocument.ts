@@ -59,14 +59,11 @@ export interface TarpTrigger {
 
     /** null = follow the document default. */
     responseMethod: TarpResponseMethod | null;
-    /** Optional custom wording shown when this row deviates from the default. */
-    responseNotice: string | null;
 
     // Engine columns
     defType: string | null;         // matches TYPE_MATRIX keys in formConfig.ts
     tarpLevel: number | null;       // 0-4
     requiresAlarm: boolean;
-    severityBracket: string | null;
 
     /**
      * Subject token wording for this row. Null inherits the document template.
@@ -178,11 +175,9 @@ export const normalizeTarpDocument = (row: any): TarpDocument | null => {
         comments: asArray(t.comments),
         extraNote: t.extra_note ?? null,
         responseMethod: (t.response_method ?? null) as TarpResponseMethod | null,
-        responseNotice: t.response_notice ?? null,
         defType: t.def_type ?? null,
         tarpLevel: t.tarp_level ?? null,
         requiresAlarm: Boolean(t.requires_alarm),
-        severityBracket: t.severity_bracket ?? null,
         subjectLabel: t.subject_label ?? null,
         subjectLabelAlarm: t.subject_label_alarm ?? null
     })).sort(bySortOrder);
@@ -256,8 +251,7 @@ export const buildPolicyFromDocument = (doc: TarpDocument): TarpPolicy => {
         subjectLabel: trigger.subjectLabel,
         subjectLabelAlarm: trigger.subjectLabelAlarm,
         colour: trigger.colour,
-        bandLabel: trigger.bandLabel,
-        severityBracket: trigger.severityBracket
+        bandLabel: trigger.bandLabel
     });
 
     for (const trigger of doc.triggers) {
@@ -401,7 +395,7 @@ export const resolveResponseRequirement = (
         method,
         label: RESPONSE_METHOD_LABEL[method],
         deviates,
-        notice: deviates ? (trigger.responseNotice || DEVIATION_WORDING[method]) : '',
+        notice: deviates ? DEVIATION_WORDING[method] : '',
         trigger,
         alarmOverride: false
     };

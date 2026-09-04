@@ -21,6 +21,13 @@ import {
  * Props:
  *   triggers              {TarpTrigger[]} - normalised rows, in display order
  *   defaultResponseMethod {string}        - the document's normal response
+ *   subjectTokens         {object}        - trigger id -> the subject token that
+ *                                           row produces ("TARP Trigger 4:",
+ *                                           "Red Notification:"). Resolved by
+ *                                           the email engine and passed in, so
+ *                                           the chart quotes what the inbox will
+ *                                           say instead of a TARP number a site
+ *                                           that names its bands never uses.
  *   locale                {'en'|'id'}     - language the chart is read in
  *   editable              {boolean}       - show the per-row edit affordance
  *   onEdit                {function}      - (trigger) => void
@@ -61,6 +68,7 @@ export const groupByRiskBand = (triggers = []) => {
 export default function TarpChart({
   triggers = [],
   defaultResponseMethod = 'call',
+  subjectTokens = {},
   locale = 'en',
   editable = false,
   onEdit,
@@ -98,6 +106,10 @@ export default function TarpChart({
               // translated cell no longer contains.
               const response = resolveResponseRequirement(source, { defaultResponseMethod });
               const trigger = translateTriggerRow(source, locale);
+              // What the subject will actually announce this row as, resolved
+              // by the email engine rather than restated here. The trailing
+              // colon belongs to a subject line, not to a chart caption.
+              const subjectToken = (subjectTokens[source.id] || '').replace(/:\s*$/, '');
               const colour = styleFor(trigger.colour);
               const MethodIcon = METHOD_ICON[response?.method] || Phone;
               return (
@@ -144,7 +156,7 @@ export default function TarpChart({
                     {trigger.defType && (
                       <div className="mt-1 text-[11px] text-[var(--dtg-text-muted)]">
                         {t.drives} <code>{trigger.defType}</code>
-                        {trigger.tarpLevel !== null && ` → TARP ${trigger.tarpLevel}`}
+                        {subjectToken && ` → ${subjectToken}`}
                         {trigger.requiresAlarm && ` (${t.alarmOnly})`}
                       </div>
                     )}

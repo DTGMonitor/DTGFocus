@@ -20,7 +20,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  *     key:      string,
  *     label:    string,
  *     type:     'text' | 'textarea' | 'datetime-local' | 'number' | 'select' | 'readonly'
- *               | 'heading',
+ *               | 'heading' | 'preview',
  *     options?: { value: string, label: string }[],   // static options for type='select'
  *     computeOptions?: (values) => { value, label }[], // dynamic options derived from current values
  *     clearWhen?: string[],   // when any of these field keys change, clear this field's value
@@ -29,7 +29,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  *     showWhen?: (values) => boolean,  // hidden fields render nothing and skip validation
  *     derive?:   (values) => string,   // fills the field while it is still empty
  *     collapsible?: boolean,    // 'heading' only — the fields under it fold away
- *     defaultCollapsed?: boolean
+ *     defaultCollapsed?: boolean,
+ *     rows?: (values) => { label, value }[],  // 'preview' only — what the form
+ *                                             // is about to produce, live
+ *     emptyText?: string        // 'preview' only — shown when rows is empty
  *   }
  *
  * A 'heading' field owns every field after it until the next heading, which is
@@ -38,6 +41,9 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  */
 
 const isHeading = (field) => field.type === 'heading';
+
+/** Field types that render no focusable control, so their label points at nothing. */
+const NO_INPUT = new Set(['readonly', 'preview']);
 
 /** Fields the current values have hidden — they neither render nor validate. */
 const isVisible = (field, values) =>
@@ -184,6 +190,32 @@ const EditModal = ({
             {value || <span className="italic text-[var(--dtg-text-secondary)] opacity-60">—</span>}
           </div>
         );
+
+      // Not an input at all: what the form is ABOUT to produce, recomputed on
+      // every keystroke from the values on screen. A field's own help can only
+      // describe the rule it obeys; this shows the result of every field at once,
+      // which is the thing an engineer is actually agreeing to when they save.
+      case 'preview': {
+        const rows = typeof field.rows === 'function' ? field.rows(values) : [];
+        return (
+          <div className="w-full rounded-md border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-secondary)] px-3 py-2 space-y-2">
+            {rows.length === 0 ? (
+              <p className="text-xs italic text-[var(--dtg-text-muted)]">
+                {field.emptyText || 'Nothing to preview yet.'}
+              </p>
+            ) : rows.map((row) => (
+              <div key={row.label}>
+                <p className="text-[11px] uppercase tracking-wide text-[var(--dtg-text-muted)]">
+                  {row.label}
+                </p>
+                <p className="text-xs font-mono break-words text-[var(--dtg-text-primary)]">
+                  {row.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        );
+      }
 
       case 'textarea':
         return (
@@ -340,11 +372,11 @@ const EditModal = ({
                   return (
                     <div key={field.key}>
                       <label
-                        htmlFor={field.type !== 'readonly' ? `edit-field-${field.key}` : undefined}
+                        htmlFor={NO_INPUT.has(field.type) ? undefined : `edit-field-${field.key}`}
                         className="block text-sm font-medium text-[var(--dtg-text-primary)] mb-1"
                       >
                         {field.label}
-                        {field.required && field.type !== 'readonly' && (
+                        {field.required && !NO_INPUT.has(field.type) && (
                           <span className="text-red-500 ml-1" aria-hidden="true">*</span>
                         )}
                       </label>

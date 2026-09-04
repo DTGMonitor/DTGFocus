@@ -20,7 +20,7 @@ import {
   buildPolicyFromDocument,
   inferResponseMethod,
 } from '@/config/tarpDocument';
-import { DEFAULT_SUBJECT_LABEL_TEMPLATE } from '@/config/tarpPolicy';
+import { DEFAULT_SUBJECT_LABEL_TEMPLATE, renderSubjectLabel } from '@/config/tarpPolicy';
 import { composeDeformationSubject } from '@/config/emailSubject';
 import { resolveTarpLocale, tarpStrings, translateDocumentText } from '@/config/tarpLocale';
 import toast from 'react-hot-toast';
@@ -121,11 +121,84 @@ const responseOptions = (values) =>
     }]
     : RESPONSE_OPTIONS;
 
-const SUBJECT_TOKEN_HINT = 'Tokens: {level} {colour} {Colour} {band}';
+/**
+ * What each token means, in words, for the site-wide fields where there is no
+ * one row to resolve them against. The per-row fields say more than this — see
+ * `subjectTokenValues`, which shows what each one becomes on the row on screen.
+ */
+const SUBJECT_TOKEN_HINT =
+  'Tokens: {band} the row\'s TARP band ("Red Notification", "TARP Trigger 4 - Red"), '
+  + '{level} its TARP number, {Colour} its band colour, '
+  + '{AlarmColour} the colour of the alarm that fired. '
+  + 'A token the row cannot answer drops the whole wording, which is how rows '
+  + 'that sit in no band stay silent.';
+
+/** An example alarm, so the alarm wording can be previewed at all. */
+const EXAMPLE_ALARM_COLOUR = 'red';
+
+const capitalise = (value) =>
+  value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+
+/** The facts a row offers the token renderer, read off the form as it stands. */
+const subjectFactsFor = (values, alarmColour = null) => ({
+  level: values.tarpLevel === '' || values.tarpLevel === undefined
+    ? null
+    : Number(values.tarpLevel),
+  colour: values.colour || null,
+  band: values.bandLabel || null,
+  alarmColour,
+});
+
+/**
+ * Every token spelled out against THIS row — "{band} → “Red Notification”" —
+ * so the wording box is read rather than guessed at. A token the row cannot
+ * answer says so, because that is the case that silently empties a subject.
+ */
+const subjectTokenValues = (values) => {
+  const facts = subjectFactsFor(values);
+  return [
+    ['{band}', facts.band],
+    ['{level}', facts.level === null || Number.isNaN(facts.level) ? null : String(facts.level)],
+    ['{Colour}', facts.colour ? capitalise(facts.colour) : null],
+  ]
+    .map(([token, value]) => `${token} → ${value ? `“${value}”` : 'nothing on this row'}`)
+    .join('   ');
+};
+
+/** "Red Notification:" — what the subject will actually open with. */
+const renderedToken = (template, values, alarmColour = null) => {
+  const rendered = renderSubjectLabel(template, subjectFactsFor(values, alarmColour));
+  return rendered ? `“${rendered}”` : 'no wording at all';
+};
+
+const subjectLabelHelp = (values) => {
+  const siteWording = values._subjectLabelTemplate || DEFAULT_SUBJECT_LABEL_TEMPLATE;
+  const template = values.subjectLabel?.trim() || siteWording;
+  return `Blank follows the site wording, “${siteWording}”. `
+    + `This row opens with ${renderedToken(template, values)}.   `
+    + subjectTokenValues(values);
+};
+
+const subjectLabelAlarmHelp = (values) => {
+  const siteWording = values._subjectLabelTemplateAlarm
+    || values._subjectLabelTemplate || DEFAULT_SUBJECT_LABEL_TEMPLATE;
+  // The same fallback chain resolveSubjectLabel walks, so the preview cannot
+  // disagree with the email.
+  const template = values.subjectLabelAlarm?.trim() || values.subjectLabel?.trim() || siteWording;
+  return `Blank follows the wording above, then the site's. `
+    + `With a ${EXAMPLE_ALARM_COLOUR} alarm this row opens with `
+    + `${renderedToken(template, values, EXAMPLE_ALARM_COLOUR)}.   `
+    + `{AlarmColour} → “${capitalise(EXAMPLE_ALARM_COLOUR)}” for that alarm.`;
+};
 
 const ALARM_PREFIX_OPTIONS = [
   { value: 'regions', label: 'Yes — prefix with the alarm colours, e.g. "Red and Orange Alarms - "' },
   { value: 'none', label: 'No — the trigger wording already names the alarm' },
+  {
+    value: 'if-different',
+    label: 'Only when the alarm is a different colour from the row\'s band'
+      + ' — for charts whose wording already names a colour',
+  },
 ];
 
 /**
@@ -149,14 +222,42 @@ const levelMatchesBand = (values) => {
 };
 
 /**
- * Whether this row departs from the site's normal response — the same test
- * `resolveResponseRequirement` makes, so the form asks for the deviation notice
- * exactly where the chart and the workbook will print one.
+ * The sensor and alarm the preview is written against.
+ *
+ * The region type is capitalised because that is the form the deformation form
+ * ticks and the subject prints verbatim — 'red' would preview "red Alarms - ".
  */
-const deviatesFromDefault = (values) => {
-  const fallback = values._defaultResponseMethod || 'call';
-  const stated = values.responseMethod || inferResponseMethod(values.dayShift);
-  return Boolean(stated) && stated !== fallback;
+const PREVIEW_SENSOR = 'R01';
+const PREVIEW_ALARM = [{ type: capitalise(EXAMPLE_ALARM_COLOUR), name: 'AR1' }];
+
+/**
+ * The subject lines this row will send, as the form stands.
+ *
+ * Built through `composeDeformationSubject` — the same call the deformation
+ * form makes — against the whole document with THIS row swapped for the values
+ * on screen. Not a re-implementation of the rules: a rule the engine follows
+ * and the preview does not is the exact failure this exists to catch, and the
+ * bottom-of-page preview cannot help while the modal is open over it.
+ *
+ * A row with no deformation type sends nothing, whatever its wording says.
+ */
+const subjectPreviewRows = (values) => {
+  const ctx = values._preview;
+  if (!ctx || !values.defType) return [];
+
+  const edited = fromTriggerValues(ctx.trigger, values);
+  const triggers = ctx.triggers.map((t) => (t.id === ctx.trigger.id ? edited : t));
+  const policy = buildPolicyFromDocument({ ...ctx.document, triggers });
+  const sensor = `${PREVIEW_SENSOR} - ${ctx.siteName}`;
+
+  const compose = (alarmRegions) => composeDeformationSubject({
+    type: values.defType, sensor, alarmRegions, policy,
+  }).subject;
+
+  return [
+    { label: 'No alarm', value: compose([]) },
+    { label: `With a ${EXAMPLE_ALARM_COLOUR} alarm`, value: compose(PREVIEW_ALARM) },
+  ];
 };
 
 /**
@@ -269,17 +370,6 @@ export const TRIGGER_FIELDS = [
     },
   },
   {
-    key: 'responseNotice',
-    label: 'Deviation notice',
-    type: 'textarea',
-    // Printed only where the row departs from the site's normal response, so it
-    // is asked for only there too.
-    showWhen: (values) => deviatesFromDefault(values),
-    help: 'Shown beside this row because it departs from the site\'s normal response. '
-      + 'Blank uses the standard wording.',
-  },
-
-  {
     key: '_advanced',
     type: 'heading',
     label: 'Advanced — subject wording',
@@ -288,13 +378,30 @@ export const TRIGGER_FIELDS = [
     help: `Per-row overrides. Blank follows the site rule. ${SUBJECT_TOKEN_HINT}`,
   },
 
-  { key: 'subjectLabel', label: 'Subject wording, no alarm', type: 'text' },
-  { key: 'subjectLabelAlarm', label: 'Subject wording, with an alarm', type: 'text' },
   {
-    key: 'severityBracket',
-    label: 'Severity bracket',
+    key: 'subjectLabel',
+    label: 'Subject wording, no alarm',
     type: 'text',
-    help: 'Overrides [CRITICAL] / [MODERATE RISK], which otherwise comes from the TARP level.',
+    help: subjectLabelHelp,
+  },
+  {
+    key: 'subjectLabelAlarm',
+    label: 'Subject wording, with an alarm',
+    type: 'text',
+    help: subjectLabelAlarmHelp,
+  },
+
+  { key: '_receives', type: 'heading', label: 'What the client receives' },
+
+  {
+    key: '_subjectPreview',
+    label: 'Email subject, as this row stands',
+    type: 'preview',
+    rows: (values) => subjectPreviewRows(values),
+    emptyText: 'This row answers no deformation type, so it sends no email. '
+      + 'Set one above to see the subject it would produce.',
+    help: 'Recomputed as you type, through the same code that sends the email. '
+      + 'Unsaved — Cancel leaves the chart exactly as it is.',
   },
 ];
 
@@ -431,6 +538,13 @@ const REVISION_FIELDS = [
 const toTriggerValues = (trigger, context = {}) => ({
   _hasParameterAxis: Boolean(context.hasParameterAxis),
   _defaultResponseMethod: context.defaultResponseMethod || 'call',
+  // The site wording this row inherits when its own boxes are blank, so the
+  // form can show what the row actually says rather than only what it overrides.
+  _subjectLabelTemplate: context.subjectLabelTemplate || '',
+  _subjectLabelTemplateAlarm: context.subjectLabelTemplateAlarm || '',
+  // Everything the subject preview needs that a single row cannot answer: the
+  // document around it, and the row as stored so edits can be layered on top.
+  _preview: context.preview ? { ...context.preview, trigger } : null,
   triggerLabel: trigger.triggerLabel || '',
   parameter: trigger.parameter || '',
   bandLabel: trigger.bandLabel || '',
@@ -438,7 +552,6 @@ const toTriggerValues = (trigger, context = {}) => ({
   colour: trigger.colour || '',
   description: trigger.description || '',
   responseMethod: trigger.responseMethod || '',
-  responseNotice: trigger.responseNotice || '',
   dayShift: trigger.dayShift || '',
   nightShift: trigger.nightShift || '',
   commentsText: (trigger.comments || []).join('\n'),
@@ -448,7 +561,6 @@ const toTriggerValues = (trigger, context = {}) => ({
   requiresAlarm: trigger.requiresAlarm ? 'yes' : 'no',
   subjectLabel: trigger.subjectLabel || '',
   subjectLabelAlarm: trigger.subjectLabelAlarm || '',
-  severityBracket: trigger.severityBracket || '',
 });
 
 const fromTriggerValues = (trigger, values) => ({
@@ -460,7 +572,6 @@ const fromTriggerValues = (trigger, values) => ({
   colour: values.colour || null,
   description: values.description?.trim() || null,
   responseMethod: values.responseMethod || null,
-  responseNotice: values.responseNotice?.trim() || null,
   dayShift: values.dayShift?.trim() || null,
   nightShift: values.nightShift?.trim() || null,
   comments: String(values.commentsText || '')
@@ -476,7 +587,6 @@ const fromTriggerValues = (trigger, values) => ({
   // Blank means "follow the site rule", not "say nothing".
   subjectLabel: values.subjectLabel?.trim() || null,
   subjectLabelAlarm: values.subjectLabelAlarm?.trim() || null,
-  severityBracket: values.severityBracket?.trim() || null,
 });
 
 /** Domain trigger -> the snake_case payload tarp_save_revision expects. */
@@ -495,11 +605,9 @@ const toTriggerPayload = (trigger, index) => ({
   def_type: trigger.defType,
   tarp_level: trigger.tarpLevel === null ? '' : String(trigger.tarpLevel),
   requires_alarm: trigger.requiresAlarm,
-  severity_bracket: trigger.severityBracket,
   subject_label: trigger.subjectLabel,
   subject_label_alarm: trigger.subjectLabelAlarm,
   response_method: trigger.responseMethod,
-  response_notice: trigger.responseNotice,
 });
 
 const toContactPayload = (contact, index) => ({
@@ -610,7 +718,24 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
     // the field is offered wherever the chart already has that axis.
     hasParameterAxis: triggers.some((t) => t.parameter),
     defaultResponseMethod: rules.default_response_method,
-  }), [triggers, rules.default_response_method]);
+    // Read from the draft, not the saved document: an engineer changing the
+    // site wording should see the rows follow it before saving.
+    subjectLabelTemplate: rules.subject_label_template || DEFAULT_SUBJECT_LABEL_TEMPLATE,
+    subjectLabelTemplateAlarm: rules.subject_label_template_alarm || '',
+    preview: doc ? {
+      triggers,
+      siteName: sensor?.site_name || 'Site',
+      // The draft rules, not the saved ones — the preview has to answer for the
+      // chart as it will be published, not as it was loaded.
+      document: {
+        ...doc,
+        subjectLabelTemplate: rules.subject_label_template || DEFAULT_SUBJECT_LABEL_TEMPLATE,
+        subjectLabelTemplateAlarm: rules.subject_label_template_alarm || null,
+        alarmPrefixStyle: rules.alarm_prefix_style || 'regions',
+        tarpLevelSource: rules.tarp_level_source || 'trigger',
+      },
+    } : null,
+  }), [doc, triggers, rules, sensor?.site_name]);
 
   const triggerValues = useMemo(
     () => (editTarget ? toTriggerValues(editTarget, triggerContext) : {}),
@@ -637,17 +762,29 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
 
     return triggers
       .filter((t) => t.defType)
-      .map((t) => ({
-        id: t.id,
-        defType: t.defType,
-        withoutAlarm: composeDeformationSubject({
+      .map((t) => {
+        const plain = composeDeformationSubject({
           type: t.defType, sensor: exampleSensor, policy,
-        }).subject,
-        withAlarm: composeDeformationSubject({
+        });
+        const alarmed = composeDeformationSubject({
           type: t.defType, sensor: exampleSensor, alarmRegions: exampleAlarm, policy,
-        }).subject,
-      }));
+        });
+        return {
+          id: t.id,
+          defType: t.defType,
+          // The token on its own, for the chart's "drives" line.
+          token: plain.triggerLabel,
+          withoutAlarm: plain.subject,
+          withAlarm: alarmed.subject,
+        };
+      });
   }, [doc, triggers, rules, sensor?.site_name]);
+
+  /** The same tokens keyed by row, for TarpChart. */
+  const subjectTokens = useMemo(
+    () => Object.fromEntries(subjectPreviews.map((p) => [p.id, p.token])),
+    [subjectPreviews],
+  );
 
   const isDirty = useMemo(() => {
     if (!isEditing || !doc) return false;
@@ -1335,6 +1472,7 @@ export default function TarpTab({ sensor, userSite, activeTab, timezone }) {
       <TarpChart
         triggers={triggers}
         defaultResponseMethod={rules.default_response_method}
+        subjectTokens={subjectTokens}
         locale={locale}
         editable={isEditing}
         onEdit={setEditTarget}

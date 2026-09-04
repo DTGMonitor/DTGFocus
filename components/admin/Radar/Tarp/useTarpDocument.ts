@@ -30,9 +30,9 @@ const SELECT = `
   triggers:tarp_triggers (
     id, sort_order, parameter, risk_rating, band_label, trigger_label, colour, description,
     day_shift, night_shift, comments, extra_note,
-    def_type, tarp_level, requires_alarm, severity_bracket,
+    def_type, tarp_level, requires_alarm,
     subject_label, subject_label_alarm,
-    response_method, response_notice
+    response_method
   ),
   contacts:tarp_contacts (
     id, kind, sort_order, name, role, phone, email

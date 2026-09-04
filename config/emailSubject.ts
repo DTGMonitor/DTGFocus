@@ -19,7 +19,6 @@ import type { EmailLocale } from './emailLocale';
 import {
     DEFAULT_TARP_POLICY,
     resolveAlarmPrefixStyle,
-    resolveSeverityBracket,
     resolveSeverityTarpLevel,
     resolveSubjectLabel,
     resolveTarpLevel,
@@ -51,8 +50,7 @@ export interface DeformationSubject {
     subject: string;
     /**
      * CRITICAL / MODERATE RISK / … as derived from the TARP level, which is the
-     * tone the body is written in. The subject may instead show the row's
-     * `severity_bracket` override; the body deliberately follows the risk.
+     * tone the body is written in.
      *
      * Always the ENGLISH wording, in every locale: it is a key, read by the body
      * generator to decide the tone and by the work log to pick its row. Only the
@@ -95,14 +93,18 @@ export const composeDeformationSubject = ({
     const severityTarp = resolveSeverityTarpLevel(reportedType, facts);
 
     const logDetails = getWorkLogDetails(severityTarp, notificationTime);
-    const bracket = resolveSeverityBracket(reportedType, facts) || logDetails.subject;
+    const bracket = logDetails.subject;
     const triggerLabel = resolveSubjectLabel(reportedType, facts);
 
     // `type` — not `reportedType` — still names the finding: the wording is the
     // one thing that must carry both halves.
     const subject = generateEmailSubject(bracket, tarpLevel, type, sensor, alarmRegions, {
         triggerLabel,
-        alarmPrefixStyle: resolveAlarmPrefixStyle(activePolicy),
+        // 'if-different' is answered against this record, not the document —
+        // it depends on which alarm fired beside which band.
+        alarmPrefixStyle: resolveAlarmPrefixStyle(activePolicy, {
+            type: reportedType, hasAlarm, alarmColours
+        }),
         locale,
         contaminatedFrom
     });

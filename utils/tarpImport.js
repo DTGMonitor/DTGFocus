@@ -406,12 +406,10 @@ const buildTrigger = (fields) => {
     // Read from the day-shift cell where the sheet has one; the matrix layout
     // has no such column, and null there means "follow the site default".
     responseMethod: inferResponseMethod(dayShift),
-    responseNotice: null,
     defType,
     tarpLevel: tarpLevel === undefined ? defaults.tarpLevel : tarpLevel,
     // An "Orange Alarm" row applies only when an alarm actually fired.
     requiresAlarm: isAlarm,
-    severityBracket: null,
     subjectLabel: null,
     subjectLabelAlarm: null,
   };
@@ -898,9 +896,7 @@ export const toImportPayload = (trigger, index) => ({
   tarp_level: trigger.tarpLevel === null || trigger.tarpLevel === undefined
     ? '' : String(trigger.tarpLevel),
   requires_alarm: Boolean(trigger.requiresAlarm),
-  severity_bracket: trigger.severityBracket,
   subject_label: trigger.subjectLabel,
   subject_label_alarm: trigger.subjectLabelAlarm,
   response_method: trigger.responseMethod,
-  response_notice: trigger.responseNotice,
 });

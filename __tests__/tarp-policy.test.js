@@ -180,8 +180,7 @@ describe('response method', () => {
             {
                 id: 3, sort_order: 3, trigger_label: 'Linear trend (constant velocity)',
                 comments: [], def_type: 'Linear', tarp_level: 3, requires_alarm: true,
-                response_method: 'email',
-                response_notice: 'Report this trend by email to Leonora Geotech — do not call.'
+                response_method: 'email'
             },
             {
                 id: 4, sort_order: 4, trigger_label: 'Fall of Ground/failure', comments: [],
@@ -217,9 +216,9 @@ describe('response method', () => {
         expect(req.deviates).toBe(false);
     });
 
-    it('falls back to generic wording when no custom notice is set', () => {
+    it('states the standard wording for the method', () => {
         const req = resolveResponseRequirement(
-            { responseMethod: 'email', responseNotice: null },
+            { responseMethod: 'email' },
             { defaultResponseMethod: 'call' }
         );
         expect(req.notice).toBe('Email only — do NOT call.');
@@ -227,7 +226,7 @@ describe('response method', () => {
 
     it('flags the reverse case too — a call on an email-first site', () => {
         const req = resolveResponseRequirement(
-            { responseMethod: 'call', responseNotice: null },
+            { responseMethod: 'call' },
             { defaultResponseMethod: 'email' }
         );
         expect(req.deviates).toBe(true);
@@ -259,8 +258,7 @@ describe('response method when an alarm fired', () => {
             {
                 id: 3, sort_order: 3, trigger_label: 'Linear trend (constant velocity)',
                 comments: [], colour: 'orange', def_type: 'Linear', tarp_level: 3,
-                requires_alarm: true, response_method: 'email',
-                response_notice: 'Email only — do not call.'
+                requires_alarm: true, response_method: 'email'
             },
             {
                 id: 4, sort_order: 4, trigger_label: 'Orange Alarm', comments: [], colour: 'orange',
@@ -476,7 +474,7 @@ describe('response method inferred from the shift cell', () => {
     it('does not print CALL beside a cell that says email', () => {
         // Telfer's blast row: call-first site, no response_method, email prose.
         const req = resolveResponseRequirement(
-            { responseMethod: null, responseNotice: null, dayShift: 'Email Geotech' },
+            { responseMethod: null, dayShift: 'Email Geotech' },
             { defaultResponseMethod: 'call' }
         );
         expect(req.method).toBe('email');
@@ -491,7 +489,6 @@ describe('response method inferred from the shift cell', () => {
         const req = resolveResponseRequirement(
             {
                 responseMethod: 'call',
-                responseNotice: null,
                 dayShift: 'Call supervisor and notify Leonorageotech by Email.'
             },
             { defaultResponseMethod: 'call' }
@@ -502,7 +499,7 @@ describe('response method inferred from the shift cell', () => {
 
     it('still falls back to the document default, and never calls that a deviation', () => {
         const req = resolveResponseRequirement(
-            { responseMethod: null, responseNotice: null, dayShift: null },
+            { responseMethod: null, dayShift: null },
             { defaultResponseMethod: 'call' }
         );
         expect(req.method).toBe('call');

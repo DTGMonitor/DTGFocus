@@ -13,8 +13,17 @@
 
 import { TYPE_MATRIX } from './formConfig';
 
-/** Whether the subject keeps the automatic "<colours> Alarms - " prefix. */
-export type AlarmPrefixStyle = 'regions' | 'none';
+/**
+ * Whether the subject keeps the automatic "<colours> Alarms - " prefix.
+ *
+ *   'regions'       always, the DTG standard
+ *   'none'          never
+ *   'if-different'  only when the alarm that fired is a different colour from
+ *                   the band the row sits in. For sites whose token names a
+ *                   colour, where the two agreeing would say it twice.
+ *                   See `resolveAlarmPrefixStyle`.
+ */
+export type AlarmPrefixStyle = 'regions' | 'none' | 'if-different';
 
 /**
  * Which row decides the TARP level a record is reported at.
@@ -60,8 +69,6 @@ export interface TarpRule {
     colour?: string | null;
     /** Band label of the row, for `{band}`. */
     bandLabel?: string | null;
-    /** Overrides the derived [CRITICAL] / [MODERATE RISK] bracket. */
-    severityBracket?: string | null;
 }
 
 export interface TarpPolicy {
@@ -291,12 +298,23 @@ export const resolveSeverityTarpLevel = (
 // subject a client receives and the chart they signed cannot drift apart.
 // ---------------------------------------------------------------------------
 
-const SUBJECT_TOKEN = /\{(level|colour|color|Colour|Color|band)\}/g;
+const SUBJECT_TOKEN =
+    /\{(level|alarmColour|alarmColor|AlarmColour|AlarmColor|colour|color|Colour|Color|band)\}/g;
 
 export interface SubjectLabelFacts {
     level: number | null;
     colour?: string | null;
     band?: string | null;
+    /**
+     * Colour of the alarm that actually fired, for `{AlarmColour}`.
+     *
+     * Deliberately NOT the same fact as `colour`. That one is the band the
+     * matched row sits in — a linear trend's row is orange whatever fired
+     * alongside it — so "Orange Alarm:" over a red alarm reads as though the
+     * quieter alarm was the one that went off. Where the site names its bands
+     * rather than numbering them, the alarm has to name itself.
+     */
+    alarmColour?: string | null;
 }
 
 const titleCase = (value: string) =>
@@ -311,7 +329,7 @@ const titleCase = (value: string) =>
  */
 export const renderSubjectLabel = (
     template: string | null | undefined,
-    { level, colour, band }: SubjectLabelFacts
+    { level, colour, band, alarmColour }: SubjectLabelFacts
 ): string => {
     if (!template) return '';
 
@@ -321,6 +339,14 @@ export const renderSubjectLabel = (
             case 'level':
                 if (level === null || level === undefined) { missing = true; return ''; }
                 return String(level);
+            case 'alarmColour':
+            case 'alarmColor':
+                if (!alarmColour) { missing = true; return ''; }
+                return String(alarmColour).toLowerCase();
+            case 'AlarmColour':
+            case 'AlarmColor':
+                if (!alarmColour) { missing = true; return ''; }
+                return titleCase(String(alarmColour));
             case 'colour':
             case 'color':
                 if (!colour) { missing = true; return ''; }
@@ -341,6 +367,45 @@ export const renderSubjectLabel = (
 const levelOf = (tarp: string): number | null => {
     const match = tarp ? tarp.match(/TARP\s+(\d+)/i) : null;
     return match ? Number(match[1]) : null;
+};
+
+/**
+ * Alarm colours worst-first, for the case where two regions are ticked at once.
+ *
+ * The same relative order as RISK_ORDER in config/riskDisplay.ts, restated here
+ * rather than imported: that module is presentation and this one is the email
+ * engine, and a colour the list does not know sorts last instead of first.
+ */
+const ALARM_COLOUR_ORDER = ['red', 'orange', 'yellow', 'grey', 'green'];
+
+const alarmColourRank = (colour: string): number => {
+    const index = ALARM_COLOUR_ORDER.indexOf(colour);
+    return index === -1 ? ALARM_COLOUR_ORDER.length : index;
+};
+
+/**
+ * The colour to quote for an alarm that fired — "Red" in "Red Alarm:".
+ *
+ * The alarm ROW's colour first, so the subject names a band the client's own
+ * chart carries an alarm row for, and so two regions at once are answered by
+ * the row the document itself ranks highest. Where the document lists no such
+ * row the region still fired, and its own colour is the honest thing to print
+ * rather than dropping the token.
+ *
+ * Distinct from `rule.colour`, which is the band the DEFORMATION row sits in.
+ * See SubjectLabelFacts.alarmColour.
+ */
+const firedAlarmColour = (
+    policy: TarpPolicy,
+    alarmColours: (string | null | undefined)[]
+): string | null => {
+    const fromRow = matchAlarmRule(policy, alarmColours)?.colour;
+    if (fromRow) return normaliseColour(fromRow);
+
+    const ticked = alarmColours.map(normaliseColour).filter(Boolean);
+    if (ticked.length === 0) return null;
+    return ticked.reduce((worst, colour) =>
+        alarmColourRank(colour) < alarmColourRank(worst) ? colour : worst);
 };
 
 /**
@@ -371,23 +436,62 @@ export const resolveSubjectLabel = (
     return renderSubjectLabel(template, {
         level: levelOf(rule.tarp),
         colour: rule.colour,
-        band: rule.bandLabel
+        band: rule.bandLabel,
+        // Only a record that actually carries an alarm can name one. A no-alarm
+        // template that asks for {AlarmColour} renders as nothing, which is the
+        // same silence every other unanswerable token produces.
+        alarmColour: hasAlarm ? firedAlarmColour(policy, alarmColours) : null
     });
 };
 
 /**
- * Per-row override of the [CRITICAL] / [MODERATE RISK] bracket, or null to let
- * `getWorkLogDetails` derive it from the TARP level as usual.
+ * What `generateEmailSubject` is actually told to do. 'if-different' is a
+ * document setting, not an instruction — it has to be answered against a
+ * record before the subject can be built.
  */
-export const resolveSeverityBracket = (
-    type: string,
-    { hasAlarm = false, alarmColours = [], policy = DEFAULT_TARP_POLICY }: ResolveOptions = {}
-): string | null => {
-    const rule = governingRule(policy, type, { hasAlarm, alarmColours });
-    if (!rule) return null;
-    if (rule.requiresAlarm && !hasAlarm) return null;
-    return rule.severityBracket || null;
-};
+export type ResolvedAlarmPrefix = 'regions' | 'none';
 
-export const resolveAlarmPrefixStyle = (policy?: TarpPolicy | null): AlarmPrefixStyle =>
-    policy?.alarmPrefixStyle ?? 'regions';
+/**
+ * Whether this record's subject opens with "Orange Alarms - ".
+ *
+ * A subject has two slots and they answer different questions:
+ *
+ *   prefix   which alarm fired
+ *   token    what severity the record is reported at
+ *
+ * They only collide where the TOKEN already names a colour, because then a red
+ * alarm on a red band says red twice. 'if-different' is that de-duplication and
+ * nothing more: the prefix is dropped only when the token already names every
+ * colour the prefix would have listed.
+ *
+ * The test is against the rendered token, not against the row's band colour.
+ * Those are different questions — Telfer's row IS red and its token is
+ * "TARP Trigger 4:", which says nothing about red, so a red alarm there still
+ * earns its prefix. Comparing colours would have silently swallowed it.
+ *
+ * Answered as 'regions' whenever the comparison cannot be made — no record, no
+ * alarm, no token. Showing the prefix can only repeat a fact; hiding it can
+ * lose one.
+ */
+export const resolveAlarmPrefixStyle = (
+    policy?: TarpPolicy | null,
+    context?: Pick<ResolveOptions, 'hasAlarm' | 'alarmColours'> & { type?: string }
+): ResolvedAlarmPrefix => {
+    const style = policy?.alarmPrefixStyle ?? 'regions';
+    if (style !== 'if-different') return style;
+
+    if (!policy || !context?.type || !context.hasAlarm) return 'regions';
+
+    const alarmColours = context.alarmColours ?? [];
+    const ticked = alarmColours.map(normaliseColour).filter(Boolean);
+    if (ticked.length === 0) return 'regions';
+
+    const token = resolveSubjectLabel(context.type, {
+        hasAlarm: true, alarmColours, policy
+    }).toLowerCase();
+    if (!token) return 'regions';
+
+    // EVERY colour, not any: a red-and-orange prefix beside an "Orange
+    // Notification" token still has to report the red one.
+    return ticked.every(colour => token.includes(colour)) ? 'none' : 'regions';
+};

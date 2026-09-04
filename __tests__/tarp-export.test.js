@@ -170,7 +170,6 @@ describe('buildTarpWorkbook', () => {
         colour: 'orange', day_shift: 'Email Geotech', comments: [],
         def_type: 'Linear', tarp_level: 3, requires_alarm: true,
         response_method: 'email',
-        response_notice: 'Email only — do not call.',
       }],
       contacts: [],
       revisions: [],
@@ -179,7 +178,9 @@ describe('buildTarpWorkbook', () => {
     const wb = await buildTarpWorkbook(deescalated, { siteName: 'Leonora' });
     const noteCell = wb.getWorksheet('Leonora').getRow(5).getCell(8);
     expect(noteCell.value).toContain('EMAIL ONLY');
-    expect(noteCell.value).toContain('do not call');
+    // The standard wording for this method — migration 017 dropped the per-row
+    // response_notice, which no row had used since 005 cleared it.
+    expect(noteCell.value).toContain('do NOT call');
     expect(noteCell.fill.fgColor.argb).toBe('FFFFFF00');
     expect(noteCell.font.bold).toBe(true);
   });
