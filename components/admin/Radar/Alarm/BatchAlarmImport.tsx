@@ -6,6 +6,7 @@ import { X, Upload, AlertTriangle, Trash2, Copy } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toUTC } from "@/utils/timezoneUtils";
+import { CAUSE_OPTIONS } from "@/config/formConfig";
 import toast, { Toaster } from 'react-hot-toast';
 
 // --- 1. STRICT TYPES ---
@@ -38,17 +39,11 @@ interface BatchImportProps {
     onSuccess: () => void;
 }
 
-// --- 2. CONSTANTS (Typed) ---
-const CAUSE_OPTIONS: Record<ReasonType, string[]> = {
-    False: ["Machinery Activity", "Rapid Atmospheric Changes", "Rainfall Event",
-        "Riling Material", "Vegetation", "Pushed Material", "Water Refraction",
-        "Sandstorm Event", "Blasting Event", "Diurnal Pattern", "Wire Mesh",
-        "Mine Facility", "Step After Link Down"],
-    Valid: ["Failure Pattern Indication", "Slip Pattern Indication",
-        "Material Detachment Indication", "Rock Fall", "Rapid Movement",
-        "Progressive Deformation Trend", "Linear Accelerating Trend", "Linear Deformation Trend",
-        "Regressive Deformation Trend"]
-};
+// --- 2. CONSTANTS ---
+// CAUSE_OPTIONS is shared with AddAlarmForm via @/config/formConfig.
+
+// Sentinel <option> value — never a real cause, so it can't collide with one.
+const CUSTOM_CAUSE_SENTINEL = '__custom_cause__';
 
 const getReasonForCause = (cause: string): ReasonType | null => {
     if (CAUSE_OPTIONS.False.includes(cause)) return 'False';
@@ -76,6 +71,20 @@ export const BatchAlarmImport = ({
     const [globalLocation, setGlobalLocation] = useState('');
     const [globalReason, setGlobalReason] = useState<ReasonType>('False');
     const [globalCause, setGlobalCause] = useState('');
+    const [isGlobalCustomCause, setIsGlobalCustomCause] = useState(false);
+
+    // Rows the user has explicitly switched into free-text cause entry.
+    const [customCauseRows, setCustomCauseRows] = useState<Record<string, boolean>>({});
+
+    // A row is in custom mode when it was toggled, or when it already carries a
+    // cause outside the taxonomy (e.g. applied from a custom global cause) —
+    // otherwise the <select> would silently render it as blank.
+    const isRowCustomCause = (row: BatchRow) =>
+        !!customCauseRows[row.id] || (!!row.cause && !CAUSE_OPTIONS[row.reason].includes(row.cause));
+
+    const setRowCause = (idx: number, value: string) => {
+        setRows(prev => prev.map((r, i) => (i === idx ? { ...r, cause: value } : r)));
+    };
 
     // --- DRAG TO COPY STATE ---
     const [dragState, setDragState] = useState<{
@@ -185,6 +194,13 @@ export const BatchAlarmImport = ({
         onDrop,
         accept: { 'text/csv': ['.csv'] }
     });
+
+    // Switching the global reason invalidates the currently picked cause.
+    const changeGlobalReason = (value: ReasonType) => {
+        setGlobalReason(value);
+        setGlobalCause('');
+        setIsGlobalCustomCause(false);
+    };
 
     const applyGlobalToEmpty = () => {
         setRows(prev => prev.map(row => ({
@@ -390,17 +406,48 @@ export const BatchAlarmImport = ({
                         </div>
                         <div className="w-32">
                             <label className="text-xs text-[var(--dtg-gray-500)]">Set Reason</label>
-                            <select className="w-full h-8 text-xs text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] outline-none border border-[var(--dtg-border-medium)] rounded border" value={globalReason} onChange={(e: any) => setGlobalReason(e.target.value)}>
+                            <select className="w-full h-8 text-xs text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] outline-none border border-[var(--dtg-border-medium)] rounded border" value={globalReason} onChange={(e: any) => changeGlobalReason(e.target.value)}>
                                 <option value="False">False</option>
                                 <option value="Valid">Valid</option>
                             </select>
                         </div>
                         <div className="flex-1">
                             <label className="text-xs text-[var(--dtg-gray-500)]">Set Cause</label>
-                            <select className="w-full h-8 text-xs text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] outline-none border border-[var(--dtg-border-medium)] rounded border" value={globalCause} onChange={e => setGlobalCause(e.target.value)}>
-                                <option value="">-- Select --</option>
-                                {CAUSE_OPTIONS[globalReason].map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
+                            {isGlobalCustomCause ? (
+                                <div className="flex gap-1">
+                                    <Input
+                                        className="h-8 text-xs"
+                                        value={globalCause}
+                                        onChange={e => setGlobalCause(e.target.value)}
+                                        placeholder="Type custom cause..."
+                                        autoFocus
+                                    />
+                                    <button
+                                        onClick={() => { setIsGlobalCustomCause(false); setGlobalCause(''); }}
+                                        className="px-2 rounded hover:bg-white/10 text-[var(--dtg-gray-500)]"
+                                        title="Back to list"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <select
+                                    className="w-full h-8 text-xs text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] outline-none border border-[var(--dtg-border-medium)] rounded"
+                                    value={globalCause}
+                                    onChange={e => {
+                                        if (e.target.value === CUSTOM_CAUSE_SENTINEL) {
+                                            setIsGlobalCustomCause(true);
+                                            setGlobalCause('');
+                                        } else {
+                                            setGlobalCause(e.target.value);
+                                        }
+                                    }}
+                                >
+                                    <option value="">-- Select --</option>
+                                    {CAUSE_OPTIONS[globalReason].map(c => <option key={c} value={c}>{c}</option>)}
+                                    <option value={CUSTOM_CAUSE_SENTINEL} className="font-semibold text-[var(--dtg-brand-orange)]">+ Add Custom Cause</option>
+                                </select>
+                            )}
                         </div>
                         <Button size="sm" variant="orange" onClick={applyGlobalToEmpty} title="Apply to empty rows">
                             <Copy size={14} className="mr-2" /> Apply
@@ -464,6 +511,7 @@ export const BatchAlarmImport = ({
                                                     newRows[idx].reason = e.target.value;
                                                     newRows[idx].cause = ""; // Reset cause on change
                                                     setRows(newRows);
+                                                    setCustomCauseRows(prev => ({ ...prev, [row.id]: false }));
                                                 }}
                                             >
                                                 <option value="False">False</option>
@@ -478,18 +526,44 @@ export const BatchAlarmImport = ({
 
                                         {/* Editable Cause */}
                                         <td className={getCellClass(idx, 'cause')} onMouseEnter={() => handleDragEnter(idx, 'cause')}>
-                                            <select
-                                                className="text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] text-xs outline-none w-full"
-                                                value={row.cause}
-                                                onChange={(e) => {
-                                                    const newRows = [...rows];
-                                                    newRows[idx].cause = e.target.value;
-                                                    setRows(newRows);
-                                                }}
-                                            >
-                                                <option value=""></option>
-                                                {CAUSE_OPTIONS[row.reason].map(c => <option key={c} value={c}>{c}</option>)}
-                                            </select>
+                                            {isRowCustomCause(row) ? (
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        className="w-full bg-[var(--dtg-bg-card)] border-b border-[var(--dtg-border-medium)] focus:border-[var(--dtg-brand-orange)] outline-none text-xs"
+                                                        value={row.cause}
+                                                        onChange={(e) => setRowCause(idx, e.target.value)}
+                                                        placeholder="Custom cause..."
+                                                        autoFocus={!!customCauseRows[row.id]}
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            setRowCause(idx, '');
+                                                            setCustomCauseRows(prev => ({ ...prev, [row.id]: false }));
+                                                        }}
+                                                        className="text-gray-500 hover:text-[var(--dtg-text-primary)]"
+                                                        title="Back to list"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <select
+                                                    className="text-[var(--dtg-text-primary)] bg-[var(--dtg-bg-card)] text-xs outline-none w-full"
+                                                    value={row.cause}
+                                                    onChange={(e) => {
+                                                        if (e.target.value === CUSTOM_CAUSE_SENTINEL) {
+                                                            setCustomCauseRows(prev => ({ ...prev, [row.id]: true }));
+                                                            setRowCause(idx, '');
+                                                        } else {
+                                                            setRowCause(idx, e.target.value);
+                                                        }
+                                                    }}
+                                                >
+                                                    <option value=""></option>
+                                                    {CAUSE_OPTIONS[row.reason].map(c => <option key={c} value={c}>{c}</option>)}
+                                                    <option value={CUSTOM_CAUSE_SENTINEL} className="font-semibold text-[var(--dtg-brand-orange)]">+ Add Custom Cause</option>
+                                                </select>
+                                            )}
                                             <div
                                                 className="absolute bottom-0 right-0 w-3 h-3 bg-orange-500 cursor-crosshair opacity-0 group-hover:opacity-100 z-20"
                                                 onMouseDown={(e) => handleDragStart(e, idx, 'cause', row.cause)}

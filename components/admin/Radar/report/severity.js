@@ -177,6 +177,7 @@ export const ALARM_CAUSE_COLORS = {
   'Diurnal Pattern': '#a855f7',
   'Wire Mesh': '#475569',
   'Mine Facility': '#334155',
+  'Pipeline': '#4338ca',
   'Step After Link Down': '#1e40af',
   // aggregateAlarmCauses' bucket for records with no cause.
   Uncategorised: SEV.neutral,
@@ -225,6 +226,7 @@ const CAUSE_KEYWORD_RULES = [
   ['diurnal', '#a855f7'],
   ['wire mesh', '#475569'],
   ['mine facility', '#334155'],
+  ['pipeline', '#4338ca'],
   ['link down', '#1e40af'],
 ];
 

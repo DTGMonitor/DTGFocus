@@ -628,7 +628,7 @@ export const CAUSE_OPTIONS = {
         "Machinery Activity", "Rapid Atmospheric Changes", "Rainfall Event",
         "Riling Material", "Vegetation", "Pushed Material", "Water Refraction",
         "Sandstorm Event", "Blasting Event", "Diurnal Pattern", "Wire Mesh",
-        "Mine Facility", "Step After Link Down"
+        "Mine Facility", "Pipeline", "Step After Link Down"
     ],
     Valid: [
         "Failure Pattern Indication", "Slip Pattern Indication",
