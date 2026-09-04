@@ -4,8 +4,11 @@ import React, { useEffect } from "react";
 /* ROOT DIALOG                                */
 /* -------------------------------------------------------------------------- */
 // `onOpenChange` is still accepted by every caller and deliberately ignored:
-// nothing outside the panel dismisses the dialog any more.
-export const Dialog = ({ open, children }) => {
+// nothing outside the panel dismisses the dialog any more. It stays in the
+// signature so the prop type callers see keeps accepting it -- dropping it made
+// TypeScript reject every `<Dialog onOpenChange={...}>` and fail the build.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const Dialog = ({ open, children, onOpenChange }) => {
   // A dialog is dismissed only from its own Cancel / X control. Neither the
   // backdrop nor Escape closes it: these dialogs hold half-filled forms, and a
   // stray click or keypress outside the panel was throwing that work away.
