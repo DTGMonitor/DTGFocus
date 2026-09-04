@@ -5,6 +5,7 @@ import { useRouter, useParams, usePathname } from "next/navigation";
 import { useUserSite } from "../useUserSite";
 import { FiUser, FiChevronDown } from "react-icons/fi";
 import { FocusLogo } from "@/components/Reusable/FocusLogo";
+import { ADMIN_HOME } from "@/config/adminView";
 
 function LogoSection({ Subtitle = [] }) {
     const { user, userSite, loading } = useUserSite();
@@ -33,7 +34,7 @@ function LogoSection({ Subtitle = [] }) {
             // Monitoring selection is the admin landing page. /admin/home is a
             // separate radar+safety board whose cards point at routes that do
             // not exist, so it is not where "home" should take anyone.
-            router.push("/admin/monitoring");
+            router.push(ADMIN_HOME);
         } else {
             // Otherwise, we must be in the client section, so use the client param
             router.push(`/tools/${client}/home`);

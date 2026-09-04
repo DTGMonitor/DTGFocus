@@ -10,7 +10,9 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  *   fields         {FieldConfig[]}  - Array of field descriptors (see FieldConfig shape below)
  *   initialValues  {object}         - Initial form values keyed by field.key
  *   onSave         {function}       - Called with merged form values when validation passes
- *   onCancel       {function}       - Called when Cancel button or Escape key is activated
+ *   onCancel       {function}       - Called when the Cancel button is clicked. The modal is
+ *                                    deliberately NOT dismissed by the backdrop or Escape,
+ *                                    so a stray click cannot discard a half-filled form.
  *   isSaving       {boolean}        - When true, disables Save button (in-flight save)
  *
  * FieldConfig shape:
@@ -94,19 +96,8 @@ const EditModal = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialKey]);
 
-  // Handle Escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onCancel();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onCancel]);
+  // No Escape / backdrop dismissal: this dialog closes from its own buttons
+  // only, so a stray click or keypress outside it cannot discard the decision.
 
   if (!isOpen) return null;
 
@@ -287,12 +278,11 @@ const EditModal = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onCancel}
       aria-modal="true"
       role="dialog"
       aria-labelledby="edit-modal-title"
     >
-      {/* Modal panel — stop propagation so backdrop click doesn't fire from inside */}
+      {/* Modal panel — clicks stay inside; the backdrop is inert. */}
       <div
         className="bg-[var(--dtg-bg-card)] text-[var(--dtg-text-primary)] border border-[var(--dtg-border-medium)] rounded-lg shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}

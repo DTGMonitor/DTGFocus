@@ -702,8 +702,8 @@ describe('DeformationTimeline', () => {
         now={NOW}
       />
     );
-    expect(screen.getByText('Event 1 of 2')).toBeInTheDocument();
-    expect(screen.getByText('Event 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Chain 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Chain 2 of 2')).toBeInTheDocument();
   });
 
   it('labels each wall folder and marks the archived one when the report spans more than one', () => {
@@ -904,8 +904,8 @@ describe('buildTimelineChunks', () => {
     // Three cards across two blocks — nothing dropped by the split.
     expect(container.querySelectorAll('[data-testid]')).toHaveLength(0);
     expect(screen.getAllByText('Linear')).toHaveLength(3);
-    expect(screen.getByText('Event 1 of 2')).toBeInTheDocument();
-    expect(screen.getByText('Event 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Chain 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Chain 2 of 2')).toBeInTheDocument();
     // One Current badge per chain, and only on the chain's real tail.
     expect(screen.getAllByText('Current')).toHaveLength(2);
   });

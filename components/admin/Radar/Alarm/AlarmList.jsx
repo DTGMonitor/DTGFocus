@@ -118,18 +118,19 @@ const AlarmList = ({
         }
     };
 
-    // Close menu when clicking outside
+    // Close the region menu when clicking outside it — but NOT while the "Add
+    // New Region" form is open inside it, so a stray click cannot discard a
+    // half-typed region. That form closes from its own Cancel button.
     useEffect(() => {
+        if (showAddAlarmRegion) return undefined;
         function handleClickOutside(event) {
-
             if (alarmRegionMenuRef.current && !alarmRegionMenuRef.current.contains(event.target)) {
-                setShowAddAlarmRegion(false);
                 setShowRegionMenu(false);
             }
         }
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [alarmRegionMenuRef]);
+    }, [alarmRegionMenuRef, showAddAlarmRegion]);
 
     const filteredAlarmRegions = useMemo(() => {
         return alarmRegionList.filter(ar =>
@@ -274,6 +275,12 @@ const AlarmList = ({
                                             />
                                         </div>
                                         <div className="flex justify-end gap-2">
+                                            <Button
+                                                onClick={() => { setShowAddAlarmRegion(false); setNewTypeInput(''); setNewRegionInput(''); }}
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                            >Cancel</Button>
                                             <Button onClick={handleNewAlarmRegion} variant="brand" size="sm" className="h-7 text-xs">Add</Button>
                                         </div>
                                     </div>

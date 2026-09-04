@@ -1,37 +1,30 @@
-import React, { useEffect, useRef } from "react";
-import { X } from "lucide-react"; // Ensure you have lucide-react or use a simple SVG
+import React, { useEffect } from "react";
 
 /* -------------------------------------------------------------------------- */
 /* ROOT DIALOG                                */
 /* -------------------------------------------------------------------------- */
-export const Dialog = ({ open, onOpenChange, children }) => {
-  // Handle "Escape" key to close
+// `onOpenChange` is still accepted by every caller and deliberately ignored:
+// nothing outside the panel dismisses the dialog any more.
+export const Dialog = ({ open, children }) => {
+  // A dialog is dismissed only from its own Cancel / X control. Neither the
+  // backdrop nor Escape closes it: these dialogs hold half-filled forms, and a
+  // stray click or keypress outside the panel was throwing that work away.
   useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
-        onOpenChange(false);
-      }
-    };
     if (open) {
-      document.addEventListener("keydown", handleKeyDown);
       // Prevent scrolling on the body when modal is open
       document.body.style.overflow = "hidden";
     }
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "unset";
     };
-  }, [open, onOpenChange]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* OVERLAY (Dark background) - Clicking this closes the modal */}
-      <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" 
-        onClick={() => onOpenChange(false)}
-      />
+      {/* OVERLAY (Dark background) - inert: clicking it must not close the modal */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" />
       
       {/* CONTENT WRAPPER */}
       <div className="z-50 w-full">

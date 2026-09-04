@@ -356,15 +356,9 @@ export default function PostBlastReportModal({
     };
   }, [isOpen, vcpResults, chartView, chartViewVcpIndex, blastEvents, actualFailureTime, pfConfirmed]);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose?.();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  // No Escape-to-close: the report is annotated and edited in place, and Escape
+  // is what an engineer presses to abandon a stroke, not the whole report. The
+  // toolbar's ✕ is the only way out.
 
   // ── Summary source VCP & derived content ───────────────────────────────────
   const summaryVcp = vcpResults[summaryVcpIndex] ?? activeVcp;

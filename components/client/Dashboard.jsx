@@ -2,11 +2,12 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { FaArrowRight } from "react-icons/fa";
+import { FaArrowRight, FaArrowLeft } from "react-icons/fa";
 import { MdLocationOn } from "react-icons/md";
 import { SlClock } from "react-icons/sl";
 import { FaCalendarAlt } from "react-icons/fa";
 import { isAllSites } from "@/config/clientView";
+import { ADMIN_HOME } from "@/config/adminView";
 
 /**
  * The client landing page — five dashboard cards, one per sensor family.
@@ -31,6 +32,9 @@ const Dashboard = () => {
   const [company, setCompany] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Only an admin has an admin board to go back to — a site's own team has no
+  // such page, so the Back control is theirs alone.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // ---- DASHBOARD CONFIG ----
   // `key` is the dashboard_key stored on site_dashboards — do not rename one
@@ -152,6 +156,7 @@ const Dashboard = () => {
         .maybeSingle();
 
       if (error || !userSite) {
+        setIsAdmin(false);
         setLocation("No site assigned");
         setCompany("");
         setItems([]);
@@ -160,6 +165,8 @@ const Dashboard = () => {
       }
 
       let allowedKeys = [];
+
+      setIsAdmin(userSite.role === "admin");
 
       if (userSite.role === "admin") {
         // An admin has no site of their own, so the header names whatever the
@@ -236,6 +243,7 @@ const Dashboard = () => {
         width: "100vw",
         height: "100vh",
         boxSizing: "border-box",
+        position: "relative",
         padding: "10px",
         overflowY: "auto",
         backgroundImage: `url("/background/radarBackground.png")`,
@@ -249,6 +257,37 @@ const Dashboard = () => {
         gap: "10px",
       }}
     >
+      {/* Back to the admin board. An admin reaches this dashboard from the
+          CLIENT VIEW card on /admin/monitoring, and had no way back but the
+          browser's own Back button. */}
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={() => router.push(ADMIN_HOME)}
+          title="Back to admin home"
+          aria-label="Back to admin home"
+          style={{
+            position: "absolute",
+            top: "20px",
+            left: "20px",
+            zIndex: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 16px",
+            border: "1px solid #05CAC8",
+            borderRadius: "4px",
+            background: "rgba(2, 78, 76, 0.85)",
+            color: "#fff",
+            fontSize: "13px",
+            fontWeight: "bold",
+            cursor: "pointer",
+          }}
+        >
+          <FaArrowLeft /> ADMIN HOME
+        </button>
+      )}
+
       {/* Header */}
       <div style={{ textAlign: "center", width: "100%", maxWidth: "800px", padding: "0 20px" }}>
         <p style={{ fontSize: "36px", fontWeight: "bold" }}>

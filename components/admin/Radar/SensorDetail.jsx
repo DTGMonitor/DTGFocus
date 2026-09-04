@@ -1515,17 +1515,20 @@ const SensorDetail = ({
         await fetchDataQuality();
     };
 
-    // Close menu when clicking outside
+    // Close the wrench menu when clicking outside it — but NOT while the "Add
+    // New Wallfolder" form is open inside it. A half-typed folder name is work,
+    // and a stray click on the board should not throw it away; that form closes
+    // from its own Cancel button.
     useEffect(() => {
+        if (isCreating) return undefined;
         function handleClickOutside(event) {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
                 setShowWrenchMenu(false);
-                setIsCreating(false);
             };
         }
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [menuRef]);
+    }, [menuRef, isCreating]);
 
 
     // --- 3. Filtering Logic ---

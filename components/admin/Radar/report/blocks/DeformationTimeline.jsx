@@ -198,7 +198,8 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, r
  * the FIRST chunk of a chain only: a chain split across a page break repeats no
  * caption, the same way a continued table repeats no section bar.
  */
-function ChainCaption({ index, count, location }) {
+function ChainCaption({ index, count, location, subjectType }) {
+  const subtitle = [location, subjectType].filter(Boolean).join(' · ') || '—';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
       <span
@@ -214,7 +215,7 @@ function ChainCaption({ index, count, location }) {
           whiteSpace: 'nowrap',
         }}
       >
-        Event {index + 1} of {count}
+        Chain {index + 1} of {count}
       </span>
       <span
         style={{
@@ -227,7 +228,7 @@ function ChainCaption({ index, count, location }) {
           whiteSpace: 'nowrap',
         }}
       >
-        {location ?? '—'}
+        {subtitle}
       </span>
       <span style={{ flex: 1, height: 1, background: LINE }} />
     </div>
@@ -350,7 +351,9 @@ export function buildTimelineChunks(timelines = [], { nodesPerBlock = NODES_PER_
         const slice = nodes.slice(start, start + size);
         const tail = start + slice.length >= nodes.length;
         chunks.push({
-          key: `${section.key}-${ti}-${start}`,
+          // Keyed by the CHAIN, not its ordinal: two chains on one rainfall are
+          // distinct entries whose order can change between renders.
+          key: `${section.key}-${timeline.key ?? ti}-${start}`,
           // Header and caption belong to the run, not to every slice of it.
           folder: ti === 0 && start === 0 ? section.header : null,
           caption: start === 0,
@@ -385,7 +388,15 @@ function TimelineChunkView({ chunk, gap = 0, crosscheckers, now, recentMs, riskM
     <div style={{ marginBottom: gap }}>
       {folder ? <FolderHeader group={folder} /> : null}
       {caption && count > 1 ? (
-        <ChainCaption index={index} count={count} location={current?.location} />
+        <ChainCaption
+          index={index}
+          count={count}
+          // The chain's subject, not its tail: two chains standing on one
+          // rainfall share a tail, and captioning both "Whole wall" made the
+          // document read as the same history printed twice.
+          location={timeline?.location ?? current?.location}
+          subjectType={timeline?.subjectType}
+        />
       ) : null}
 
       {nodes.map((node, i) => {

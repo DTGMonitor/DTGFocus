@@ -173,6 +173,32 @@ export function isMergeEventRecord(record) {
 export const CHAIN_BRANCH_KEY = 'chain_branch_id';
 
 /**
+ * The branch hint of a record that continues NONE of its parent's chains.
+ *
+ * A rainfall does not only carry the trends that ran into it forward — it can
+ * also be where something new starts. A crack that was not there before the rain
+ * is not a continuation of the Regressive that was: it is a chain of its own
+ * whose root IS the rainfall, and the trends the rain swallowed are still
+ * standing on it waiting to be continued or archived.
+ *
+ * `chain_branch_id: 'new'` is that statement. It consumes no open branch
+ * (`resolveOpenBranchIds`) and stops the timeline walk AT the event
+ * (`pickSpineParentId`), so a new chain reads rainfall → crack rather than
+ * inheriting whichever trend happened to be listed first.
+ */
+export const CHAIN_BRANCH_NEW = 'new';
+
+/**
+ * True for the branch hint that starts a fresh chain rather than continuing one.
+ *
+ * @param {number|string|null|undefined} branchId
+ * @returns {boolean}
+ */
+export function isNewChainBranch(branchId) {
+  return String(branchId) === CHAIN_BRANCH_NEW;
+}
+
+/**
  * Read a record's chain branch hint, or null when it carries none (every record
  * written before this existed, and every record whose parent is unambiguous).
  *
@@ -189,7 +215,9 @@ export function getChainBranchId(record) {
  * Choose which of `parentIds` the spine walks through.
  *
  * `branchHint` wins when it actually names one of them; otherwise the first id
- * is the spine, exactly as it was before branches existed.
+ * is the spine, exactly as it was before branches existed. The one hint that is
+ * NOT a fallback is CHAIN_BRANCH_NEW: it says this chain starts here, so the
+ * walk stops rather than adopting a predecessor that belongs to another chain.
  *
  * @param {Array<number|string>} parentIds
  * @param {number|string|null} branchHint
@@ -211,6 +239,7 @@ function filterByIds(query, ids) {
 }
 
 export function pickSpineParentId(parentIds = [], branchHint = null) {
+  if (isNewChainBranch(branchHint)) return null;
   if (branchHint !== null && branchHint !== undefined) {
     const match = parentIds.find((id) => String(id) === String(branchHint));
     if (match !== undefined) return match;
@@ -242,13 +271,22 @@ export function pickSpineParentId(parentIds = [], branchHint = null) {
  * spine fetch fails. On any fetch failure the nodes resolved so far are returned
  * with `error` set; the chain still terminates with `latestRecord` at the end.
  *
+ * A merge event is the tail of EVERY chain still standing on it, so the tail's
+ * own spine cannot be read off the record either — `options.branchId` is the
+ * caller saying which of those chains it is drawing (see `resolveChainTips`).
+ * Omitted, the walk takes `precursors[0]`, which is what it did before chains
+ * could be told apart.
+ *
  * @param {object} latestRecord            The current/latest record (chain tail)
  * @param {(id: any) => Promise<object>} fetchFn
  * @param {number} [maxDepth=50]
+ * @param {{ branchId?: number|string|null }} [options]
  * @returns {Promise<{ chain: object[], error: string|null }>}
  */
-export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50) {
+export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50, options = {}) {
   if (!latestRecord) return { chain: [], error: null };
+
+  const { branchId = null } = options;
 
   let error = null;
 
@@ -277,10 +315,14 @@ export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50)
   };
 
   const latestIds = normalizePrecursorss(latestRecord.precursors);
+  // Which way out of the tail. Named by the caller for a merge event (the tail
+  // of several chains at once); `precursors[0]` for everything else.
+  const tailSpineId = pickSpineParentId(latestIds, branchId);
 
-  // No precursors → single-node timeline (still resolve `related` for symmetry).
-  if (latestIds.length === 0) {
-    return { chain: [await decorate(latestRecord, null)], error };
+  // No precursors, or a tail that starts its own chain → single-node timeline
+  // (still resolve `related` for symmetry).
+  if (latestIds.length === 0 || tailSpineId === null) {
+    return { chain: [await decorate(latestRecord, tailSpineId)], error };
   }
 
   const ancestors = [];
@@ -288,7 +330,7 @@ export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50)
   // node we are about to fetch — the hint is written by the child because only
   // the child knows which of its parent's chains it belongs to.
   let childRecord = latestRecord;
-  let currentId = latestIds[0]; // the tail's own spine parent
+  let currentId = tailSpineId; // the tail's own spine parent
   let depth = 0;
 
   while (currentId !== null && currentId !== undefined && depth < maxDepth) {
@@ -315,7 +357,7 @@ export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50)
     depth += 1;
   }
 
-  return { chain: [...ancestors, await decorate(latestRecord, latestIds[0])], error };
+  return { chain: [...ancestors, await decorate(latestRecord, tailSpineId)], error };
 }
 
 /**
@@ -329,6 +371,9 @@ export async function resolveTimelineChain(latestRecord, fetchFn, maxDepth = 50)
  * continues the branch it recorded, or — for records written before branches
  * existed — the event's first chain, which is what the timeline walked then.
  *
+ * A successor marked CHAIN_BRANCH_NEW closes nothing: it is something that
+ * STARTED at the event, so every trend that ran into it is still waiting.
+ *
  * @param {object} record
  * @param {object[]} [successors]
  * @returns {Array<number|string>} the open branch ids, oldest listing order kept
@@ -337,7 +382,9 @@ export function resolveOpenBranchIds(record, successors = []) {
   const ids = normalizePrecursorss(record?.precursors);
   if (ids.length === 0) return [];
   const continued = new Set(
-    successors.map((s) => String(getChainBranchId(s) ?? ids[0]))
+    successors
+      .filter((s) => !isNewChainBranch(getChainBranchId(s)))
+      .map((s) => String(getChainBranchId(s) ?? ids[0]))
   );
   return ids.filter((id) => !continued.has(String(id)));
 }
@@ -383,6 +430,209 @@ export function resolveChainHeads(records = []) {
   });
 
   return { heads, openBranchesById };
+}
+
+/**
+ * One entry per LIVE CHAIN — the unit every surface should iterate.
+ *
+ * `resolveChainHeads` answers "which records are current", and for a merge event
+ * that is one record standing for several chains at once. Everything downstream
+ * then had to choose: the board printed one card per chain but the reports
+ * printed one per record, so three trends that happened to run into the same
+ * rainfall collapsed into a single timeline — the first branch's — and the other
+ * two vanished from the document.
+ *
+ * A tip is (record, branch): the record that is current, and WHICH of the chains
+ * standing on it this is. A plain head yields exactly one tip with a null branch,
+ * so nothing changes for a radar that has never seen a rainfall.
+ *
+ * `branchRecord` is the trend the branch names, when it is in `records` — an
+ * archived one resolves to null and the caller falls back to the event itself.
+ *
+ * @param {object[]} records  the ACTIVE records under consideration
+ * @returns {{record: object, branchId: number|string|null, branchRecord: object|null, key: string}[]}
+ */
+export function resolveChainTips(records = []) {
+  const list = (records ?? []).filter(Boolean);
+  const byId = new Map(list.map((r) => [String(r.id), r]));
+  const { heads, openBranchesById } = resolveChainHeads(list);
+
+  return heads.flatMap((record) => {
+    const open = openBranchesById.get(String(record.id)) || [];
+    if (open.length === 0) {
+      return [{ record, branchId: null, branchRecord: null, key: String(record.id) }];
+    }
+    return open.map((branchId) => ({
+      record,
+      branchId,
+      branchRecord: byId.get(String(branchId)) ?? null,
+      key: `${record.id}:${branchId}`,
+    }));
+  });
+}
+
+/**
+ * The record a chain is ABOUT — what a reader would call it.
+ *
+ * The tail is the chain's current node, but on a merge event the tail is the
+ * rainfall, whose location is the whole wall. Naming a chain "Whole wall" tells
+ * the reader nothing and makes three chains on one rainfall read as the same
+ * thing three times, so the last node that describes a MOVEMENT wins.
+ *
+ * @param {object[]} chain  ordered root → current
+ * @returns {object|null}
+ */
+export function chainSubjectRecord(chain = []) {
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    const node = chain[i];
+    if (node && !isMergeEventRecord(node)) return node;
+  }
+  return chain[chain.length - 1] ?? null;
+}
+
+/**
+ * The location a chain is tracked at (see `chainSubjectRecord`), or null.
+ *
+ * @param {object[]} chain
+ * @returns {string|null}
+ */
+export function chainLocationLabel(chain = []) {
+  const subject = chainSubjectRecord(chain);
+  const location = String(subject?.location ?? '').trim();
+  return location || null;
+}
+
+/**
+ * What stands behind `record`, for a dialog about to remove it.
+ *
+ * Four answers, describing the STATE of the chain rather than the consequence —
+ * archiving and deleting draw different conclusions from the same facts:
+ *
+ *   'carries-chains'        a merge event other chains are still standing on.
+ *                           Those trends are ACTIVE — the event is the only thing
+ *                           hiding them — so removing it puts each of them back
+ *                           on the board as a record of its own.
+ *   'predecessor-active'    the record it supersedes is still on the board.
+ *   'predecessor-archived'  the record it supersedes was archived when this one
+ *                           was written, which is what the Update flow does. It
+ *                           is the chain's real current state as soon as this
+ *                           record is gone — see performRecordDeleteFlow, which
+ *                           puts it back rather than leaving the chain stranded.
+ *   'lone-record'           nothing behind it at all.
+ *
+ * `spineId` is the precursor a delete would restore: `precursors[0]`, the one
+ * every archiving flow here archives. The other entries of `precursors` are
+ * RELATED records the engineer ticked (a blast, a rainfall) — they were never
+ * archived by writing this record, so bringing them back would resurrect
+ * something taken off the board for its own reasons.
+ *
+ * Archived-ness is inferred from absence: a precursor that is not among the
+ * records on the board is not being shown, which is the fact the dialog needs.
+ * The write path re-reads `isactive` for itself rather than trusting this.
+ *
+ * @param {object} record
+ * @param {object[]} [activeRecords]  the records currently on the board
+ * @param {Array<number|string>} [openBranchIds]  from resolveChainHeads, for a merge event
+ * @returns {{kind: string, count: number, liveBehind: Array<number|string>, spineId: number|string|null}}
+ */
+export function resolveChainImpact(record, activeRecords = [], openBranchIds = []) {
+  const ids = normalizePrecursorss(record?.precursors);
+  const open = isMergeEventRecord(record) ? openBranchIds ?? [] : [];
+  const liveBehind = ids.filter((id) =>
+    (activeRecords ?? []).some((r) => String(r?.id) === String(id))
+  );
+  const spineId = ids.length ? ids[0] : null;
+
+  if (open.length > 0) return { kind: 'carries-chains', count: open.length, liveBehind, spineId };
+  if (liveBehind.length > 0) {
+    return { kind: 'predecessor-active', count: liveBehind.length, liveBehind, spineId };
+  }
+  if (ids.length > 0) {
+    return { kind: 'predecessor-archived', count: ids.length, liveBehind, spineId };
+  }
+  return { kind: 'lone-record', count: 0, liveBehind, spineId };
+}
+
+/**
+ * Hard-delete a record WITHOUT taking its chain down with it.
+ *
+ * Every flow here that supersedes a record archives the one it replaces, so a
+ * chain's history is inactive rows reachable only THROUGH the record standing in
+ * front of them. Deleting that record used to leave nothing active in the chain
+ * and nothing in the app that could make an archived record active again: the
+ * chain was not deleted, it was simply never listed again — gone from the board,
+ * the daily movement table and the reports, recoverable only in SQL.
+ *
+ * So a delete is an UNDO of the update that wrote the record: the predecessor
+ * comes back to 'Yes' and becomes the chain's current record again. Only
+ * `precursors[0]` — the spine — is restored, and only if it is actually archived
+ * (see resolveChainImpact for why the rest are left alone).
+ *
+ * Ordered restore-then-delete, and compensating. If the delete fails after the
+ * restore, the board briefly holds the record AND its predecessor, which is
+ * visible and fixable; the other order fails to the stranded chain this exists
+ * to prevent. The compensation re-archives the predecessor only when this call
+ * is what un-archived it.
+ *
+ * Intended for a CHAIN HEAD, which is the only thing the deformation list offers
+ * a delete on. Restoring the predecessor of a mid-chain record would put two
+ * active records in one chain.
+ *
+ * @param {object} client  Supabase-like client
+ * @param {object} record  the record being deleted (needs `id` and `precursors`)
+ * @returns {Promise<{ok: boolean, stage?: 'read'|'restore'|'delete', error?: any, restored?: number|string|null, compensated?: boolean}>}
+ *   `restored` is the id put back on the board, or null when there was nothing
+ *   to put back (no history, or the predecessor was already active).
+ */
+export async function performRecordDeleteFlow(client, record) {
+  const ids = normalizePrecursorss(record?.precursors);
+  const spineId = ids.length ? ids[0] : null;
+
+  // Step 1: put the chain's previous node back, if this record is what hid it.
+  let restored = null;
+  if (spineId !== null && spineId !== undefined) {
+    const read = await client
+      .from('def_records')
+      .select('id, isactive')
+      .eq('id', spineId)
+      .maybeSingle();
+
+    // A missing row is nothing to restore and must not block the delete; a
+    // failed READ is a different matter — deleting blind is how chains strand.
+    if (read && read.error) {
+      return { ok: false, stage: 'read', error: read.error, restored: null };
+    }
+
+    if (read?.data?.isactive === 'No') {
+      const res = await client
+        .from('def_records')
+        .update({ isactive: 'Yes' })
+        .eq('id', spineId);
+      if (res && res.error) {
+        return { ok: false, stage: 'restore', error: res.error, restored: null };
+      }
+      restored = spineId;
+    }
+  }
+
+  // Step 2: the record itself.
+  const del = await client.from('def_records').delete().eq('id', record.id);
+
+  if (del && del.error) {
+    // Compensate: the predecessor only stands in the deleted record's place.
+    if (restored !== null) {
+      await client.from('def_records').update({ isactive: 'No' }).eq('id', restored);
+    }
+    return {
+      ok: false,
+      stage: 'delete',
+      error: del.error,
+      compensated: restored !== null,
+      restored: null,
+    };
+  }
+
+  return { ok: true, restored };
 }
 
 /**

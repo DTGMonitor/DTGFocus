@@ -27,16 +27,8 @@ const AdminUpload = ({ onClose }) => {
     const [existingImages, setExistingImages] = useState({});
     const [checkingExisting, setCheckingExisting] = useState(false);
 
-    // Handle ESC key press
-    useEffect(() => {
-        const handleEscape = (e) => {
-            if (e.key === 'Escape') {
-                onClose();
-            }
-        };
-        document.addEventListener('keydown', handleEscape);
-        return () => document.removeEventListener('keydown', handleEscape);
-    }, [onClose]);
+    // No Escape / backdrop dismissal — a queued upload is easy to lose to a
+    // stray keypress, so the header's X is the only way out.
 
     // Prevent body scroll when modal is open
     useEffect(() => {
@@ -497,8 +489,7 @@ const AdminUpload = ({ onClose }) => {
     // Permission Check
     if (!user || !['admin'].includes(userRole)) {
         return (
-            <div className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center"
-                onClick={onClose}>
+            <div className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center">
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-5 mb-5 max-w-md"
                     onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-2.5 items-center text-yellow-500">
@@ -521,7 +512,6 @@ const AdminUpload = ({ onClose }) => {
     return (
         <div
             className="w-full z-[9999] h-full bg-gray-900/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5"
-            onClick={onClose}
         >
             <Toaster position="top-center" reverseOrder={false} />
             <div

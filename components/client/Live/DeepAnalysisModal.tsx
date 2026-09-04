@@ -155,7 +155,6 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[200] bg-[#020d0d]/95 backdrop-blur-xl flex items-center justify-center p-8"
-          onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}

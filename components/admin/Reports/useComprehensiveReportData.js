@@ -18,7 +18,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { resolveTimelineChain, resolveChainHeads, resolveDetectedBy } from '@/utils/tabHelpers';
+import {
+  resolveTimelineChain,
+  resolveChainTips,
+  chainSubjectRecord,
+  resolveDetectedBy,
+} from '@/utils/tabHelpers';
 import { fetchCrosscheckers } from '@/utils/crosscheckers';
 import { trimChain, isTrimmedHeadTrueRoot } from '@/utils/reportTimeline';
 import { computeAvailability, windowForFrequency } from '@/utils/reportAvailability';
@@ -332,13 +337,14 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
 
       if (cancelled) return;
 
-      // ── Deformation: head records → resolve chain → trim ───────────────────
+      // ── Deformation: one chain per TIP → resolve → trim ────────────────────
       const defRecords = defRes ?? [];
-      // One head per LIVE chain. A Rainfall/Blast is the current node of every
-      // trend that ran into it, so continuing one of them out of the event does
-      // not retire the event for the others — `resolveChainHeads` is the same
-      // rule the board and the daily report use.
-      const { heads } = resolveChainHeads(defRecords);
+      // One entry per LIVE chain, not per current record. A Rainfall/Blast is
+      // the current node of EVERY trend that ran into it, so reading the head
+      // records alone printed one timeline where the wall has three — the other
+      // two trends were silently dropped from the document. `resolveChainTips`
+      // is the same rule the board draws its cards from.
+      const tips = resolveChainTips(defRecords);
 
       const fetchRecordById = async (id) => {
         const { data, error } = await supabase
@@ -369,23 +375,35 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
       const timelineNow = windowEnd.getTime();
       const timelineWindowMs = Math.max(0, windowEnd.getTime() - windowStart.getTime());
       // N+1 by nature (one round-trip per ancestor). Acceptable for a single
-      // sensor's heads; would need a recursive-CTE RPC if this ever goes
+      // sensor's chains; would need a recursive-CTE RPC if this ever goes
       // site-wide across many radars.
-      for (const head of heads) {
+      for (const tip of tips) {
         try {
-          const { chain, error } = await resolveTimelineChain(head, fetchRecordById);
+          // `tip.branchId` is what makes two chains standing on ONE rainfall
+          // resolve to two different histories instead of the same one twice.
+          const { chain, error } = await resolveTimelineChain(tip.record, fetchRecordById, 50, {
+            branchId: tip.branchId,
+          });
           if (error) timelineError = error;
 
-          // Tag the chain with the folder its head belongs to. The current folder
-          // always contributes; an archived folder only when the chain has a node
-          // inside the window (see shouldIncludeChain), so stale history from a
-          // long-retired wall does not resurface.
-          const folder = folderById.get(head.wallfolder_id) ?? null;
-          const isCurrent = head.wallfolder_id === currentFolderId;
+          // Tag the chain with the folder its current record belongs to. The
+          // current folder always contributes; an archived folder only when the
+          // chain has a node inside the window (see shouldIncludeChain), so stale
+          // history from a long-retired wall does not resurface.
+          const folder = folderById.get(tip.record.wallfolder_id) ?? null;
+          const isCurrent = tip.record.wallfolder_id === currentFolderId;
           if (!shouldIncludeChain({ isCurrent, chain, windowStart, windowEnd })) continue;
 
           const trimmed = trimChain(chain, timelineNow, timelineWindowMs);
+          // What the chain is ABOUT — its last movement record. The caption used
+          // to read the tail's location, which on a shared rainfall is the whole
+          // wall, so every chain standing on one was captioned identically.
+          const subject = chainSubjectRecord(chain);
           timelines.push({
+            key: tip.key,
+            branchId: tip.branchId,
+            location: String(subject?.location ?? '').trim() || null,
+            subjectType: String(subject?.def_type ?? '').trim() || null,
             chain,
             trimmed,
             headIsTrueRoot: isTrimmedHeadTrueRoot(chain, trimmed),

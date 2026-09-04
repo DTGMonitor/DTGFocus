@@ -157,7 +157,7 @@ export default function EditDqpEntryModal({ isOpen, onClose, onSubmit, item, reg
     const kept = figures.filter((f) => !f.removed).length;
 
     return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5" onClick={onClose}>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5">
             <div
                 className="w-full max-w-2xl bg-[var(--dtg-bg-card)] rounded-lg overflow-hidden flex flex-col relative border border-[var(--dtg-border-medium)] max-h-[90vh]"
                 onClick={(e) => e.stopPropagation()}

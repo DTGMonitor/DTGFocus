@@ -28,7 +28,7 @@ import {
   labelColour,
   NO_SIGNIFICANT,
 } from '@/config/riskDisplay';
-import { resolveChainHeads } from './tabHelpers';
+import { resolveChainTips } from './tabHelpers';
 import { velocityUnit } from './reportDefDetails';
 import { dailyRemark } from '@/config/dailyReportLocale';
 
@@ -54,21 +54,40 @@ export const isExcludedFromStatus = (record) => {
 };
 
 /**
- * The head of each chain: every record no OTHER record in the set has moved past.
+ * The record each LIVE CHAIN prints in the movement table — one per chain.
  *
- * Identical to the `heads` derivation in useComprehensiveReportData and to the
- * board's own card set, so the two reports and the screen agree on what is
- * currently happening — `resolveChainHeads` is the one implementation all three
- * call. A plain record is superseded as soon as anything names it; a Rainfall or
- * Blast is the current node of every trend that ran into it and stays a head
- * until each of them has been continued past it.
+ * Identical to the chain set in useComprehensiveReportData and to the board's
+ * own card set, so the two reports and the screen agree on what is currently
+ * happening — `resolveChainTips` is the one implementation all three call. A
+ * plain record is superseded as soon as anything names it; a Rainfall or Blast
+ * is the current node of every trend that ran into it and stays current until
+ * each of them has been continued past it.
  *
- * Ids are compared as strings there because `precursors` is an INT[] while `id`
- * arrives as whatever PostgREST gave it — a numeric/string mismatch would
+ * The one thing this does that the chain set does not: a chain whose current
+ * record is a rainfall or a blast prints the TREND standing on it, not the
+ * event. The table states what each area is DOING, and the events are excluded
+ * from it by design (see isExcludedFromStatus) — so reading the current record
+ * literally deleted three moving areas from the table the moment one rainfall
+ * fell across them. The trend is the last thing the chain said about the wall,
+ * and it is what the table has to keep printing until the chain moves on.
+ *
+ * Ids are compared as strings upstream because `precursors` is an INT[] while
+ * `id` arrives as whatever PostgREST gave it — a numeric/string mismatch would
  * silently mark every record a head and print the whole chain.
  */
 export function chainHeads(records) {
-  return resolveChainHeads(records).heads;
+  const seen = new Set();
+  return resolveChainTips(records)
+    .map((tip) =>
+      isExcludedFromStatus(tip.record) && tip.branchRecord ? tip.branchRecord : tip.record
+    )
+    .filter((record) => {
+      // A trend that ran into two events would otherwise print twice.
+      const key = String(record?.id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 /**

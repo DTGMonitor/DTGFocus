@@ -531,7 +531,7 @@ ${userName}`;
 
     // --- PREVIEW / SLIDER VIEW (Standard Tailwind Allowed Here) ---
     return (
-        <div className="w-full z-[9999] h-full bg-[var(--dtg-gray-900)]/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5" onClick={onClose}>
+        <div className="w-full z-[9999] h-full bg-[var(--dtg-gray-900)]/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-5">
             <div className="max-w-8xl max-h-[90vh] overflow-y-auto bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="space-y-4">
                     <div className='flex items-start justify-between border-b mb-3'>

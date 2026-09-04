@@ -593,11 +593,8 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             `${compactDate} ${comprehensiveTitle(windowDays)} of ${sensor?.radar_number} - ${sensor?.site_name}.pdf`
             : `${compactDate}_${siteName}_${freqLabel}_${formData.reportType} ${formData.category} Report.pdf`;
 
-    useEffect(() => {
-        const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', handleEscape);
-        return () => document.removeEventListener('keydown', handleEscape);
-    }, [onClose]);
+    // Escape no longer closes the generator, and neither does the backdrop — it
+    // holds a half-built report, and the header's ✕ is the only way out.
 
 
     // Measured back from the SITE's today, so the Start Date it fills in names the
@@ -1134,7 +1131,6 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     return (
         <div
             className="w-full z-[9999] h-full bg-[var(--dtg-gray-900)]/40 backdrop-blur-sm fixed top-0 left-0 flex items-center justify-center p-4"
-            onClick={onClose}
         >
             <div
                 className="flex flex-col w-full max-w-[1700px] h-[93vh] bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg shadow-2xl overflow-hidden"

@@ -322,7 +322,6 @@ const ReportsList = ({refreshTrigger, page = null}) => {
             {previewUrl && (
                 <div
                     className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
-                    onClick={() => setPreviewUrl(null)}
                 >
                     <div
                         className="w-11/12 h-5/6 bg-[var(--dtg-bg-secondary)] rounded-lg overflow-hidden flex flex-col relative"

@@ -72,7 +72,6 @@ export default function DqpGuidanceModal({ isOpen, onClose, groups = [], radarNu
     return (
         <div
             className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
-            onClick={onClose}
         >
             <div
                 className="w-full max-w-5xl bg-[var(--dtg-bg-card)] rounded-lg overflow-hidden flex flex-col relative border border-[var(--dtg-border-medium)] max-h-[90vh]"

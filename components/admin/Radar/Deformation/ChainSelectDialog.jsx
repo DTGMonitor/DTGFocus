@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { getBandDotColor } from '@/config/statusConfig';
 import { recordColour, recordBadgeLabel } from '@/config/riskDisplay';
-import { formatTimestamp } from '@/utils/tabHelpers';
+import { formatTimestamp, CHAIN_BRANCH_NEW } from '@/utils/tabHelpers';
 import { Spinner } from '@/components/Reusable/Spinner';
+import { Sparkles } from 'lucide-react';
 
 /**
  * ChainSelectDialog
@@ -16,24 +17,32 @@ import { Spinner } from '@/components/Reusable/Spinner';
  * This asks. The chosen id is written to the new record's
  * `properties.chain_branch_id`, which is what lets its timeline walk back out of
  * the event along its own trend instead of whichever one happened to be listed
- * first. The trends that are not chosen are not lost: the update flow re-states
- * each of them as its own record (see performDeformationUpdateFlow).
+ * first. The trends that are not chosen are not lost: they go on standing on the
+ * event until each is continued or the event is archived, which carries every
+ * one of them forward (see performEventArchiveFlow).
+ *
+ * "One of them" is not the only answer. Rain is also where things START — a
+ * crack that was not there before it fell continues no trend at all — so the
+ * last option is a chain of the engineer's own, rooted at the event and leaving
+ * every trend on it untouched. That writes CHAIN_BRANCH_NEW instead of an id.
  *
  * Props:
- *   isOpen      {boolean}
- *   eventRecord {object}    - the Rainfall/Blast event being continued
- *   options     {Array}     - full precursor rows, in the order the event lists them
- *   isLoading   {boolean}   - options still being fetched
- *   timezone    {string}
- *   riskMode    {string}    - how this site states severity (config/riskDisplay)
- *   onSelect    {function}  - called with the chosen precursor id
- *   onCancel    {function}  - backdrop / Escape / Cancel
+ *   isOpen        {boolean}
+ *   eventRecord   {object}    - the Rainfall/Blast event being continued
+ *   options       {Array}     - full precursor rows, in the order the event lists them
+ *   isLoading     {boolean}   - options still being fetched
+ *   allowNewChain {boolean}   - offer "start a new chain" (CHAIN_BRANCH_NEW)
+ *   timezone      {string}
+ *   riskMode      {string}    - how this site states severity (config/riskDisplay)
+ *   onSelect      {function}  - called with the chosen precursor id, or CHAIN_BRANCH_NEW
+ *   onCancel      {function}  - Cancel button only (no backdrop / Escape dismissal)
  */
 const ChainSelectDialog = ({
   isOpen,
   eventRecord,
   options = [],
   isLoading = false,
+  allowNewChain = false,
   timezone,
   riskMode = 'tarp',
   onSelect,
@@ -44,24 +53,21 @@ const ChainSelectDialog = ({
   // The engineer's pick, or — before they have made one, and whenever the dialog
   // reopens on a different event whose chains no longer contain the last pick —
   // the event's first chain, which is the one the timeline already walks today.
-  const isChosenOffered = options.some((o) => String(o.id) === String(chosenId));
-  const selectedId = isChosenOffered ? chosenId : options[0]?.id ?? null;
+  const isChosenOffered =
+    (allowNewChain && String(chosenId) === CHAIN_BRANCH_NEW) ||
+    options.some((o) => String(o.id) === String(chosenId));
+  const selectedId = isChosenOffered
+    ? chosenId
+    : options[0]?.id ?? (allowNewChain ? CHAIN_BRANCH_NEW : null);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onCancel?.();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onCancel]);
+  // No Escape / backdrop dismissal: the dialog closes from its Cancel button
+  // only, so a stray click outside it cannot abandon the chain choice.
 
   if (!isOpen) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onCancel}
       aria-modal="true"
       role="dialog"
       aria-labelledby="chain-select-title"
@@ -74,15 +80,17 @@ const ChainSelectDialog = ({
           Which chain does this continue?
         </h2>
         <p className="text-sm text-[var(--dtg-text-secondary)] mb-4">
-          This {eventRecord?.def_type || 'event'} carries {options.length} trends. Pick the one the
-          new record continues — the rest are carried forward as their own records.
+          {options.length} chain{options.length === 1 ? ' is' : 's are'} still standing on this{' '}
+          {eventRecord?.def_type || 'event'}. Continue one of them, or start a chain of its own if
+          this is something the {eventRecord?.def_type ? eventRecord.def_type.toLowerCase() : 'event'}{' '}
+          caused rather than changed. Whatever you do not pick stays on the event.
         </p>
 
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Spinner />
           </div>
-        ) : options.length === 0 ? (
+        ) : options.length === 0 && !allowNewChain ? (
           <p className="py-6 text-center text-sm text-[var(--dtg-text-secondary)]">
             No chains could be loaded for this record.
           </p>
@@ -126,6 +134,36 @@ const ChainSelectDialog = ({
                 </label>
               );
             })}
+
+            {allowNewChain && (
+              <label
+                htmlFor="chain-option-new"
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border border-dashed p-3 transition-colors ${
+                  String(selectedId) === CHAIN_BRANCH_NEW
+                    ? 'border-[var(--dtg-brand-orange)] bg-[var(--dtg-bg-secondary)]'
+                    : 'border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-secondary)]'
+                }`}
+              >
+                <input
+                  id="chain-option-new"
+                  type="radio"
+                  name="chain-option"
+                  className="mt-1 accent-[#e67e22]"
+                  checked={String(selectedId) === CHAIN_BRANCH_NEW}
+                  onChange={() => setChosenId(CHAIN_BRANCH_NEW)}
+                />
+                <span className="flex flex-col gap-1 text-sm">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Sparkles size={14} className="text-[var(--dtg-brand-orange)]" />
+                    <strong>Start a brand new chain</strong>
+                  </span>
+                  <span className="text-xs text-[var(--dtg-text-secondary)]">
+                    Continues nothing. The new record&apos;s history begins at this{' '}
+                    {eventRecord?.def_type || 'event'}, and every chain above stays where it is.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
         )}
 
