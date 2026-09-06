@@ -20,6 +20,15 @@ import {
   type MovementTableStyle,
 } from "@/config/movementTableStyle";
 import { areaKey } from "@/utils/dailyStatusRows";
+import { ensureOnboarding } from "@/components/admin/Radar/Onboarding/useOnboarding";
+import {
+  ACCEPTED_LOGO_TYPES,
+  LOGO_COLUMN,
+  removeCompanyLogo,
+  uploadCompanyLogo,
+  validateLogoFile,
+  type LogoVariant,
+} from "@/utils/companyLogos";
 
 const NEW = "__new__";
 
@@ -75,6 +84,19 @@ const emptySite = {
 
 const emptyBrand = { brand: "", color: "#F8901F" };
 
+/**
+ * The two logo variants a new company arrives with.
+ *
+ * Both optional. A site can be onboarded before anyone has chased the client's
+ * marketing team for an asset pack, and the reports fall back to DTG's own mark
+ * until one lands — see utils/companyLogos.ts. The site details editor in
+ * SensorDetail is where a logo is added or replaced later.
+ */
+const LOGO_SLOTS: { variant: LogoVariant; label: string; hint: string }[] = [
+  { variant: "full", label: "Full Logo", hint: "Mark + wordmark. Report mastheads." },
+  { variant: "mark", label: "Logo Only", hint: "The compact mark. Dashboard header." },
+];
+
 // The seed record's date has to be the one the checklist board will look for, or
 // the first tick creates a second record for the same day. That is the operator's
 // own calendar date — a hard-coded UTC+7 filed it under tomorrow for anyone east
@@ -95,6 +117,10 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
   const [wallFolderArea, setWallFolderArea] = useState("");
   const [newSite, setNewSite] = useState(emptySite);
   const [newBrand, setNewBrand] = useState(emptyBrand);
+  const [newLogos, setNewLogos] = useState<{ full: File | null; mark: File | null }>({
+    full: null,
+    mark: null,
+  });
 
   // Which movement table this radar's daily report prints. Follows the radar
   // number until the operator says otherwise — a PS is monitored as a fixed set
@@ -117,6 +143,7 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
     setWallFolderArea("");
     setNewSite(emptySite);
     setNewBrand(emptyBrand);
+    setNewLogos({ full: null, mark: null });
     setMovementStyle("chain");
     setStyleTouched(false);
     setMonitoringAreas("");
@@ -199,11 +226,15 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
 
     // Track what we create so a late failure doesn't leave orphans behind.
     const created: { table: string; id: number }[] = [];
+    // Storage objects are not rows and are not cascaded by the clients delete,
+    // so they are tracked and removed separately.
+    const uploadedLogos: string[] = [];
     const rollback = async () => {
       for (const row of [...created].reverse()) {
         const { error } = await supabase.from(row.table).delete().eq("id", row.id);
         if (error) console.error(`Rollback failed for ${row.table} id ${row.id}:`, error);
       }
+      for (const path of uploadedLogos) await removeCompanyLogo(supabase, path);
     };
 
     try {
@@ -227,6 +258,44 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
         if (error) throw error;
         resolvedSiteId = data.id;
         created.push({ table: "clients", id: data.id });
+
+        // 1b. The company's logos, into the CompanyLogo bucket.
+        //
+        // Uploaded after the row exists because the object path is keyed by site
+        // id. A failure here does NOT abort the sensor: a radar that exists with
+        // no masthead asset is a cosmetic gap the site details editor fixes in a
+        // minute, and rolling back a whole commissioning over it would be the
+        // wrong trade. The bucket paths are tracked so the rollback can tidy up
+        // if something LATER fails.
+        for (const { variant } of LOGO_SLOTS) {
+          const file = newLogos[variant];
+          if (!file) continue;
+          try {
+            const path = await uploadCompanyLogo(supabase, resolvedSiteId, variant, file);
+            uploadedLogos.push(path);
+            const { error: logoError } = await supabase
+              .from("clients")
+              .update({ [LOGO_COLUMN[variant]]: path })
+              .eq("id", resolvedSiteId);
+            if (logoError) throw logoError;
+          } catch (logoErr) {
+            console.error(`Logo upload failed (${variant}):`, logoErr);
+            toast.error(`Could not upload the ${variant} logo — add it later from Site & Company Details.`);
+          }
+        }
+
+        // 1c. The onboarding flow.
+        //
+        // Only for a NEW site. Picking an existing site means the client is
+        // already onboarded (or already part-way through), and seeding a second
+        // set of steps would put a live site back at step one — which is exactly
+        // what the tab gate in SensorDetail would then act on.
+        const onboardingId = await ensureOnboarding(resolvedSiteId, userID);
+        if (!onboardingId) {
+          toast.error(
+            "Site created, but the onboarding checklist could not be started. Check the client_onboardings migration has been run."
+          );
+        }
       }
 
       // 2. Brand (optional)
@@ -320,7 +389,8 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
 
       toast.success(
         `${radarNumber.trim()} added with ${values.length} data quality parameters` +
-          (areaNames.length > 0 ? ` and ${areaNames.length} monitoring points.` : ".")
+          (areaNames.length > 0 ? ` and ${areaNames.length} monitoring points.` : ".") +
+          (isNewSite ? " Onboarding started — open the sensor to work through it." : "")
       );
       resetForm();
       onSuccess?.();
@@ -518,6 +588,42 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
                     />
                   </div>
                 </div>
+
+                {/* Company logos. Optional — the reports fall back to DTG's own
+                    mark, and Site & Company Details can add them later. */}
+                <div className="grid grid-cols-2 gap-3">
+                  {LOGO_SLOTS.map(({ variant, label, hint }) => (
+                    <div key={variant} className={field}>
+                      <label className={hintClass}>{label}</label>
+                      <input
+                        type="file"
+                        accept={ACCEPTED_LOGO_TYPES.join(",")}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          if (!file) {
+                            setNewLogos((prev) => ({ ...prev, [variant]: null }));
+                            return;
+                          }
+                          const problem = validateLogoFile(file);
+                          if (problem) {
+                            toast.error(problem);
+                            e.target.value = "";
+                            return;
+                          }
+                          setNewLogos((prev) => ({ ...prev, [variant]: file }));
+                        }}
+                        className="w-full text-xs text-[var(--dtg-gray-700)] file:mr-2 file:rounded-md file:border file:border-[var(--dtg-border-medium)] file:bg-transparent file:px-2 file:py-1 file:text-xs file:text-[var(--dtg-text-primary)]"
+                      />
+                      <p className={hintClass}>{hint}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className={hintClass}>
+                  Adding a new site also starts its onboarding checklist. Until that checklist is
+                  finished and the live commencement notice is sent, this radar shows only the
+                  Onboarding tab.
+                </p>
               </div>
             )}
 

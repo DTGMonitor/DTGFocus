@@ -15,6 +15,15 @@
 //
 // Anything this module has no translation for is passed through untouched, so
 // analyst free-text and a client's own TARP document wording are never mangled.
+//
+// ONE EXCEPTION to "every word lives here": the onboarding drafts keep their
+// wording in config/onboardingEmails.ts. They are whole paragraphs and numbered
+// asks particular to that flow rather than the field labels and fragments this
+// dictionary is built from, and splitting a six-email sequence across two files
+// would help nobody. They still resolve their language through
+// `resolveEmailLocale` below, and reuse `translateBracket` and
+// `formatEmailTimestamp`, so a site never receives its alarms in one language
+// and its onboarding in another.
 
 /** Which language a draft is written in. */
 export type EmailLocale = 'en' | 'id';

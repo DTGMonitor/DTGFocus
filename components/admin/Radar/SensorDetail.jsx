@@ -5,7 +5,7 @@ import { resolveRiskPresentation, pendingPresentation } from "@/config/riskDispl
 import { Button } from "@/components/ui/button";
 import {
     X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert,
-    Wrench, Check, Plus
+    Wrench, Check, Plus, Pencil
 } from 'lucide-react';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { QualityTable } from "./Dqp/DqpTable";
@@ -39,6 +39,9 @@ import { openOutlookDraft } from "@/utils/openOutlookDraft";
 import { fetchCrosscheckers } from "@/utils/crosscheckers";
 import { usesAreaRoster } from "@/config/movementTableStyle";
 import { resolveCreatedFolderId, copyAreaRoster } from "@/utils/monitoringAreas";
+import OnboardingTab from "./Onboarding/OnboardingTab";
+import SiteDetailsModal from "./Onboarding/SiteDetailsModal";
+import { useOnboarding } from "./Onboarding/useOnboarding";
 
 /**
  * Detaching every figure from a DQP row.
@@ -78,6 +81,8 @@ const SensorDetail = ({
     onRefresh,
     shift,
     userSite,
+    /** The signed-in engineer's own address. Signs the onboarding drafts. */
+    userEmail,
     timezone,
     onUpdateComplete
 }) => {
@@ -93,6 +98,26 @@ const SensorDetail = ({
 
     // --- Tabbed navigation (Requirement 1) ---
     const [activeTab, setActiveTab] = useState('deformation');
+
+    // --- Onboarding (site level) ---
+    //
+    // A radar whose SITE has not finished onboarding shows the Onboarding tab and
+    // nothing else: there is no escalation path to file a deformation record
+    // against until the contacts have been dialled and the commencement notice
+    // sent. `complete` reads true while the record is still loading and for a
+    // site with no onboarding row at all — every site that was live before this
+    // flow existed is backfilled — so the panel never flickers shut on a live
+    // radar because of a slow or failed read.
+    const onboardingState = useOnboarding(sensor?.site_id, userID);
+    const onboardingOnly = !onboardingState.complete;
+    const [showSiteDetails, setShowSiteDetails] = useState(false);
+
+    // The onboarding tab is where an unfinished site lands, and it is the only
+    // place to go from there. Held in an effect rather than in the initial state
+    // because the onboarding record arrives after the first render.
+    useEffect(() => {
+        if (onboardingOnly && activeTab !== 'onboarding') setActiveTab('onboarding');
+    }, [onboardingOnly, activeTab]);
 
     // --- Data States ---
     const [deformationList, setDeformationList] = useState([]);
@@ -1627,6 +1652,17 @@ const SensorDetail = ({
                                                                 <Plus size={14} />
                                                                 <span>Add New Wallfolder</span>
                                                             </button>
+                                                            {/* The SITE's own record — name, company, location and
+                                                                the two logo variants the reports print. Reachable
+                                                                from every sensor because that is where an engineer
+                                                                is standing when they notice the masthead is wrong. */}
+                                                            <button
+                                                                onClick={() => { setShowSiteDetails(true); setShowWrenchMenu(false); }}
+                                                                className="flex items-center gap-2 text-left px-3 py-2 hover:bg-[var(--dtg-bg-primary)] rounded text-sm text-[var(--dtg-text-primary)]"
+                                                            >
+                                                                <Pencil size={14} />
+                                                                <span>Site &amp; Company Details</span>
+                                                            </button>
                                                         </>
                                                     ) : (
                                                         // ADD NEW FOLDER FORM
@@ -1911,13 +1947,49 @@ const SensorDetail = ({
 
                 {/* --- CONTENT BODY --- */}
                 <div className="flex-1 overflow-y-auto p-6 bg-[var(--dtg-bg-primary)]">
-                    {isLoading ? <PageLoader /> : (
+                    {/* The onboarding read gates the tab strip as well as the body:
+                        rendering five tabs before it lands would flash Deformation
+                        onto a site that is only allowed one tab. */}
+                    {isLoading || onboardingState.loading ? <PageLoader /> : (
                         <div className="max-w-5xl mx-auto">
                             {/* Tab headers (Requirement 1) */}
-                            <Tab_Container activeTab={activeTab} onTabChange={setActiveTab} />
+                            <Tab_Container
+                                activeTab={activeTab}
+                                onTabChange={setActiveTab}
+                                showOnboarding={Boolean(onboardingState.onboarding)}
+                                onboardingOnly={onboardingOnly}
+                            />
 
                             {/* Active tab content panel */}
                             <div className="mt-4 bg-[var(--dtg-bg-card)] rounded-lg border border-[var(--dtg-border-medium)] min-h-[300px]">
+                                {activeTab === 'onboarding' && (
+                                    <OnboardingTab
+                                        sensor={sensor}
+                                        client={onboardingState.client}
+                                        onboarding={onboardingState.onboarding}
+                                        tests={onboardingState.tests}
+                                        loading={onboardingState.loading}
+                                        userSite={userSite}
+                                        userEmail={userEmail}
+                                        emailLocale={emailLocale}
+                                        timezone={timezone}
+                                        onSaveStep={onboardingState.saveStep}
+                                        onSeedTrial={onboardingState.seedTrial}
+                                        onSaveTest={onboardingState.saveTest}
+                                        onAddTest={onboardingState.addTest}
+                                        onRemoveTest={onboardingState.removeTest}
+                                        onCommence={async (iso) => {
+                                            const ok = await onboardingState.commence(iso);
+                                            // The board's own copy of this sensor is unaffected by
+                                            // onboarding, but the panel it sits behind now has five
+                                            // more tabs — refresh so the row and the panel agree.
+                                            if (ok) onRefresh?.();
+                                            return ok;
+                                        }}
+                                        onEditSite={() => setShowSiteDetails(true)}
+                                    />
+                                )}
+
                                 {activeTab === 'deformation' && (
                                     <DeformationTab
                                         sensor={sensor}
@@ -2044,6 +2116,15 @@ const SensorDetail = ({
                 userName={userName}
                 onClose={() => setSiteWideStatus(null)}
                 onSubmitted={handleSiteWideSubmitted}
+            />
+
+            {/* The site's own record — reached from the wrench menu and from the
+                onboarding tab. `onRefresh` because the board prints site_name. */}
+            <SiteDetailsModal
+                isOpen={showSiteDetails}
+                siteId={sensor?.site_id}
+                onClose={() => setShowSiteDetails(false)}
+                onSaved={() => onRefresh?.()}
             />
         </div >
     )

@@ -6,6 +6,7 @@ import { useUserSite } from "../useUserSite";
 import { FiUser, FiChevronDown } from "react-icons/fi";
 import { FocusLogo } from "@/components/Reusable/FocusLogo";
 import { ADMIN_HOME } from "@/config/adminView";
+import { companyLogo } from "@/utils/companyLogos";
 
 function LogoSection({ Subtitle = [] }) {
     const { user, userSite, loading } = useUserSite();
@@ -23,10 +24,9 @@ function LogoSection({ Subtitle = [] }) {
             .join('');
     }
     
-    const getLogoPath = (path) => {
-        if (!path) return "";
-        return path.replace(/^\.\./, '/logo');
-    }
+    // The compact mark: the Supabase-hosted one where the client has uploaded
+    // it, else the legacy public/logo asset. See utils/companyLogos.ts.
+    const siteLogo = companyLogo(userSite?.site, 'mark');
 
     // 👇 NEW: This function routes to the correct home page
     const handleLogoClick = () => {
@@ -74,12 +74,12 @@ function LogoSection({ Subtitle = [] }) {
                                 alignItems: "center",
                                 width: "30px",
                                 height: "30px",
-                                backgroundColor: userSite.site?.logo_path ? "#fff" : "#14b8a6"
+                                backgroundColor: siteLogo ? "#fff" : "#14b8a6"
                             }}
                         >
-                            {userSite.site?.logo_path ? (
+                            {siteLogo ? (
                                 <img
-                                    src={getLogoPath(userSite.site.logo_path)}
+                                    src={siteLogo}
                                     alt="Logo"
                                     style={{
                                         width: "20px",
@@ -102,7 +102,7 @@ function LogoSection({ Subtitle = [] }) {
                     user={userSite}
                     initial={getInitial(userSite?.displayname)}
                     site={userSite?.site?.site_name}
-                    logo={getLogoPath(userSite?.site?.logo_path)}
+                    logo={siteLogo}
                 />
             )}
         </div>

@@ -15,6 +15,7 @@ import { DailyReportToolbar } from '@/components/admin/Reports/DailyReportToolba
 import { useDailyReportData } from '@/components/admin/Reports/useDailyReportData';
 import { useGeneratorRuntime } from '@/components/admin/Reports/useGeneratorRuntime';
 import { applyHtml2CanvasBaselineFix, generatePdfBlob, urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
+import { resolveCompanyLogos } from '@/utils/companyLogos';
 import { PAGE_W, FALLBACK_LOGO } from '@/components/admin/Radar/report/constants';
 import { useImageAnnotation } from '@/components/admin/Radar/report/useImageAnnotation';
 import { useDailyFigures } from '@/components/admin/Radar/report/useDailyFigures';
@@ -134,24 +135,16 @@ const shiftDay = (day, deltaDays) => {
 
 
 /**
- * `clients.logo_path` holds a repo-relative path like "../CompanyLogo/foo.png";
- * the public asset lives under "/logo/…". Same rewrite the Post-Blast report uses.
- */
-const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
-
-/**
- * The FULL client logo — wordmark and all — for the daily report's masthead.
+ * The client's logos.
  *
- * `clients.logo_path` points at the LogoOnly variant, which is the compact mark
- * the dashboard needs beside a site name. The printed daily report has a whole
- * header band to fill and takes the full lockup instead.
+ * `resolveCompanyLogos` prefers what has been uploaded to the CompanyLogo
+ * Supabase bucket and falls back to the legacy `clients.logo_path` asset in
+ * public/logo. See utils/companyLogos.ts.
  *
- * Not every client has one (public/logo/CompanyLogo/FullLogo is a subset, and
- * Greatland's is filed under a different stem), so this is only ever a
- * CANDIDATE — both call sites fall back to the LogoOnly path, the preview via
- * the <img>'s onError and the export via `resolveFullLogo` below.
+ * `fullIsGuess` is what the onError fallback below is still needed for: a full
+ * lockup DERIVED from a legacy LogoOnly path may not exist as a file, whereas an
+ * uploaded one always does.
  */
-const fullLogoPath = (p) => (p ? String(p).replace('/LogoOnly/', '/FullLogo/') : '');
 
 /**
  * The export path's logo, inlined as a data URL.
@@ -248,7 +241,7 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
             try {
                 const { data, error } = await supabase
                     .from('clients')
-                    .select('id, site_name, company,location,logo_path')
+                    .select('id, site_name, company, location, logo_path, logo_full_path, logo_mark_path')
                     .order('site_name');
 
                 if (error) throw error;
@@ -355,15 +348,17 @@ export default function ReportGeneratorModal({ onClose, radarData, sensor }) {
     const completeSiteName = `${siteName}, ${location}`;
 
     // The header carries the CLIENT's logo, not DTG's — DTG's mark is the footer.
-    const clientLogo = normalizeLogoPath(selectedClient?.logo_path) || FALLBACK_LOGO;
+    const clientLogos = resolveCompanyLogos(selectedClient);
+    const clientLogo = clientLogos.mark || clientLogos.full || FALLBACK_LOGO;
 
     // The daily report's masthead takes the FULL lockup where the client has
-    // one. Whether they do cannot be known from the path — the FullLogo folder
-    // is a subset of LogoOnly — so the preview tries it and lets the <img>'s
-    // onError tell us, latched here so React does not re-attempt on every
-    // render. Reset when the client changes, or a client with no full logo
-    // would poison the next one's.
-    const fullClientLogo = fullLogoPath(normalizeLogoPath(selectedClient?.logo_path));
+    // one. An UPLOADED full logo is known to exist; one derived from a legacy
+    // LogoOnly path is a guess, because public/logo/CompanyLogo/FullLogo is a
+    // subset of LogoOnly. So the preview tries it and lets the <img>'s onError
+    // tell us, latched here so React does not re-attempt on every render. Reset
+    // when the client changes, or a client with no full logo would poison the
+    // next one's.
+    const fullClientLogo = clientLogos.full;
     const [fullLogoMissing, setFullLogoMissing] = useState(false);
     useEffect(() => { setFullLogoMissing(false); }, [fullClientLogo]);
     const dailyLogo = !fullLogoMissing && fullClientLogo ? fullClientLogo : clientLogo;

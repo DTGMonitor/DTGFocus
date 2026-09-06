@@ -40,6 +40,8 @@ interface RadarWallFolder {
   id: number;
   radar_number: string;
   station: number;
+  /** The clients row this radar belongs to. Onboarding and the site editor key off it. */
+  site_id: number;
   site_name: string;
   wallfolder_id: number;
   dqp_record_id: number;
@@ -127,7 +129,7 @@ function RadarMonitoring() {
   );
 
   const [selectedStation, setSelectedStation] = useState("1");
-  const { userSite, loading: siteLoading } = useUserSite() as { userSite: UserSiteData | null, loading: boolean };
+  const { user, userSite, loading: siteLoading } = useUserSite() as { user: { email?: string } | null, userSite: UserSiteData | null, loading: boolean };
   const userID = userSite?.user_id;
 
   // Keep a live ref of the list so serialized toggles read the freshest checklist.
@@ -1230,7 +1232,7 @@ function RadarMonitoring() {
               })}
             </tbody>
           </table>
-          {viewSensorDetail && <SensorDetail key={selectedSensor?.id} userSite={userSite} timezone={selectedSensor?.timezone} sensor={selectedSensor} onClose={() => { fetchLiveView(), fetchStats(), setViewSensorDetail(false) }} onRefresh={() => { fetchStats(), fetchLiveView() }} onUpdateComplete={() => { fetchStats(), fetchLiveView() }} shift={selectedShift} />}
+          {viewSensorDetail && <SensorDetail key={selectedSensor?.id} userSite={userSite} userEmail={user?.email} timezone={selectedSensor?.timezone} sensor={selectedSensor} onClose={() => { fetchLiveView(), fetchStats(), setViewSensorDetail(false) }} onRefresh={() => { fetchStats(), fetchLiveView() }} onUpdateComplete={() => { fetchStats(), fetchLiveView() }} shift={selectedShift} />}
         </div>
       </div>
 

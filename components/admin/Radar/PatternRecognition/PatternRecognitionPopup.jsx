@@ -11,6 +11,7 @@ import {
 } from '@/utils/patternRecognitionMapper';
 import { isoToDatetimeLocal } from '@/utils/tabHelpers';
 import { supabase } from '@/lib/supabaseClient';
+import { companyLogo } from '@/utils/companyLogos';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -283,7 +284,7 @@ export default function PatternRecognitionPopup({
       try {
         const { data, error } = await supabase
           .from('clients')
-          .select('site_name, company, location, logo_path')
+          .select('site_name, company, location, logo_path, logo_full_path, logo_mark_path')
           .eq('id', sensorSiteId)
           .maybeSingle();
         if (error) throw error;
@@ -646,9 +647,11 @@ export default function PatternRecognitionPopup({
 
   // Metadata for the Post-Blast Analysis Report header. Company + logo come from
   // the sensor's client record (resolved above); author from the signed-in user;
-  // blast id from the precursors record's location. Logo paths stored as
-  // "../CompanyLogo/…" are rewritten to the public "/logo/…" path.
-  const normalizeLogoPath = (p) => (p ? String(p).replace(/^\.\./, '/logo') : '');
+  // blast id from the precursors record's location.
+  //
+  // The header band is a wide masthead, so it takes the full lockup where the
+  // client has one and the compact mark otherwise — `companyLogo` answers both
+  // from the Supabase bucket first, then the legacy public/logo asset.
   const reportMeta = {
     company: clientInfo?.company ?? userSite?.site?.company ?? '',
     siteName: clientInfo?.site_name ?? sensor?.site_name ?? userSite?.site?.site_name ?? '',
@@ -660,7 +663,7 @@ export default function PatternRecognitionPopup({
     radarNumber: sensor?.radar_number ?? '',
     author: userSite?.displayname ?? '',
     blastId: precursorsInitialValues?.Location ?? '',
-    logoPath: normalizeLogoPath(clientInfo?.logo_path ?? userSite?.site?.logo_path),
+    logoPath: companyLogo(clientInfo ?? userSite?.site, 'full'),
     // Carried so the report export can persist to Supabase (reports table +
     // Reports storage bucket + work_log), mirroring the daily/InSAR reports.
     clientId: sensorSiteId,

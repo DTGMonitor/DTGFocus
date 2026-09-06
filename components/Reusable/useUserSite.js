@@ -31,7 +31,9 @@ export function useUserSite() {
             site_name,
             location,
             company,
-            logo_path
+            logo_path,
+            logo_full_path,
+            logo_mark_path
           )
         `)
                 .eq("user_id", authUser.id)
