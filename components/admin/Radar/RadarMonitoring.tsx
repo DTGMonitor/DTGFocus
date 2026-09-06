@@ -78,11 +78,13 @@ interface ShiftStats {
 /**
  * Per-column header chrome. The SSR column stays pinned while the twelve hour
  * columns scroll under it, so its heading carries the sticky treatment its cells
- * do — at a z-index above the body's own sticky cells, or a filter menu opened
- * from it would be painted over by the rows below.
+ * do — one step above the body's own sticky cells, or the heading would be
+ * painted over by the rows below. Both stay UNDER the page header's z-10
+ * (.sticky-header in adminpagestyle.css), so the pinned column slides beneath
+ * the tabs instead of over them.
  */
 const HEADER_CELL: Record<ColumnKey, string> = {
-  radar_number: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] sticky left-0 bg-[var(--dtg-bg-primary)] z-30 border-r border-[var(--dtg-border-medium)]',
+  radar_number: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] sticky left-0 z-[2] bg-[var(--dtg-bg-primary)] border-r border-[var(--dtg-border-medium)]',
   site_name: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[150px]',
   area: 'px-3 py-2 text-left text-xs text-[var(--dtg-gray-700)] min-w-[150px]',
   risk: 'px-3 py-2 text-center text-xs text-[var(--dtg-gray-700)]',
@@ -1153,7 +1155,7 @@ function RadarMonitoring() {
 
                       return (
                         <tr key={sensor.wallfolder_id ?? sensor.radar_number} className="group border-t border-[var(--dtg-border-medium)] hover:bg-[var(--dtg-bg-hover)]/50 transition-colors">
-                        <td className="px-3 py-3 text-[var(--dtg-text-primary)] sticky left-0 bg-[var(--dtg-bg-card)] z-10 border-r border-[var(--dtg-border-medium)]">
+                        <td className="px-3 py-3 text-[var(--dtg-text-primary)] sticky left-0 z-[1] bg-[var(--dtg-bg-card)] border-r border-[var(--dtg-border-medium)]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono cursor-pointer"
                               onClick={() => { setViewSensorDetail(true); handleExplore(sensor.wallfolder_id) }}>

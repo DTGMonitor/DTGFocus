@@ -7,6 +7,7 @@
 // utils/radarBoardView.ts, so both can be reasoned about (and tested) apart.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Filter, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { BoardColumn, SortState } from "@/utils/radarBoardView";
@@ -68,6 +69,12 @@ const SEARCHABLE_FROM = 8;
  * absolutely inside the header: the table scrolls horizontally, and an
  * absolutely positioned panel would be clipped by that scroll box the moment it
  * ran past the bottom of the header row.
+ *
+ * It is also portalled to the body. `position: sticky` makes a stacking context
+ * of its own, so a panel left inside the pinned <th> could never rise above the
+ * sticky cells further down the table however high its z-index went — the whole
+ * heading, panel included, is painted at the heading's level. Out at the body it
+ * ranks on its own: above the board, below the page header's z-10.
  */
 export function ColumnFilterMenu({ column, options, selected, onChange }: ColumnFilterMenuProps) {
   const [open, setOpen] = useState(false);
@@ -146,11 +153,15 @@ export function ColumnFilterMenu({ column, options, selected, onChange }: Column
         <Filter className="w-3 h-3" fill={filtering ? "currentColor" : "none"} />
       </button>
 
-      {open && anchor && (
+      {open && anchor && typeof document !== "undefined" && createPortal(
         <div
           ref={panelRef}
-          style={{ left: anchor.left, top: anchor.top, width: PANEL_WIDTH }}
-          className="fixed z-50 rounded-lg border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] shadow-xl"
+          // Inline, not a utility class: this has to land above the board's
+          // sticky cells and below the page header's z-10, and a stray arbitrary
+          // z utility that never reaches the compiled CSS fails silently — the
+          // panel just sinks back under the pinned column.
+          style={{ left: anchor.left, top: anchor.top, width: PANEL_WIDTH, zIndex: 9 }}
+          className="fixed rounded-lg border border-[var(--dtg-border-medium)] bg-[var(--dtg-bg-card)] shadow-xl"
         >
           <div className="flex items-center justify-between border-b border-[var(--dtg-border-medium)] px-3 py-2">
             <span className="text-xs text-[var(--dtg-text-primary)]">{column.label}</span>
@@ -194,7 +205,8 @@ export function ColumnFilterMenu({ column, options, selected, onChange }: Column
               </label>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
