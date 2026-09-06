@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { getRiskColor, getStatusColor, getQualityColor, getBandColor } from "@/config/statusConfig";
 import { resolveRiskPresentation, pendingPresentation, atLeastBand } from "@/config/riskDisplay";
 import type { RiskPresentation, RiskRecordLike } from "@/config/riskDisplay";
-import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Activity, Clock, Download, RefreshCw, TrendingUp, Zap, Loader, Plus, ChevronDown, ChevronRight, Search, PowerOff, Undo2 } from 'lucide-react';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { supabase } from '@/lib/supabaseClient';
@@ -33,6 +33,12 @@ import {
 } from '@/utils/radarBoardView';
 import type { ColumnFilters, ColumnKey, SortState } from '@/utils/radarBoardView';
 import { ColumnFilterMenu, FilterSummary, SortHeader } from '@/components/admin/Radar/shared/BoardControls';
+import DecommissionRadarModal from '@/components/admin/Radar/DecommissionRadarModal';
+import {
+  RESTORED_TYPE,
+  partitionByService,
+  recommissionLogEntry
+} from '@/utils/radarDecommission';
 import toast, { Toaster } from 'react-hot-toast';
 
 
@@ -55,6 +61,8 @@ interface RadarWallFolder {
   quality: string;
   hourlychecks: boolean[] | null;
   created_time: string;
+  /** The WALL FOLDER's stamp: when this folder stopped being scanned. */
+  decommissioned_at?: string | null;
   wallfolder?: {
     id: number;
     type: string;
@@ -143,6 +151,17 @@ function RadarMonitoring() {
 
   const [showPreview, setShowPreview] = useState(false);
   const [showAddSensor, setShowAddSensor] = useState(false);
+
+  // ---- Radars this station has taken out of service ----
+  // Kept in their own list, never merged into liveViewList: the KPI cards, the
+  // completion figures and the exported handover all reduce over the board, and
+  // a radar that left the site must not be counted as twelve missed checks a
+  // shift. See utils/radarDecommission.ts.
+  const [decommissionedList, setDecommissionedList] = useState<RadarWallFolder[]>([]);
+  const [showDecommissioned, setShowDecommissioned] = useState(false);
+  const [decommissionTarget, setDecommissionTarget] = useState<RadarWallFolder | null>(null);
+  // The radar a recommission is in flight for, so its row can say so.
+  const [restoringId, setRestoringId] = useState<number | null>(null);
 
   // ---- How the board is presented: ordered, narrowed, grouped ----
   // None of this reaches the database or the exported handover; it decides what
@@ -635,23 +654,48 @@ function RadarMonitoring() {
     }));
   };
 
+  /**
+   * The board, and the out-of-service list beside it.
+   *
+   * The whole station is read in one query and split here rather than narrowed
+   * to `type <> 'Archive'` in the query, because a decommission is two writes —
+   * the radar stamp and the folder archive — that the browser cannot make
+   * atomic. Splitting on either mark means a half-finished one surfaces in the
+   * out-of-service list, where it can be finished, instead of falling out of
+   * both lists. See utils/radarDecommission.ts.
+   *
+   * Only the board rows are enriched: the checklist and risk reads are two more
+   * queries each, and a radar that left the site has no shift to verify.
+   */
   const fetchLiveView = useCallback(async () => {
     if (!selectedStation) return;
     try {
       setLoadingLiveViewList(true);
-      const { data, error } = await supabase
-        .from('latest_radar_wall_folders')
-        .select('id, radar_number, site_id, station, site_name, wallfolder_id, wallfolder:radar_wall_folders!inner(id, type, name), dqp_record_id, type, area, risk, status, quality, hourlychecks, created_time, timezone, total_score, normalised_score')
-        .neq('type', 'Archive')
-        .eq('station', selectedStation)
-        .order('id');
+      const [viewRes, retiredRes] = await Promise.all([
+        supabase
+          .from('latest_radar_wall_folders')
+          .select('id, radar_number, site_id, station, site_name, wallfolder_id, wallfolder:radar_wall_folders!inner(id, type, name), dqp_record_id, type, area, risk, status, quality, hourlychecks, created_time, decommissioned_at, timezone, total_score, normalised_score')
+          .eq('station', selectedStation)
+          .order('id'),
+        supabase
+          .from('radars')
+          .select('id')
+          .eq('station', selectedStation)
+          .not('decommissioned_at', 'is', null)
+      ]);
 
-      if (error) throw error;
+      if (viewRes.error) throw viewRes.error;
+      // Without the stamps the split falls back to the archived folder alone,
+      // which is what the board narrowed on before this list existed.
+      if (retiredRes.error) console.error('Error fetching decommissioned radars:', retiredRes.error);
 
-
-      setLiveViewList(
-        await withRiskPresentation(await withShiftChecklists((data as RadarWallFolder[]) || []))
+      const { active, decommissioned } = partitionByService(
+        (viewRes.data as RadarWallFolder[]) || [],
+        ((retiredRes.data as { id: number }[]) || []).map((r) => r.id)
       );
+
+      setDecommissionedList(decommissioned);
+      setLiveViewList(await withRiskPresentation(await withShiftChecklists(active)));
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -732,6 +776,64 @@ function RadarMonitoring() {
     )) return;
 
     clearChecklists([sensor]);
+  };
+
+  /**
+   * Put a decommissioned radar back on the checklist.
+   *
+   * The mirror of the decommission, and deliberately not a full undo: the
+   * downtime and deformation records it closed stay closed, and the folder comes
+   * back Live. A radar returning to service is working until somebody says
+   * otherwise, and re-opening a fault that was resolved weeks ago would put
+   * minutes into the availability figures that the site never lost. See
+   * utils/radarDecommission.ts.
+   */
+  const handleRecommission = async (sensor: RadarWallFolder) => {
+    if (!userID) {
+      toast.error('User ID not available. Please refresh the page.');
+      return;
+    }
+    if (sensor.wallfolder_id == null) {
+      toast.error(`${sensor.radar_number} has no wall folder to restore.`);
+      return;
+    }
+    if (!window.confirm(
+      `Put ${sensor.radar_number} (${sensor.site_name}) back on the station ${selectedStation} checklist?\n\n` +
+      `Its wall folder "${sensor.area}" is restored as ${RESTORED_TYPE}. Downtime and deformation records ` +
+      `closed when it was decommissioned stay closed — declare anything currently wrong with it through the ` +
+      `normal status flow.`
+    )) return;
+
+    setRestoringId(sensor.id);
+    try {
+      // Folder first, then the stamp: the same order as the decommission read
+      // backwards, so neither half-state hides the radar from both lists.
+      const { error: wallError } = await supabase
+        .from('radar_wall_folders')
+        .update({ type: RESTORED_TYPE, decommissioned_at: null })
+        .eq('id', sensor.wallfolder_id);
+      if (wallError) throw wallError;
+
+      const { error: radarError } = await supabase
+        .from('radars')
+        .update({ decommissioned_at: null })
+        .eq('id', sensor.id);
+      if (radarError) throw radarError;
+
+      const { error: logError } = await supabase
+        .from('work_log')
+        .insert([recommissionLogEntry(sensor, sensor.wallfolder_id, userID, new Date().toISOString())]);
+      if (logError) console.error('Recommission work log insert failed:', logError);
+
+      toast.success(`${sensor.radar_number} is back on the checklist.`);
+      fetchLiveView();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Failed to recommission radar:', error);
+      toast.error(`Could not recommission ${sensor.radar_number}: ${message}`);
+    } finally {
+      setRestoringId(null);
+    }
   };
 
   /**
@@ -1052,6 +1154,20 @@ function RadarMonitoring() {
             </button>
           )}
 
+          {/* Out of service. Not a filter: these rows are held apart from the
+              board entirely, so the count comes from its own list. */}
+          {decommissionedList.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowDecommissioned((shown) => !shown)}
+              aria-expanded={showDecommissioned}
+              className="flex items-center gap-1.5 text-xs text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)]"
+            >
+              <PowerOff className="w-3.5 h-3.5" />
+              {showDecommissioned ? 'Hide' : 'Show'} decommissioned ({decommissionedList.length})
+            </button>
+          )}
+
           <div className="ml-auto">
             <FilterSummary
               shown={visibleList.length}
@@ -1172,6 +1288,15 @@ function RadarMonitoring() {
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              title={`Decommission ${sensor.radar_number} — take it off the checklist`}
+                              aria-label={`Decommission ${sensor.radar_number}`}
+                              onClick={(e) => { e.stopPropagation(); setDecommissionTarget(sensor); }}
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--dtg-gray-500)] hover:text-red-500"
+                            >
+                              <PowerOff className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-[var(--dtg-text-secondary)] text-sm cursor-pointer"
@@ -1234,6 +1359,46 @@ function RadarMonitoring() {
           </table>
           {viewSensorDetail && <SensorDetail key={selectedSensor?.id} userSite={userSite} userEmail={user?.email} timezone={selectedSensor?.timezone} sensor={selectedSensor} onClose={() => { fetchLiveView(), fetchStats(), setViewSensorDetail(false) }} onRefresh={() => { fetchStats(), fetchLiveView() }} onUpdateComplete={() => { fetchStats(), fetchLiveView() }} shift={selectedShift} />}
         </div>
+
+        {/* Out of service.
+            Below the grid and outside it: these radars have no shift to verify,
+            so they carry no hour columns and are counted in none of the figures
+            above. The list exists so a decommission is not a one-way door. */}
+        {showDecommissioned && decommissionedList.length > 0 && (
+          <div className="border-t border-[var(--dtg-border-medium)]">
+            <p className="px-3 py-2 text-xs text-[var(--dtg-gray-500)]">
+              Out of service on station {selectedStation} — off the checklist, the report scheduler and the
+              site status list. Nothing has been deleted.
+            </p>
+            {decommissionedList.map((sensor) => (
+              <div
+                key={sensor.wallfolder_id ?? sensor.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 border-t border-[var(--dtg-border-medium)]"
+              >
+                <span className="font-mono text-sm text-[var(--dtg-gray-500)] line-through">
+                  {sensor.radar_number}
+                </span>
+                <span className="text-sm text-[var(--dtg-gray-500)]">{cellText(sensor, 'site_name')}</span>
+                <span className="text-xs text-[var(--dtg-gray-500)]">{cellText(sensor, 'area')}</span>
+                {sensor.decommissioned_at && (
+                  <span className="text-xs text-[var(--dtg-gray-500)]">
+                    since <LocalTime utcTime={sensor.decommissioned_at} format="full" />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleRecommission(sensor)}
+                  disabled={restoringId === sensor.id}
+                  title={`Put ${sensor.radar_number} back on the checklist`}
+                  className="ml-auto inline-flex items-center gap-1.5 text-xs text-[var(--dtg-gray-500)] hover:text-[var(--dtg-text-primary)] disabled:opacity-50"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  {restoringId === sensor.id ? 'Recommissioning...' : 'Recommission'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Quick Stats Footer */}
@@ -1300,6 +1465,17 @@ function RadarMonitoring() {
         onClose={() => setShowAddSensor(false)}
         userID={userID}
         onSuccess={() => { fetchLiveView(); }}
+      />
+
+      <DecommissionRadarModal
+        isOpen={decommissionTarget != null}
+        row={decommissionTarget}
+        timezone={decommissionTarget?.timezone}
+        userID={userID}
+        onClose={() => setDecommissionTarget(null)}
+        // Opened so the operator can find the radar again straight away, rather
+        // than watching a row vanish with nothing to say where it went.
+        onDone={() => { setShowDecommissioned(true); fetchLiveView(); fetchStats(); }}
       />
     </div > // This is the final closing div of your component
   );
