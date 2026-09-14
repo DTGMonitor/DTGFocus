@@ -51,6 +51,12 @@ SM.Symbology = (function () {
       cfg().auto = true; autoRange(true); colorize(); updateLegend();
     };
 
+    /* Which raster each of the two paintable layers is showing. These are the
+       rows the tree used to carry: a layer is one thing, and the several ways
+       it can be coloured are a property of it. */
+    $('selTerrainMode').onchange = function () { SM.Tree.setTerrainMode(this.value); };
+    $('selAnalysisMode').onchange = function () { SM.Tree.setAnalysisMode(this.value); };
+
     /* the terrain as a backdrop rather than a map: hide it outright, or paint
        it one colour so the structures drawn on it are all there is to read */
     /* the viewer starts with its own default; make the two agree explicitly
@@ -114,6 +120,20 @@ SM.Symbology = (function () {
     $('inpBands').value = c.bands; $('inpGamma').value = c.gamma;
     var L = SM.LAYER_BY_ID[S.layer];
     $('cmName').textContent = L ? '— ' + L.name : '';
+    $('selTerrainMode').value = S.terrainMode;
+    $('selAnalysisMode').value = S.analysisMode;
+    $('chkSurface').checked = !!S.show.surface;
+    $('chkFlat').checked = !!S.show.flat;
+    /* The ramp editor is shared by the terrain and the result, so say which
+       one it is editing — otherwise an unticked result silently edits the
+       terrain's scale while its own row is selected. */
+    var note = $('resultNote');
+    if (note) {
+      note.textContent = S.result.on
+        ? 'On screen. The colour scale below is this analysis’ own.'
+        : 'Unticked — the terrain is what you see, and the scale below is the ' +
+          'terrain’s. Tick the row to bring the result back.';
+    }
     refreshStopEditor();
   }
 

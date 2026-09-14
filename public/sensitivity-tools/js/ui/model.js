@@ -6,7 +6,7 @@
 
 SM.Model = (function () {
 
-  var $ = SM.$, S = SM.S, fmt = SM.fmt, numOr = SM.numOr, TERRAIN = SM.TERRAIN_LAYERS;
+  var $ = SM.$, S = SM.S, fmt = SM.fmt, numOr = SM.numOr;
 
   function init() {
     Array.prototype.forEach.call(document.querySelectorAll('input[name=smode]'), function (el) {
@@ -96,10 +96,11 @@ SM.Model = (function () {
       var ms = (performance.now() - t0).toFixed(0);
       $('progWrap').classList.add('hidden');
       S.busy = false;
-      /* a terrain layer was all there was to show before; now there is a result */
-      if (TERRAIN[S.layer]) { S.layer = 'sens'; SM.Symbology.syncForm(); }
-      SM.Symbology.autoRange(false);
-      SM.Symbology.colorize();
+      /* The result is a layer of its own now, and it has just come into
+         existence: put it on top and paint it, rather than leaving the run
+         invisible under the terrain that was all there was to show before. */
+      S.result.on = true;
+      SM.Tree.applyActive();
       SM.Overlays.update();
       SM.Stats.update(); SM.Stats.updateRank();
       SM.Tree.refresh(); SM.Cmd.refresh();

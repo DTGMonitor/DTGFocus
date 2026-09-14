@@ -16,7 +16,8 @@ SM.Sensors = (function () {
       .forEach(function (id) { $(id).oninput = saveForm; });
     ['chkSnap', 'chkAutoAim'].forEach(function (id) { $(id).onchange = saveForm; });
     $('selCombine').onchange = function () {
-      if ($('selCombine').value === 'which') S.layer = 'which';
+      /* asking which sensor wins is asking to look at that map */
+      if ($('selCombine').value === 'which') S.analysisMode = 'which';
       SM.Model.invalidate();
       SM.Tree.refresh();
       if (S.res) SM.Model.recompute();

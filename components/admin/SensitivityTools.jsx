@@ -1,7 +1,5 @@
 "use client";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { SlClock } from "react-icons/sl";
-import { FaCalendarAlt } from "react-icons/fa";
 import LogoSection from "@/components/Reusable/HeaderComponents/LogoSection";
 import { handleGeorefRequest } from "@/lib/radarGeoref";
 
@@ -139,67 +137,6 @@ const SensitivityTools = () => {
       {/* Shared platform header — the DTG Focus mark routes back to home */}
       <div style={{ flexShrink: 0 }}>
         <LogoSection Subtitle="Sensitivity Tools" />
-      </div>
-
-      {/* Toolbar — mirrors the monitoring selection header. The grey ramp
-          inverts between themes, so one gradient serves both. */}
-      <div
-        style={{
-          flexShrink: 0,
-          height: "40px",
-          margin: "10px 10px 0",
-          background:
-            "linear-gradient(180deg, var(--dtg-gray-100) 0%, var(--dtg-gray-200) 75%, var(--dtg-gray-300) 100%)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          borderRadius: "4px",
-        }}
-      >
-        {/* Empty. Going back is the logo's job now, but the slot stays so the
-            title pill is centred on the bar rather than on the space the clock
-            leaves over. */}
-        <div style={{ flex: 1 }} />
-        <div
-          style={{
-            backgroundColor: "#024E4C",
-            borderRadius: "40px",
-            height: "100%",
-            padding: "0 20px",
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          {/* Deep teal pill, so its label stays light in both themes */}
-          <h2
-            style={{
-              fontSize: "16px",
-              fontWeight: "bold",
-              margin: 0,
-              color: "#f5f5f5",
-            }}
-          >
-            SENSITIVITY TOOLS
-          </h2>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            gap: 10,
-            justifyContent: "flex-end",
-            marginRight: 20,
-          }}
-        >
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <SlClock size={20} color={accent} />
-            <span>{timeString}</span>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <FaCalendarAlt size={20} color={accent} />
-            <span>{dateString}</span>
-          </div>
-        </div>
       </div>
 
       {/* The tool itself */}

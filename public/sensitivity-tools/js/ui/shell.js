@@ -13,15 +13,23 @@ SM.Shell = (function () {
 
   var $ = SM.$, S = SM.S;
 
-  /* Which property section belongs to which kind of tree node, and how the
-     Properties header should introduce it. */
+  /* Which property sections belong to which kind of tree node, and how the
+     Properties header should introduce it.
+
+     A sheet is a LIST of sections, shown in document order — which is what
+     lets the terrain put its colour mode above the shared ramp editor and its
+     gridding below it, without three copies of the ramp editor existing. */
   var PROPS = {
-    none: { pane: 'propNone', icon: 'layers', kind: 'Pick a layer in the tree' },
-    layer: { pane: 'propSymbology', icon: 'ramp', kind: 'Raster layer · symbology' },
-    sensor: { pane: 'propSensor', icon: 'sensor', kind: 'Radar position' },
-    aoi: { pane: 'propAOI', icon: 'mask', kind: 'Selection mask' },
-    region: { pane: 'propAOI', icon: 'polygon', kind: 'Drawn region' },
-    scan: { pane: 'propScan', icon: 'scan', kind: 'Radar deformation' }
+    none: { panes: ['propNone'], icon: 'layers', kind: 'Pick a layer in the tree' },
+    terrain: { panes: ['propTerrain', 'propSymbology', 'propGrid'], icon: 'pit',
+      kind: 'Raster layer · the survey surface' },
+    result: { panes: ['propResult', 'propSymbology'], icon: 'ramp',
+      kind: 'Raster layer · the last computation' },
+    photo: { panes: ['propPhoto'], icon: 'raster', kind: 'Draped orthophoto' },
+    sensor: { panes: ['propSensor'], icon: 'sensor', kind: 'Radar position' },
+    aoi: { panes: ['propAOI'], icon: 'mask', kind: 'Selection mask' },
+    region: { panes: ['propAOI'], icon: 'polygon', kind: 'Drawn region' },
+    scan: { panes: ['propScan'], icon: 'scan', kind: 'Radar deformation' }
   };
 
   /* ------------------------------------------------------- docks */
@@ -98,7 +106,43 @@ SM.Shell = (function () {
     });
   }
 
+  /**
+   * Is a tab reachable at all?
+   *
+   * Processing is the one that is not always: a sensitivity run is a radar
+   * measured against the terrain, so it is set up per radar position and
+   * means nothing until one is selected. Gridding used to live there and does
+   * not any more — it is a property of the terrain — so nothing else is
+   * locked away by this.
+   */
+  function tabEnabled(name) {
+    if (name !== 'proc') return true;
+    return S.node.kind === 'sensor' && !!S.radars.length;
+  }
+
+  /** keep the tab strip in step with what is selected */
+  function updateTabs() {
+    var ok = tabEnabled('proc');
+    var b = document.querySelector('.dockTab[data-tab=proc]');
+    if (b) {
+      b.disabled = !ok;
+      b.classList.toggle('dis', !ok);
+      b.title = ok
+        ? 'The sensitivity model for the selected radar position'
+        : 'Select a radar position in the Layers tree to set up processing';
+    }
+    var gate = $('procGate');
+    if (gate) gate.classList.toggle('hidden', ok);
+    Array.prototype.forEach.call(document.querySelectorAll('#tabProc .propSection'), function (sec) {
+      if (sec.id !== 'procGate') sec.classList.toggle('hidden', !ok);
+    });
+    /* the pane was open and the selection moved off the radar — do not leave
+       a dead sheet in front of the operator */
+    if (!ok && document.querySelector('.dockTab[data-tab=proc].on')) tab('props');
+  }
+
   function tab(name) {
+    if (!tabEnabled(name)) return;
     Array.prototype.forEach.call(document.querySelectorAll('.dockTab'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-tab') === name);
     });
@@ -119,7 +163,7 @@ SM.Shell = (function () {
   function showProps(kind, name) {
     var p = PROPS[kind] || PROPS.none;
     Array.prototype.forEach.call(document.querySelectorAll('#tabProps .propSection'), function (sec) {
-      sec.classList.toggle('hidden', sec.id !== p.pane);
+      sec.classList.toggle('hidden', p.panes.indexOf(sec.id) < 0);
     });
     $('propName').textContent = name || (kind === 'none' ? 'No layer selected' : '');
     $('propKind').textContent = p.kind;
@@ -188,6 +232,7 @@ SM.Shell = (function () {
     bindTabs();
     bindModals();
     showProps('none');
+    updateTabs();
 
     var paint = SM.throttle(updateFurniture, 60);
     SM.V.onDraw = paint;
@@ -195,7 +240,8 @@ SM.Shell = (function () {
   }
 
   return {
-    init: init, tab: tab, showProps: showProps, focusProps: focusProps,
+    init: init, tab: tab, tabEnabled: tabEnabled, updateTabs: updateTabs,
+    showProps: showProps, focusProps: focusProps,
     toggleDock: toggleDock, revealScans: revealScans, updateFurniture: updateFurniture
   };
 })();

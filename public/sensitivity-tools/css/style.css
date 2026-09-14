@@ -64,7 +64,7 @@ button,input,select,textarea{font-family:inherit;font-size:12px;color:var(--fg)}
 }
 .menuRoot.open .menuPop{display:block}
 .menuItem{
-  display:flex;align-items:center;gap:9px;width:100%;padding:5px 9px;
+  display:flex;align-items:center;justify-content:flex-start;gap:9px;width:100%;padding:5px 9px;
   background:transparent;border:0;border-radius:4px;cursor:pointer;
   font-size:12.5px;color:var(--fg);text-align:left;white-space:nowrap
 }
@@ -218,6 +218,11 @@ button,input,select,textarea{font-family:inherit;font-size:12px;color:var(--fg)}
 .dockTab span{overflow:hidden;text-overflow:ellipsis}
 .dockTab:hover{color:var(--fg);background:var(--panel2)}
 .dockTab.on{color:var(--acc);border-bottom-color:var(--acc);background:var(--bg2)}
+/* a tab whose sheet has no subject yet — Processing without a radar selected.
+   Dimmed rather than removed: the strip must not change shape, or the tabs
+   move under the pointer every time the tree selection changes. */
+.dockTab:disabled{opacity:.38;cursor:default}
+.dockTab:disabled:hover{color:var(--dim);background:transparent}
 .dockBody{flex:1 1 auto;min-height:0;overflow-y:auto}
 .tabPane{display:none;padding:10px 11px 18px}
 .tabPane.on{display:block}

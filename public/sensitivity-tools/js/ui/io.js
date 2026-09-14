@@ -404,6 +404,11 @@ SM.IO = (function () {
         combine: $('selCombine').value
       },
       aoi: SM.AOI.aoiObj(), aoiNames: S.polyNames, layer: S.layer, colors: LC, show: S.show,
+      /* the two layers that can paint the surface, each remembering its own
+         raster — `layer` above is only the resolved winner, and a project
+         reloaded with the result unticked must still know which analysis it
+         was showing */
+      modes: { terrain: S.terrainMode, analysis: S.analysisMode, result: S.result.on },
       /* how the terrain itself is painted, which is a view setting rather than
          a colour ramp and would otherwise be the one thing not restored */
       surface: { show: S.show.surface, flat: S.show.flat, flatColor: $('colFlat').value },
@@ -494,6 +499,17 @@ SM.IO = (function () {
       $('inpCell').value = p.grid.cell || ''; $('inpTarget').value = p.grid.target || 320;
       $('selSearch').value = p.grid.search || 2; $('selInterp').value = p.grid.interp || 'idw';
     }
+    /* Newer projects carry both modes; older ones carry only the raster that
+       was on screen, which says which layer owned it and therefore what the
+       other one should fall back to. */
+    if (p.modes) {
+      if (p.modes.terrain) S.terrainMode = p.modes.terrain;
+      if (p.modes.analysis) S.analysisMode = p.modes.analysis;
+      S.result.on = p.modes.result !== false;
+    } else if (p.layer) {
+      if (SM.TERRAIN_LAYERS[p.layer]) { S.terrainMode = p.layer; S.result.on = false; }
+      else { S.analysisMode = p.layer; S.result.on = true; }
+    }
     if (p.layer) S.layer = p.layer;
     /* v1 projects carry the wireframe flag inside view.opt only */
     if (p.show) Object.keys(p.show).forEach(function (k) {
@@ -538,11 +554,14 @@ SM.IO = (function () {
       S.radars.forEach(SM.Sensors.snap);
       SM.AOI.recomputeMask();
       SM.Structure.recomputeIndex();
-      SM.Symbology.colorize(); SM.Overlays.update();
+      /* resolve the two restored modes into the one raster that is painted —
+         a project saved on an analysis has no result until it is recomputed */
+      SM.Tree.applyActive();
+      SM.Overlays.update();
     }
     SM.Structure.changed();
     SM.Tree.refresh(); SM.Cmd.refresh();
-    SM.status('Project loaded — press “Compute sensitivity map”.');
+    SM.status('Project loaded — select a radar position, then press “Compute sensitivity map”.');
     SM.badge('project loaded', 'busy');
   }
 

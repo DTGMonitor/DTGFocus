@@ -53,7 +53,7 @@ SM.Data = (function () {
       SM.Sensors.loadForm();
       SM.Tree.refresh();
       SM.Overlays.update();
-      status('Demo pit ready — press “Compute sensitivity map”.');
+      status('Demo pit ready — select a radar position, then press “Compute sensitivity map”.');
     }, 20);
   }
 
@@ -417,6 +417,9 @@ SM.Data = (function () {
     }
     S.radars.forEach(SM.Sensors.snap);
     SM.Sensors.loadForm();
+    /* a new model has no result behind it, so the terrain is all there is */
+    S.terrainMode = 'elev';
+    S.result.on = true;
     S.layer = 'elev';
     SM.Symbology.syncForm();
     /* Elevation is flagged auto, and its stored range is still the 0-1 default
@@ -431,7 +434,7 @@ SM.Data = (function () {
     SM.Cmd.refresh();
     /* land on the layer that is now on screen, so Properties opens on
        something rather than telling the operator to pick a row */
-    SM.Tree.select('layer', 'elev');
+    SM.Tree.select('terrain', 'terrain');
     $('sbCell2').textContent = 'cell ' + fmt(g.dx, 2) + ' m';
     badge('model ready', 'on');
     SM.setHud(S.files.map(function (f) { return f.name; }).join(', '),

@@ -2,10 +2,16 @@
    ui/layertree.js — the Layers panel, and the single source of truth for
    which raster is painted and which overlays are drawn.
 
-   The tree is not a view of some other control: the radio buttons under
-   Analysis and Terrain *are* the active-layer setting, the tick boxes *are*
-   `S.show` and `radar.on`, and selecting a row is what routes the Properties
-   dock. Everything else in the app reads that state rather than a widget.
+   The tree lists LAYERS and nothing else: the terrain, a draped photograph,
+   the processing result, the radar positions, the structure, the area of
+   interest, the annotations. How any one of them is drawn — the terrain's
+   colour mode, the result's analysis, a photo's strength — is a property of
+   that layer and is edited in the Properties dock, never as an extra row
+   here. One row is selected at a time, because there is one property sheet.
+
+   The tree is not a view of some other control: the tick boxes *are* `S.show`,
+   `radar.on` and `S.result.on`, and selecting a row is what routes Properties.
+   Everything else in the app reads that state rather than a widget.
    ============================================================ */
 'use strict';
 
@@ -14,7 +20,7 @@ SM.Tree = (function () {
   var $ = SM.$, S = SM.S, esc = SM.esc, icon = SM.icon;
 
   /* which groups are unfolded — remembered across rebuilds */
-  var open = { analysis: true, terrain: true, sensors: true, scans: true, aoi: true,
+  var open = { sensors: true, scans: true, aoi: true,
     planes: true, domains: true, anno: false };
 
   var ANNO = [
@@ -56,10 +62,7 @@ SM.Tree = (function () {
       ? '<button class="ttwist" data-twist="' + esc(o.id) + '">' + icon('chevron') + '</button>'
       : '<span class="ttwist empty"></span>';
 
-    if (o.check === 'radio') {
-      h += '<input class="tbox" type="radio" name="treeLayer" value="' + esc(o.id) + '"' +
-        (o.on ? ' checked' : '') + (o.disabled ? ' disabled' : '') + '>';
-    } else if (o.check === 'box') {
+    if (o.check === 'box') {
       h += '<input class="tbox" type="checkbox"' + (o.on ? ' checked' : '') +
         (o.disabled ? ' disabled' : '') + '>';
     } else {
@@ -90,13 +93,17 @@ SM.Tree = (function () {
     var h = [];
     var sel = S.node;
 
-    /* ---- the surface itself, above the layers painted onto it ---- */
+    /* ---- the terrain: one layer, however it happens to be coloured ---- */
     h.push(row({
-      kind: 'surface', id: 'surface', name: 'Terrain surface', depth: 0, check: 'box',
-      on: S.show.surface, icon: 'pit', disabled: !S.grid,
-      meta: S.show.flat ? 'flat colour' : '',
-      hint: 'Show or hide the terrain mesh. Overlays keep drawing either way. ' +
-        'Its colouring — the layer scale, or one flat colour — is in the View tab.'
+      kind: 'terrain', id: 'terrain', name: 'Terrain', depth: 0, check: 'box',
+      on: S.show.surface, disabled: !S.grid,
+      selected: sel.kind === 'terrain',
+      active: !resultOn(),
+      ramp: S.show.flat ? null : rampCss(S.terrainMode),
+      swatch: S.show.flat ? ($('colFlat') && $('colFlat').value) : null,
+      meta: S.show.flat ? 'flat colour' : terrainName(),
+      hint: 'The survey surface. Tick to draw the mesh — overlays keep drawing either ' +
+        'way. What colours it, and how it was gridded, are its properties.'
     }));
 
     /* ---- the draped photograph, under everything painted on the surface ---- */
@@ -104,31 +111,32 @@ SM.Tree = (function () {
       h.push(row({
         kind: 'photo', id: 'photo', name: S.photo.name || 'Orthophoto', depth: 0,
         check: 'box', on: S.photo.on, icon: 'raster', removable: true,
+        selected: sel.kind === 'photo',
         meta: S.photo.away ? 'off the model'
           : Math.round(SM.Photo.mix() * 100) + '% layer',
         hint: 'A georeferenced photo draped over the terrain. The active layer is ' +
-          'mixed over it at the strength set in the View tab; where the layer has no ' +
+          'mixed over it at the strength set in its properties; where the layer has no ' +
           'value, the photo shows through.'
       }));
     }
 
-    /* ---- raster layers, one radio across both groups ---- */
-    ['analysis', 'terrain'].forEach(function (grp) {
-      h.push(groupRow(grp, grp === 'analysis' ? 'Analysis' : 'Terrain'));
-      if (!open[grp]) return;
-      SM.LAYERS.forEach(function (L) {
-        if (L.group !== grp) return;
-        var off = L.needsRes && !S.res;
-        h.push(row({
-          kind: 'layer', id: L.id, name: L.name, depth: 1, check: 'radio',
-          on: S.layer === L.id, disabled: off || !S.grid,
-          selected: sel.kind === 'layer' && sel.id === L.id,
-          active: S.layer === L.id,
-          ramp: rampCss(L.id),
-          hint: off ? L.name + ' — compute the sensitivity map first' : L.name
-        }));
-      });
-    });
+    /* ---- what the last computation produced. One layer carrying six rasters:
+       which of them is on screen is a property of the result, not six rows. ---- */
+    if (S.res) {
+      h.push(row({
+        kind: 'result', id: 'result', name: 'Processing result', depth: 0, check: 'box',
+        on: S.result.on,
+        selected: sel.kind === 'result',
+        active: resultOn() && !S.show.flat,
+        ramp: rampCss(S.analysisMode),
+        /* a ticked result under a flat-coloured terrain is not on screen, and
+           a row that claims otherwise sends you hunting for a bug */
+        meta: (resultOn() && S.show.flat) ? analysisName() + ' · hidden by flat colour'
+          : analysisName(),
+        hint: 'The sensitivity run, painted over the terrain. Untick it to see the ' +
+          'terrain underneath; select it to choose which analysis it shows.'
+      }));
+    }
 
     /* ---- radar positions ---- */
     h.push(groupRow('sensors', 'Radar positions',
@@ -138,7 +146,12 @@ SM.Tree = (function () {
       S.radars.forEach(function (r, i) {
         h.push(row({
           kind: 'sensor', id: i, name: r.name, depth: 1, check: 'box', on: r.on !== false,
-          swatch: r.color, selected: i === S.sel,
+          swatch: r.color,
+          /* selected = the one row Properties is describing, and there is only
+             ever one in the whole tree; active = the radar the app is working
+             with — the one a compute centres on and the camera flies to. They
+             are usually the same row and must not be confused when they are not */
+          selected: sel.kind === 'sensor' && +sel.id === i,
           active: i === S.sel,
           meta: usableOf(i),
           removable: S.radars.length > 1,
@@ -242,6 +255,63 @@ SM.Tree = (function () {
       function (b) { b.indeterminate = true; });
   }
 
+  /* ------------------------------------------------- the painted raster
+
+     Only one raster can colour the surface. The result wins whenever there is
+     one and its row is ticked; otherwise the terrain's own colour mode does.
+     Everything that needs to know reads `S.layer`, which applyActive() keeps
+     equal to this. */
+  function resultOn() { return !!(S.res && S.result.on); }
+  function activeId() { return resultOn() ? S.analysisMode : S.terrainMode; }
+
+  function nameOfLayer(id) { return (SM.LAYER_BY_ID[id] || {}).name || id; }
+  function terrainName() { return nameOfLayer(S.terrainMode); }
+  function analysisName() { return nameOfLayer(S.analysisMode); }
+
+  /** repaint the surface with whatever is now on top */
+  function applyActive() {
+    var id = activeId();
+    if (S.layer !== id) S.layer = id;
+    SM.Symbology.syncForm();
+    SM.Symbology.autoRange(false);
+    SM.Symbology.colorize();
+  }
+
+  /** the terrain's colour mode — elevation, slope or aspect */
+  function setTerrainMode(id) {
+    if (!SM.TERRAIN_LAYERS[id]) return;
+    S.terrainMode = id;
+    applyActive();
+    refresh();
+    SM.Cmd.refresh();
+    /* changing the colour of something covered up looks like a dead control —
+       say what is on top of it rather than leaving the view unchanged */
+    if (resultOn()) {
+      SM.status('Terrain set to ' + terrainName() + ' — untick the processing result to see it.');
+    }
+  }
+
+  /** which raster of the last computation the result layer shows */
+  function setAnalysisMode(id) {
+    var L = SM.LAYER_BY_ID[id];
+    if (!L || L.group !== 'analysis') return;
+    S.analysisMode = id;
+    applyActive();
+    refresh();
+    SM.Cmd.refresh();
+    if (!resultOn()) {
+      SM.status(analysisName() + ' selected — tick the processing result to put it on screen.');
+    }
+  }
+
+  /** draw the result over the terrain, or fall back to the terrain's own colours */
+  function setResultOn(on) {
+    S.result.on = !!on;
+    applyActive();
+    refresh();
+    SM.Cmd.refresh();
+  }
+
   /* the ramp preview each raster row carries, so the tree doubles as a legend */
   function rampCss(id) {
     var c = SM.LC[id];
@@ -273,12 +343,16 @@ SM.Tree = (function () {
   function select(kind, id) {
     S.node = { kind: kind, id: id };
     var name = '';
-    if (kind === 'layer') name = (SM.LAYER_BY_ID[id] || {}).name;
+    if (kind === 'terrain') name = 'Terrain';
+    else if (kind === 'result') name = 'Processing result';
+    else if (kind === 'photo') name = S.photo.name || 'Orthophoto';
     else if (kind === 'sensor') name = (S.radars[id] || {}).name;
     else if (kind === 'region') name = SM.AOI.nameOf(+id);
     else if (kind === 'aoi') name = 'Area of interest';
     else if (kind === 'scan') name = 'Deformation scans';
     SM.Shell.showProps(kind, name);
+    if (kind === 'terrain' || kind === 'result') SM.Symbology.syncForm();
+    if (kind === 'photo') SM.Photo.syncForm();
     /* the region strip inside the AOI pane follows the selection, so the pane
        describes the mask and the strip describes the one region picked */
     SM.AOI.showRegion(kind === 'region' ? +id : null);
@@ -287,19 +361,31 @@ SM.Tree = (function () {
     SM.Cmd.refresh();
   }
 
-  /** the raster painted on the surface */
+  /**
+   * Put one named raster on the surface, whichever layer owns it.
+   *
+   * The single programmatic entry point — a saved project, a test, the
+   * multi-sensor combination flipping to “Best sensor”. A terrain raster
+   * takes the result layer off so it can actually be seen; an analysis
+   * raster puts it back on.
+   */
   function setLayer(id) {
     var L = SM.LAYER_BY_ID[id];
     if (!L) return;
     if (L.needsRes && !S.res) {
-      SM.status('Compute the sensitivity map first — showing elevation.');
-      id = 'elev';
+      SM.status('Compute the sensitivity map first — showing the terrain.');
+      S.result.on = false;
+      applyActive();
+      refresh(); SM.Cmd.refresh();
+      select('terrain', 'terrain');
+      return;
     }
-    S.layer = id;
-    SM.Symbology.syncForm();
-    SM.Symbology.autoRange(false);
-    SM.Symbology.colorize();
-    select('layer', id);
+    if (L.group === 'terrain') { S.terrainMode = id; S.result.on = false; }
+    else { S.analysisMode = id; S.result.on = true; }
+    applyActive();
+    refresh();
+    SM.Cmd.refresh();
+    select(L.group === 'terrain' ? 'terrain' : 'result', L.group === 'terrain' ? 'terrain' : 'result');
   }
 
   function setShow(key) {
@@ -356,12 +442,15 @@ SM.Tree = (function () {
         else if (kind === 'region') SM.AOI.removePoly(+id);
         else if (kind === 'plane') SM.Structure.removePlane(+id);
         else if (kind === 'domain') SM.Structure.removeDomain(+id);
+        else if (kind === 'photo') SM.Photo.clear();
         return;
       }
       if (e.target.closest('.tbox')) return;      // handled by the change event
 
       if (kind === 'group') { open[id] = !open[id]; refresh(); return; }
-      if (kind === 'layer') { setLayer(id); return; }
+      if (kind === 'terrain') { select('terrain', 'terrain'); return; }
+      if (kind === 'result') { select('result', 'result'); return; }
+      if (kind === 'photo') { select('photo', 'photo'); return; }
       if (kind === 'sensor') { SM.Sensors.select(+id); return; }
       if (kind === 'region') { select('region', +id); return; }
       if (kind === 'aoi') { select('aoi', 'aoi'); return; }
@@ -375,11 +464,6 @@ SM.Tree = (function () {
         return;
       }
       if (kind === 'anno') { setShow(id); return; }
-      /* the surface has no properties of its own — how it is drawn lives in
-         the View tab, so that is where the row goes */
-      if (kind === 'surface') { SM.Shell.tab('view'); return; }
-      /* the photo's strength lives beside the surface controls */
-      if (kind === 'photo') { SM.Shell.tab('view'); return; }
     });
 
     host.addEventListener('change', function (e) {
@@ -388,7 +472,7 @@ SM.Tree = (function () {
       var node = e.target.closest('.tnode');
       var kind = node.getAttribute('data-k'), id = node.getAttribute('data-i');
 
-      if (kind === 'layer') { setLayer(id); return; }
+      if (kind === 'result') { setResultOn(box.checked); return; }
       if (kind === 'sensor') { SM.Sensors.setEnabled(+id, box.checked); return; }
       if (kind === 'group') {
         if (id === 'planes') SM.Structure.setAllPlanes(box.checked);
@@ -401,7 +485,7 @@ SM.Tree = (function () {
         return;
       }
       if (kind === 'domain') { SM.Structure.toggleDomain(+id); return; }
-      if (kind === 'surface') { SM.Symbology.setSurface(box.checked); return; }
+      if (kind === 'terrain') { SM.Symbology.setSurface(box.checked); return; }
       if (kind === 'photo') { SM.Photo.setOn(box.checked); return; }
       if (kind === 'aoi') { SM.AOI.setOn(box.checked); return; }
       if (kind === 'scanItem') {
@@ -445,6 +529,8 @@ SM.Tree = (function () {
 
   return {
     init: init, refresh: refresh, select: select, setLayer: setLayer,
+    setTerrainMode: setTerrainMode, setAnalysisMode: setAnalysisMode,
+    setResultOn: setResultOn, applyActive: applyActive, resultOn: resultOn,
     setShow: setShow, applyShow: applyShow, removeSelected: removeSelected
   };
 })();

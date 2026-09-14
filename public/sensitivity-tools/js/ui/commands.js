@@ -151,9 +151,12 @@ SM.Cmd = (function () {
       hint: 'Copy the selected sensor, geometry and all',
       enabled: function () { return !!S.radars.length; },
       run: function () { call('Sensors.duplicate'); } },
-    { id: 'layer.remove', label: 'Remove selected item', icon: 'trash',
-      hint: 'Delete the selected radar position or drawn region',
-      enabled: function () { return S.node.kind === 'sensor' || S.node.kind === 'region'; },
+    { id: 'layer.remove', label: 'Remove selected layer', icon: 'trash',
+      hint: 'Delete the selected radar position, drawn region or draped photo',
+      enabled: function () {
+        return S.node.kind === 'sensor' || S.node.kind === 'region' ||
+          (S.node.kind === 'photo' && SM.Photo.has());
+      },
       run: function () { call('Tree.removeSelected'); } },
 
     /* --- symbology --- */
@@ -165,9 +168,11 @@ SM.Cmd = (function () {
       run: function () { call('IO.importScale'); } },
 
     /* --- analysis --- */
+    /* A run belongs to a radar position, so it is armed by selecting one —
+       the same rule that opens the Processing tab, in one place. */
     { id: 'analysis.compute', label: 'Compute sensitivity map', icon: 'compute',
-      hint: 'Run the line-of-sight model over every cell',
-      enabled: hasGrid,
+      hint: 'Run the line-of-sight model over every cell — select a radar position first',
+      enabled: function () { return !!S.grid && SM.Shell.tabEnabled('proc'); },
       run: function () { call('Model.recompute'); } },
     { id: 'aoi.toggle', label: 'Restrict analysis to AOI', icon: 'mask',
       hint: 'Statistics, histogram and ranking then cover the mask only',
@@ -389,6 +394,9 @@ SM.Cmd = (function () {
   /** Re-evaluate every command's availability and pressed state. Cheap enough
       to call after anything, which is what keeps the three surfaces agreeing. */
   function refresh() {
+    /* the tab strip has an availability rule of its own — Processing needs a
+       radar selected — and it has to be re-read at exactly the same moments */
+    if (SM.Shell && SM.Shell.updateTabs) SM.Shell.updateTabs();
     Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (el) {
       var c = BY_ID[el.getAttribute('data-cmd')];
       if (!c) return;

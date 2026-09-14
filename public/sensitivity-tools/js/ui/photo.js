@@ -152,7 +152,10 @@ SM.Photo = (function () {
     syncForm();
     repaint();
     renderList();
-    SM.Tree.refresh();
+    /* the row it was selected by has just gone — do not leave Properties
+       describing a photo that is no longer loaded */
+    if (S.node.kind === 'photo') SM.Tree.select(S.grid ? 'terrain' : 'none', S.grid ? 'terrain' : null);
+    else SM.Tree.refresh();
   }
 
   function repaint() {
@@ -169,8 +172,8 @@ SM.Photo = (function () {
   }
 
   function syncForm() {
-    var box = $('orthoBox');
-    if (box) box.classList.toggle('hidden', !has());
+    /* the sheet is only ever shown by selecting the photo's own row, and that
+       row exists only while a photo is loaded — nothing to hide here */
     var nm = $('orthoName');
     if (nm) nm.textContent = has() ? S.photo.name : '';
     var nt = $('orthoNote');

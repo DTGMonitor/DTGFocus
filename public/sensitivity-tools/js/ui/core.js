@@ -62,11 +62,24 @@ var SM = (function () {
        without them a block cannot be constructed, only traced */
     stagedPlanes: null,
 
-    layer: 'elev',
+    /* ---- what is painted on the surface ----
+       Two layers can colour the terrain, and only one of them wins: the
+       processing result when there is one and it is ticked, otherwise the
+       terrain's own colour mode. `layer` is that decision resolved — every
+       drawing path, the legend and the exports read it, and Tree.applyActive()
+       is the only thing that writes it. The two modes are remembered
+       separately so unticking the result puts the terrain back exactly as it
+       was, and reticking it returns to the analysis you were reading. */
+    terrainMode: 'elev',    // elev | slope | aspect
+    analysisMode: 'sens',   // sens | amp | vis | range | mmres | which
+    result: { on: true },   // is the processing result drawn over the terrain
+    layer: 'elev',          // resolved: the raster actually painted
     curLayer: null,     // the resolved layer object, cached for the read-out
 
-    /* What the tree has selected. `kind` routes the Properties dock;
-       `id` is the layer name, the sensor index or the region index. */
+    /* What the tree has selected — one row at a time, because Properties is
+       one sheet. `kind` routes the dock (terrain | photo | result | sensor |
+       aoi | region | scan); `id` is the sensor index, the region index, or
+       the row's own name where there is only one of it. */
     node: { kind: 'none', id: null },
 
     /* Overlay visibility. These were tick boxes in the old sidebar; they are

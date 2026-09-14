@@ -245,9 +245,61 @@
 
         <!-- placeholder -->
         <div class="propSection" id="propNone">
-          <p class="hint">Select a layer on the left to edit its properties here — a raster
-            layer shows its colour scale, a radar position its coordinates and scan geometry,
-            the area of interest its bounds, a wall folder its deformation scale and georeference.</p>
+          <p class="hint">Select a layer on the left to edit its properties here — the terrain
+            its colour mode, scale and gridding, the processing result which analysis it shows,
+            a radar position its coordinates and scan geometry, the area of interest its bounds,
+            a wall folder its deformation scale and georeference.</p>
+        </div>
+
+        <!-- ───────── the terrain layer ─────────
+             What the surface is coloured BY lives here, above the ramp that
+             colours it: picking Slope and picking the scale for slope are one
+             continuous thought, and the tree is a list of layers, not of the
+             ways one layer can be painted. -->
+        <div class="propSection hidden" id="propTerrain">
+          <div class="subhead">Colour mode</div>
+          <select id="selTerrainMode" class="wide" title="Which terrain-derived raster the surface is coloured by. All three come straight off the model and need no computation.">
+            <option value="elev">Elevation</option>
+            <option value="slope">Slope angle</option>
+            <option value="aspect">Aspect</option>
+          </select>
+          <label class="chk" title="Hide the terrain mesh without unloading it. Everything drawn on top — structures, domains, sensors, a measurement, the wireframe — keeps drawing, so you can read the geometry against nothing at all."><input type="checkbox" id="chkSurface" checked> Show terrain surface</label>
+          <label class="chk" title="Paint the whole surface one colour instead of the colour mode's scale, so the terrain becomes a backdrop rather than a map competing with what is drawn on it. Hill shading still applies, so the relief stays readable. Untick to go back to the layer's colours."><input type="checkbox" id="chkFlat"> Single flat colour</label>
+          <div class="grid2">
+            <label title="The flat colour. Only used while “Single flat colour” is ticked.">Colour<input type="color" id="colFlat" value="#8d949c"></label>
+            <label class="btnCell"><span>&nbsp;</span><button id="btnRevertColour" title="Turn the flat colour off and go back to the colour mode's scale.">Revert to layer colours</button></label>
+          </div>
+        </div>
+
+        <!-- ───────── the processing result ─────────
+             One layer, several rasters: the compute produces all of them at
+             once, so which one is on screen is a property of the result and
+             not a separate row in the tree. -->
+        <div class="propSection hidden" id="propResult">
+          <div class="subhead">Analysis</div>
+          <select id="selAnalysisMode" class="wide" title="Which raster of the last computation is painted over the terrain. They all come from the same run — switching is instant and never recomputes.">
+            <option value="sens">Sensitivity</option>
+            <option value="amp">Amplitude proxy</option>
+            <option value="vis">Visibility</option>
+            <option value="range">Range to sensor</option>
+            <option value="mmres">Measurable displacement</option>
+            <option value="which">Best sensor</option>
+          </select>
+          <div id="resultNote" class="info"></div>
+          <p class="hint">Untick this layer in the tree to see the terrain's own colouring
+            underneath it. The run that produced it is set up in <b>Processing</b>, which
+            needs a radar position selected.</p>
+        </div>
+
+        <!-- ───────── the draped photograph ───────── -->
+        <div class="propSection hidden" id="propPhoto">
+          <div class="dim" id="orthoName"></div>
+          <div class="hint" id="orthoNote"></div>
+          <label class="chk" title="Drape the loaded photo over the terrain. The active layer is mixed over the top; where the layer has no value for a cell, the photo shows through on its own."><input type="checkbox" id="chkOrtho" checked> Drape photo on the terrain</label>
+          <div class="grid2">
+            <label title="How strongly the active layer's colours cover the photo. 100% hides the photo wherever the layer has a value; 0% shows the photo alone and keeps the layer only as a legend. Cells the layer says nothing about always show the photo.">Layer over photo<input type="range" id="inpOrthoMix" min="0" max="100" step="5" value="60"></label>
+            <label class="btnCell"><span id="outOrthoMix" class="dim">60%</span><button id="btnOrthoClear" title="Unload the photo. The terrain model is untouched.">Remove photo</button></label>
+          </div>
         </div>
 
         <!-- ───────── raster layer symbology ───────── -->
@@ -281,6 +333,36 @@
               <label title="Cells whose sensitivity is under the alarm threshold, when the grey-out option is on.">Below thr.<input type="color" id="colBelow" value="#9ca3af"></label>
             </div>
           </div>
+        </div>
+
+        <!-- ───────── how the terrain raster was built ─────────
+             Gridding is a property of the terrain, not of the sensitivity run,
+             so it sits under the terrain layer rather than in Processing —
+             which is reachable only while a radar is selected. -->
+        <div class="propSection hidden" id="propGrid">
+          <div class="subhead">Model gridding</div>
+          <div class="grid2">
+            <label title="Raster cell size in metres. Leave blank to derive it from Target cells. Rule of thumb: about one third of your berm width, otherwise benches get averaged into a smooth ramp and steepest sensitivity is biased.">Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
+            <label title="Used only when Cell size is blank: number of cells along the longer side of the model. 320 is fast, 1000 is detailed. Ceiling is about 2.2 million nodes.">Target cells<input type="number" id="inpTarget" value="1000" min="40" max="1400" step="10"></label>
+            <label title="How far to look for source points when filling a cell, in cells. Raise it for sparse survey data, lower it to keep gaps honest instead of interpolating across them."><span>Search radius</span><select id="selSearch">
+                <option value="1">1 cell</option>
+                <option value="2" selected>2 cells</option>
+                <option value="3">3 cells</option>
+                <option value="5">5 cells</option>
+              </select></label>
+            <label title="How several points inside one cell are combined. IDW weights by 1/distance² (best general choice), Nearest keeps original values untouched, Mean is the smoothest."><span>Interp</span><select id="selInterp">
+                <option value="idw">IDW (power 2)</option>
+                <option value="nearest">Nearest</option>
+                <option value="mean">Mean</option>
+              </select></label>
+            <label class="chk" title="Fills empty cells from their neighbours (needs at least 4 valid ones). Closes pinholes in a TIN; it never alters cells that already have data."><input type="checkbox" id="chkFill" checked> Fill small holes</label>
+            <label title="How many times to repeat the hole filling. Each pass grows the filled area by one cell, so 2 closes gaps up to about 4 cells wide.">Fill passes<input type="number" id="inpFillIter" value="2" min="0" max="20" step="1"></label>
+            <label class="chk" title="Averages the elevations before computing slopes. Off by default — it removes real bench edges. Only use it on noisy photogrammetry or laser data."><input type="checkbox" id="chkSmooth"> Smooth normals</label>
+            <label title="Number of smoothing passes when the option above is on. Each pass is a weighted 3×3 average.">Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
+          </div>
+          <button data-cmd="model.build" class="primary wide"><svg class="ic"><use href="#ic-grid"></use></svg> Build / rebuild model</button>
+          <p class="hint">The gridding report — cell size, coverage, extent and any warning
+            about it — stays under <b>Data Sources</b>, beside the files it was built from.</p>
         </div>
 
         <!-- ───────── radar position ───────── -->
@@ -429,28 +511,11 @@
       <!-- ══════════════ PROCESSING ══════════════ -->
       <div class="tabPane" id="tabProc" data-pane="proc">
 
-        <div class="propSection">
-          <div class="subhead">Model gridding</div>
-          <div class="grid2">
-            <label title="Raster cell size in metres. Leave blank to derive it from Target cells. Rule of thumb: about one third of your berm width, otherwise benches get averaged into a smooth ramp and steepest sensitivity is biased.">Cell size (m)<input type="number" id="inpCell" placeholder="auto" step="0.5" min="0.1"></label>
-            <label title="Used only when Cell size is blank: number of cells along the longer side of the model. 320 is fast, 1000 is detailed. Ceiling is about 2.2 million nodes.">Target cells<input type="number" id="inpTarget" value="1000" min="40" max="1400" step="10"></label>
-            <label title="How far to look for source points when filling a cell, in cells. Raise it for sparse survey data, lower it to keep gaps honest instead of interpolating across them."><span>Search radius</span><select id="selSearch">
-                <option value="1">1 cell</option>
-                <option value="2" selected>2 cells</option>
-                <option value="3">3 cells</option>
-                <option value="5">5 cells</option>
-              </select></label>
-            <label title="How several points inside one cell are combined. IDW weights by 1/distance² (best general choice), Nearest keeps original values untouched, Mean is the smoothest."><span>Interp</span><select id="selInterp">
-                <option value="idw">IDW (power 2)</option>
-                <option value="nearest">Nearest</option>
-                <option value="mean">Mean</option>
-              </select></label>
-            <label class="chk" title="Fills empty cells from their neighbours (needs at least 4 valid ones). Closes pinholes in a TIN; it never alters cells that already have data."><input type="checkbox" id="chkFill" checked> Fill small holes</label>
-            <label title="How many times to repeat the hole filling. Each pass grows the filled area by one cell, so 2 closes gaps up to about 4 cells wide.">Fill passes<input type="number" id="inpFillIter" value="2" min="0" max="20" step="1"></label>
-            <label class="chk" title="Averages the elevations before computing slopes. Off by default — it removes real bench edges. Only use it on noisy photogrammetry or laser data."><input type="checkbox" id="chkSmooth"> Smooth normals</label>
-            <label title="Number of smoothing passes when the option above is on. Each pass is a weighted 3×3 average.">Smooth σ<input type="number" id="inpSmooth" value="1" min="0" max="5" step="1"></label>
-          </div>
-          <button data-cmd="model.build" class="primary wide"><svg class="ic"><use href="#ic-grid"></use></svg> Build / rebuild model</button>
+        <div class="propSection" id="procGate">
+          <p class="hint">Processing runs a radar against the terrain, so it is set up per
+            radar position: <b>select one in the Layers tree</b> and these settings and the
+            Compute button become live. Gridding moved with the terrain — it is under the
+            <b>Terrain</b> layer’s properties.</p>
         </div>
 
         <div class="propSection">
@@ -676,27 +741,6 @@
       <!-- ══════════════ VIEW ══════════════ -->
       <div class="tabPane" id="tabView" data-pane="view">
         <div class="propSection">
-          <div class="subhead">Terrain surface</div>
-          <label class="chk" title="Hide the terrain mesh without unloading it. Everything drawn on top — structures, domains, sensors, a measurement, the wireframe — keeps drawing, so you can read the geometry against nothing at all."><input type="checkbox" id="chkSurface" checked> Show terrain surface</label>
-          <label class="chk" title="Paint the whole surface one colour instead of the active layer's scale, so the terrain becomes a backdrop rather than a map competing with what is drawn on it. Hill shading still applies, so the relief stays readable. Untick to go back to the layer's colours."><input type="checkbox" id="chkFlat"> Single flat colour</label>
-          <div class="grid2">
-            <label title="The flat colour. Only used while “Single flat colour” is ticked.">Colour<input type="color" id="colFlat" value="#8d949c"></label>
-            <label class="btnCell"><span>&nbsp;</span><button id="btnRevertColour" title="Turn the flat colour off and go back to the active layer's colour scale.">Revert to layer colours</button></label>
-          </div>
-        </div>
-
-        <div class="propSection" id="orthoBox">
-          <div class="subhead">Orthophoto</div>
-          <div class="dim" id="orthoName"></div>
-          <div class="hint" id="orthoNote"></div>
-          <label class="chk" title="Drape the loaded photo over the terrain. The active layer is mixed over the top; where the layer has no value for a cell, the photo shows through on its own."><input type="checkbox" id="chkOrtho" checked> Drape photo on the terrain</label>
-          <div class="grid2">
-            <label title="How strongly the active layer's colours cover the photo. 100% hides the photo wherever the layer has a value; 0% shows the photo alone and keeps the layer only as a legend. Cells the layer says nothing about always show the photo.">Layer over photo<input type="range" id="inpOrthoMix" min="0" max="100" step="5" value="60"></label>
-            <label class="btnCell"><span id="outOrthoMix" class="dim">60%</span><button id="btnOrthoClear" title="Unload the photo. The terrain model is untouched.">Remove photo</button></label>
-          </div>
-        </div>
-
-        <div class="propSection">
           <div class="subhead">Rendering</div>
           <div class="grid2">
             <label title="Surface transparency. Lower it to see the sensor mast and line-of-sight rays through the terrain.">Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
@@ -709,8 +753,11 @@
                 <option value="ortho">Orthographic</option>
               </select></label>
           </div>
-          <p class="hint">Layer visibility — wireframe, bounding box, scan footprint, movement vectors —
-            lives in the <b>Layers</b> tree under <i>Annotations</i>.</p>
+          <p class="hint">These settings are the whole view. Anything that belongs to one layer —
+            whether the terrain is drawn and what colours it, how strongly a photo shows
+            through, which analysis the result shows — is a <b>property of that layer</b>:
+            select it in the tree. Layer visibility — wireframe, bounding box, scan footprint,
+            movement vectors — lives in the same tree under <i>Annotations</i>.</p>
         </div>
 
         <div class="propSection">
@@ -814,18 +861,18 @@
     <ol>
       <li><b>Add terrain data</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code>, ESRI <code>.asc</code> or GeoTIFF <code>.tif</code> onto the window, or use <b>Data Sources ▸ Add terrain data</b>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. A GeoTIFF is already a raster, so it is used as-is — and a GeoTIFF that holds a <i>photograph</i> (an orthophoto or hillshade) is draped over the terrain instead of becoming it. No file? Press <b>Load demo open pit</b>.</li>
       <li><b>Place a radar</b> — pick <i>Radar positions ▸ Radar 1</i> in the <b>Layers</b> tree, type coordinates in <b>Properties</b>, or arm the <b>Place radar</b> tool and click the model.</li>
-      <li><b>Choose the movement vector</b> — <b>Processing</b> tab: steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
+      <li><b>Choose the movement vector</b> — <b>Processing</b> tab, which opens once a radar position is selected: steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
       <li><b>Or let the structure choose it</b> — <b>Structure</b> tab: type the mapped dips and dip directions (or pick three points off the surface), set the slope face and friction angle, and choose a failure mode — wedge sliding, planar sliding with or without lateral limits, flexural or direct toppling. Press <b>Use</b> on a critical result and build or trace the block it would release: inside that polygon the model uses that mechanism’s own movement direction instead of the global assumption.</li>
-      <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar.</li>
+      <li><b>Compute</b> — sensitivity = |cos θ| between the radar line of sight and the assumed movement vector; 1 = fully measurable, 0 = invisible to the radar. The run arrives as a <b>Processing result</b> layer in the tree: select it to switch between sensitivity, amplitude proxy, visibility, range, measurable displacement and best sensor — all six come out of the same run, so switching never recomputes — or untick it to see the terrain underneath.</li>
       <li><b>Plan</b> — add several radar positions and read the ranking table in <b>Statistics</b> to find the best site (lowest in the pit usually wins, as long as it is not in the way).</li>
     </ol>
     <p class="hint">Remember: the sensitivity map is a starting point — it does not know the real failure mechanism.</p>
 
     <h3>Getting around the window</h3>
     <table class="helpTable">
-      <tr><td>Layers tree</td><td>Left, below <i>Data Sources</i>. <b>Analysis</b> and <b>Terrain</b> hold the raster layers — the radio button picks which one is painted on the surface. <b>Radar positions</b>, <b>Area of interest</b>, <b>Discontinuities</b>, <b>Structural domains</b>, <b>Deformation scans</b> and <b>Annotations</b> have tick boxes: they draw on top of whatever raster is active. <b>Annotations ▸ Shade drawn areas</b> paints the inside of every drawn polygon onto the terrain instead of only outlining it. Clicking a row selects it and its settings appear in <b>Properties</b>.</td></tr>
+      <tr><td>Layers tree</td><td>Left, below <i>Data Sources</i>. It lists <b>layers</b> and nothing else: <b>Terrain</b>, a draped photo, the <b>Processing result</b> once a run has produced one, <b>Radar positions</b>, <b>Deformation scans</b>, <b>Area of interest</b>, <b>Discontinuities</b>, <b>Structural domains</b> and <b>Annotations</b>. Every tick box is the same question — is this drawn — and the two raster layers, the terrain and the result, stack: untick the result and the terrain's own colouring is what you see. <b>Annotations ▸ Shade drawn areas</b> paints the inside of every drawn polygon onto the terrain instead of only outlining it. Clicking a row selects it — one at a time — and <i>everything</i> about it is then edited in <b>Properties</b>: which raster the terrain is coloured by and how it was gridded, which analysis the result shows, a radar's coordinates and scan geometry, the mask's bounds.</td></tr>
       <tr><td>Map tools</td><td>The second toolbar group. Only one is armed at a time: <b>Navigate</b> (orbit / pan / zoom), <b>Identify</b> (probe a cell), <b>Place radar</b>, <b>Draw region</b>, <b>Pick a plane</b>, <b>Stretch vertices</b>, <b>Measure</b>. <b>Esc</b> always returns to Navigate.</td></tr>
-      <tr><td>Right dock</td><td><b>Properties</b> follows the tree selection · <b>Processing</b> holds gridding and the sensitivity model · <b>Structure</b> holds mapped discontinuities, the kinematic analysis and the structural domains it feeds · <b>Statistics</b> holds the summary, histogram, ranking and exports · <b>View</b> holds rendering and clipping.</td></tr>
+      <tr><td>Right dock</td><td><b>Properties</b> follows the tree selection · <b>Processing</b> holds the sensitivity model, and is <i>only available while a radar position is selected</i>, because a run is one radar measured against the terrain — gridding, which is a property of the terrain, moved to the <b>Terrain</b> layer's own sheet · <b>Structure</b> holds mapped discontinuities, the kinematic analysis and the structural domains it feeds · <b>Statistics</b> holds the summary, histogram, ranking and exports · <b>View</b> holds rendering and clipping only.</td></tr>
       <tr><td>Status bar</td><td>Cursor easting / northing / RL, the active layer's value under the cursor, the cell size, and what the tool is doing. Coordinates are plain mine-grid metres — nothing is ever reprojected.</td></tr>
       <tr><td>Keyboard</td><td><b>Esc</b> cancel tool · <b>Enter</b> close the region being drawn, accept the plane being fitted, or finish a measurement · <b>Backspace</b> undo a vertex, a pick or a measured point · <b>F1</b> this help.</td></tr>
     </table>
@@ -834,6 +881,10 @@
     <p class="hint">Every field also shows this on hover.</p>
 
     <h4>Data sources &amp; gridding</h4>
+    <p class="hint">Gridding is how the terrain raster was built, so it lives with the terrain:
+      select <b>Terrain</b> in the Layers tree and it is the last section of its Properties.
+      The report on what came out — cell size, coverage, extent, warnings — stays under
+      <b>Data Sources</b>, beside the files it was built from.</p>
     <table class="helpTable">
       <tr><td>Cell size</td><td>Raster resolution in metres. Blank = derived from <i>Target cells</i>. Aim for <b>≈ ⅓ of your berm width</b> — coarser than that and benches average into a smooth ramp, which biases steepest sensitivity.</td></tr>
       <tr><td>Target cells</td><td>Cells along the longer side when <i>Cell size</i> is blank. 320 fast · 1000 detailed · ceiling ≈ 2.2 M nodes.</td></tr>
@@ -960,7 +1011,7 @@
       <tr><td>Measurable displacement</td><td>Millimetres of the <i>Displ. factor</i> that survive projection onto the line of sight.</td></tr>
       <tr><td>Scale min/max</td><td>Keep 0–1 for sensitivity so maps stay comparable between sites and dates.</td></tr>
       <tr><td>Bands / Gamma</td><td>Bands quantise into classes (0 = continuous). Gamma bends the ramp without moving the ends.</td></tr>
-      <tr><td>Terrain surface</td><td><b>View</b> tab. <i>Show terrain surface</i> hides the mesh outright — everything drawn on it keeps drawing, so the structures, domains, sensors and a measurement can be read against nothing at all. <i>Single flat colour</i> paints the whole surface one colour instead of the active layer's scale, turning the terrain into a backdrop rather than a map competing with what is on it; hill shading still applies, so the relief stays readable. Untick it, or press <i>Revert to layer colours</i>, to go back. While either is on the colour bar hides itself, because a scale nothing is being coloured by is worse than none.</td></tr>
+      <tr><td>Terrain surface</td><td>Select <b>Terrain</b> in the Layers tree; it is all in that layer's <b>Properties</b>. <i>Colour mode</i> picks the raster it is painted by — elevation, slope angle or aspect — and the colour ramp under it is that mode's own. <i>Show terrain surface</i> hides the mesh outright — everything drawn on it keeps drawing, so the structures, domains, sensors and a measurement can be read against nothing at all. <i>Single flat colour</i> paints the whole surface one colour instead of the active layer's scale, turning the terrain into a backdrop rather than a map competing with what is on it; hill shading still applies, so the relief stays readable. Untick it, or press <i>Revert to layer colours</i>, to go back. While either is on the colour bar hides itself, because a scale nothing is being coloured by is worse than none.</td></tr>
       <tr><td>Mask colours</td><td><b>No-data</b> hole in the survey · <b>Shadowed</b> terrain in the way · <b>Out of scan</b> outside sector/range · <b>Below thr.</b> under the alarm threshold.</td></tr>
     </table>
 
