@@ -53,6 +53,48 @@ var Sens = (function () {
     return [-fx / mag * c, -fy / mag * c, -Math.sin(p)];
   }
 
+  /** degrees without a pointless trailing zero: 12, not 12.0 */
+  function deg(v) {
+    var n = +v || 0;
+    return (Math.round(n * 10) / 10) + '°';
+  }
+
+  /**
+   * The movement assumption in words.
+   *
+   * An exported map is read by people who were not sitting here when it was
+   * computed, and "custom" on its own tells them nothing — the whole point of
+   * the custom modes is the number that goes with them.
+   *
+   * @param {object} opts the same options object compute() was given
+   */
+  function describeMode(opts) {
+    opts = opts || {};
+    switch (opts.mode) {
+      case 'horizontal': return 'horizontal, along each cell\'s dip direction';
+      case 'vertical': return 'vertical (subsidence)';
+      case 'normal': return 'along each cell\'s surface normal';
+      case 'custom':
+        if (opts.custRel) {
+          var off = +opts.custOff || 0;
+          /* zero offset is Steepest by another name; say so rather than
+             printing "0° flatter", which reads like a mistake */
+          return off > 0
+            ? deg(off) + ' flatter than the steepest line, per cell'
+            : 'along the steepest line (0° offset)';
+        }
+        return 'trend ' + deg(opts.custAz) + ', plunge ' + deg(opts.custPl);
+      default: return 'steepest descent';
+    }
+  }
+
+  /** how many structural domains are actually overriding the mode */
+  function activeDomains(opts) {
+    return ((opts && opts.domains) || []).filter(function (d) {
+      return d && d.on !== false && d.ring && d.ring.length >= 3;
+    }).length;
+  }
+
   /* -------------------------------------------------- AOI mask */
   /** Even-odd ray crossing against a closed ring of [x, y] pairs — the closing
       edge is implied, so the caller never repeats the first vertex. A cell
@@ -464,6 +506,7 @@ var Sens = (function () {
     VIS: VIS, compute: compute, aoiMask: aoiMask,
     pointInPoly: pointInPoly, aoiRings: aoiRings, ringAt: ringAt, layer: layer,
     domainIndex: domainIndex, domainVectors: domainVectors, domainMask: domainMask,
-    customVec: customVec, slopeRelVec: slopeRelVec, range: range, summarise: summarise
+    customVec: customVec, slopeRelVec: slopeRelVec, range: range, summarise: summarise,
+    describeMode: describeMode, activeDomains: activeDomains
   };
 })();

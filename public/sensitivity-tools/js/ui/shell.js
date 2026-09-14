@@ -154,7 +154,6 @@ SM.Shell = (function () {
   /* ------------------------------------------------- map furniture */
   /* Nice round numbers only — a scale bar reading "137 m" is worse than
      useless, because the eye cannot subdivide it. */
-  var NICE = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 50000];
 
   function updateFurniture() {
     var V = SM.V;
@@ -171,13 +170,10 @@ SM.Shell = (function () {
 
     var ppm = V.pixelsPerMetre();
     var txt = $('scaleBarText');
-    if (!ppm || !isFinite(ppm) || !S.grid) { txt.textContent = '—'; return; }
-    var target = 120;                               // the bar's CSS width
-    var want = target / ppm, pick = NICE[NICE.length - 1];
-    for (var i = 0; i < NICE.length; i++) { if (NICE[i] >= want) { pick = NICE[i]; break; } }
-    var px = pick * ppm;
-    document.querySelector('.sbBar').style.width = Math.round(px) + 'px';
-    txt.textContent = pick >= 1000 ? (pick / 1000) + ' km' : pick + ' m';
+    var pick = S.grid ? SM.niceScale(120, ppm) : null;   // 120 = the bar's CSS width
+    if (!pick) { txt.textContent = '—'; return; }
+    document.querySelector('.sbBar').style.width = Math.round(pick.px) + 'px';
+    txt.textContent = pick.label;
   }
 
   /* ------------------------------------------------------- layout */

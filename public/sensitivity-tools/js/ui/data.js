@@ -70,20 +70,54 @@ SM.Data = (function () {
     return { ascii: asc, hex: hex.join(' ') };
   }
 
+  /* True while every file in the batch being read is a photograph. Dropping
+     one changes the backdrop, not the model, so it must not rebuild the grid
+     and throw away the sensors, AOI and clip box along with it. */
+  var photosOnly = false;
+
   function readFiles(list) {
     var files = Array.prototype.slice.call(list);
     var pending = files.length;
+    photosOnly = true;
     files.forEach(function (f) {
       var fr = new FileReader();
       fr.onload = function () {
         /* Work from bytes. A JS string caps near 512 M characters, so a large
            DXF must never be decoded whole — it is streamed from the buffer. */
         var buf = fr.result;
+
+        /* GeoTIFF is binary and already a raster, so it is read from the bytes
+           and skips both the text decode and the gridder */
+        if (window.GeoTIFF && GeoTIFF.isTIFF(buf)) {
+          /* An orthophoto is a picture of the ground, not the ground: it is
+             draped over the terrain rather than becoming it, so it never
+             reaches the file list or the gridder. */
+          if (GeoTIFF.looksLikeImage(buf)) {
+            try {
+              SM.Photo.load(GeoTIFF.readPhoto(buf, f.name));
+            } catch (e) {
+              status('Could not read ' + f.name + ': ' + e.message);
+            }
+            if (--pending === 0) afterRead();
+            return;
+          }
+          photosOnly = false;
+          var trec = { name: f.name, text: '', type: 'geotiff', dataset: null, note: '', size: f.size, head: signature(buf) };
+          try {
+            trec.dataset = GeoTIFF.read(buf, f.name);
+            trec.note = trec.dataset.note;
+          } catch (e) { trec.note = 'error: ' + e.message; trec.readError = e.message; }
+          S.files.push(trec);
+          if (--pending === 0) afterRead();
+          return;
+        }
+
         var head = Parsers.decodeText(buf.slice(0, 8192));
         var isDxf = Parsers.isBinaryDXF(buf) ||
           /\.dxf$/i.test(f.name) ||
           /^\s*0\s*[\r\n]+\s*SECTION/i.test(head);
         if (isDxf) {
+          photosOnly = false;
           var brec = { name: f.name, text: '', type: 'dxf', dataset: null, note: '', size: f.size, head: signature(buf) };
           try {
             brec.dataset = Parsers.parseDXFBuffer(buf, f.name);
@@ -95,6 +129,7 @@ SM.Data = (function () {
         }
         /* every other reader needs text, which the engine cannot hold past ~512 MB */
         if (buf.byteLength > 400 * 1024 * 1024) {
+          photosOnly = false;
           S.files.push({
             name: f.name, text: '', type: 'toobig', dataset: null, size: f.size,
             tooBig: true, head: signature(buf),
@@ -110,12 +145,14 @@ SM.Data = (function () {
            metres, so it would land beside the pit rather than on it. Hand it to
            the radar module instead, before the terrain readers see it. */
         if (window.RadarUI && RadarScan.sniff(txt)) {
+          photosOnly = false;
           try { RadarUI.acceptFile(f.name, txt); }
           catch (e) { status('Could not read ' + f.name + ': ' + e.message); }
           if (--pending === 0) afterRead();
           return;
         }
 
+        photosOnly = false;
         var type = Parsers.sniff(txt, f.name);
         var rec = { name: f.name, text: txt, type: type, dataset: null, note: '', size: f.size, head: signature(buf) };
         try {
@@ -143,6 +180,14 @@ SM.Data = (function () {
   function afterRead() {
     renderFileList();
     SM.Cmd.refresh();
+
+    /* nothing but photographs arrived: the drape has already been rebuilt and
+       repainted, and rebuilding the model here would discard everything set up
+       on it */
+    if (photosOnly) {
+      if (!S.grid) status('Photo loaded — add terrain data to drape it over.');
+      return;
+    }
     var big = S.files.filter(function (f) { return f.tooBig; });
     if (big.length) {
       $('gridInfo').innerHTML = '<span class="w"><b>' + big[0].name + ' is ' +
@@ -156,8 +201,8 @@ SM.Data = (function () {
     var bin = S.files.filter(function (f) { return f.binary; });
     if (bin.length) {
       var msg = '<span class="w"><b>' + bin[0].name + ' is a binary file.</b> SensiMap reads ' +
-        'text formats only: DXF, Surpac .str/.dtm, ASCII XYZ/CSV and ESRI ASCII grid. ' +
-        'Binary triangulations (Vulcan .00t, Datamine .dm, Micromine .tridb, binary DXF, ' +
+        'DXF (text or binary), Surpac .str/.dtm, ASCII XYZ/CSV, ESRI ASCII grid and ' +
+        'GeoTIFF .tif. Binary triangulations (Vulcan .00t, Datamine .dm, Micromine .tridb, ' +
         'GLB/PLY) have to be exported to one of those first — Gem4D, Surpac and Vulcan can ' +
         'all write DXF.</span>';
       $('gridInfo').innerHTML = msg;
@@ -165,6 +210,17 @@ SM.Data = (function () {
       badge('unsupported file', 'busy');
       return;
     }
+    /* a GeoTIFF that would not read explains itself — say why rather than
+       letting it fall through to a bare "no parsed data yet" */
+    var badTif = S.files.filter(function (f) { return f.readError; });
+    if (badTif.length && !S.files.some(function (f) { return f.dataset; })) {
+      $('gridInfo').innerHTML = '<span class="w"><b>' + badTif[0].name + ' could not be read.</b> ' +
+        badTif[0].readError + '</span>';
+      status(badTif[0].name + ': ' + badTif[0].readError);
+      badge('unreadable raster', 'busy');
+      return;
+    }
+
     var pend = S.files.filter(function (f) { return f.pending; });
     if (pend.length) {
       showPreview(pend[0]);
@@ -177,6 +233,24 @@ SM.Data = (function () {
   function renderFileList() {
     var el = $('fileList');
     el.innerHTML = '';
+
+    /* A draped photo is not a data source — nothing is computed from it — but
+       leaving it out of this list entirely makes two dropped files look like
+       one loaded file, so it is listed here as well as in the layer tree. */
+    if (SM.Photo.has()) {
+      var pd = document.createElement('div');
+      pd.className = 'fileItem';
+      pd.innerHTML = '<span class="tag">PHOTO</span>' +
+        '<span class="nm" title="' + SM.esc(S.photo.note || '') + '">' +
+        SM.esc(S.photo.name) + '</span>' +
+        '<span class="x" title="remove">✕</span>';
+      pd.querySelector('.x').onclick = function (e) {
+        e.stopPropagation();
+        SM.Photo.clear();
+      };
+      el.appendChild(pd);
+    }
+
     S.files.forEach(function (f, i) {
       var d = document.createElement('div');
       d.className = 'fileItem';
@@ -275,13 +349,26 @@ SM.Data = (function () {
   /* ============================================ MODEL BUILDING */
   function buildModel() {
     var dss = S.files.map(function (f) { return f.dataset; }).filter(Boolean);
-    if (!dss.length) { status('No parsed data yet.'); return; }
+    if (!dss.length) {
+      status(SM.Photo.has() ? 'Photo loaded — add terrain data to drape it over.'
+        : 'No parsed data yet.');
+      return;
+    }
 
-    /* a pre-made raster (ESRI) short-circuits the gridder */
-    var rasterFile = dss.filter(function (d) { return d.grid; })[0];
+    /* A pre-made raster (ESRI .asc, GeoTIFF) is already the model, so it
+       short-circuits the gridder and is used cell for cell. That holds only
+       while nothing else carries geometry — a second surface has to be gridded
+       together with it, and re-gridding is what the slow path is for. Files
+       that parsed to nothing at all (a stray .prj or .aux.xml dropped with the
+       data) are not geometry and must not force that. */
+    var rasters = dss.filter(function (d) { return d.grid; });
+    var geom = dss.filter(function (d) {
+      return !d.grid && ((d.pts || []).length || (d.tris || []).length);
+    });
+    var rasterFile = rasters[0];
     var t0 = performance.now();
     try {
-      if (rasterFile && dss.length === 1) {
+      if (rasterFile && !geom.length) {
         S.grid = rasterFile.grid;
         var zmin = Infinity, zmax = -Infinity, valid = 0;
         for (var i = 0; i < S.grid.z.length; i++) {
@@ -289,7 +376,7 @@ SM.Data = (function () {
           valid++; if (v < zmin) zmin = v; if (v > zmax) zmax = v;
         }
         S.grid.zmin = zmin; S.grid.zmax = zmax; S.grid.valid = valid;
-        S.grid.method = 'esri raster'; S.grid.nPoints = valid; S.grid.nTris = 0;
+        S.grid.method = (rasterFile.source === 'geotiff') ? 'GeoTIFF raster' : 'esri raster'; S.grid.nPoints = valid; S.grid.nTris = 0;
         S.grid.cell = S.grid.dx;
         if ($('chkFill').checked) Grid.fillHoles(S.grid, parseInt($('inpFillIter').value, 10) || 0);
       } else {
@@ -309,11 +396,16 @@ SM.Data = (function () {
       reportBuildFailure(e);
       return;
     }
+    /* two rasters cannot both be the terrain, and choosing quietly would hide a
+       sensitivity export dropped in beside the survey */
+    S.ignoredRasters = (rasterFile && !geom.length && rasters.length > 1)
+      ? rasters.slice(1) : null;
     var g = S.grid, ms = (performance.now() - t0).toFixed(0);
     S.res = null; S.probe = null;
     $('hudReadout').classList.add('hidden');
     describeGrid(g, dss, ms);
 
+    SM.Photo.rebuildAndReport();
     SM.V.setGrid(g, S.der);
     /* a new model resets the clip box to its extent */
     S.clip.centre = NaN; S.clip.thick = NaN;
@@ -389,6 +481,18 @@ SM.Data = (function () {
   /* warn when the raster is too coarse to hold the bench geometry */
   function describeGrid(g, dss, ms) {
     var warn = '';
+    /* One raster became the model and the others were set aside — say which.
+       A sensitivity export dropped in beside the survey looks exactly like a
+       second terrain file until you are told otherwise. */
+    if (S.ignoredRasters && S.ignoredRasters.length) {
+      var usedName = (dss.filter(function (d) { return d.grid; })[0] || {}).name || 'the first raster';
+      warn += '<span class="w"><b>' + S.ignoredRasters.length + ' other raster' +
+        (S.ignoredRasters.length > 1 ? 's were' : ' was') + ' ignored.</b> Only one raster ' +
+        'can be the terrain, so the model was built from <b>' + SM.esc(usedName) +
+        '</b>. If that is the wrong one, remove the others in Data Sources: ' +
+        S.ignoredRasters.map(function (d) { return SM.esc(d.name || '?'); }).join(', ') +
+        '</span>' + '\n';
+    }
     if (dss.some(function (d) { return d.indexWarning; })) warn +=
       '<span class="w"><b>NOT A REAL SURFACE.</b> This model was built from Surpac triangle ' +
       'node numbers, not survey coordinates. Every value below is meaningless — load the ' +

@@ -115,8 +115,8 @@
       <div class="panelBody">
         <div id="dropZone">
           <svg class="ic dzIcon"><use href="#ic-adddata"></use></svg>
-          <div class="dzText"><b>Drop DTM / DXF here</b><br><span class="dim">.dtm · .dxf · .str · .xyz · .csv · .txt · .asc</span></div>
-          <input type="file" id="fileInput" multiple accept=".dtm,.dxf,.str,.xyz,.csv,.txt,.asc,.grd,.pts,.dat">
+          <div class="dzText"><b>Drop DTM / DXF / GeoTIFF here</b><br><span class="dim">.dtm · .dxf · .str · .xyz · .csv · .txt · .asc · .tif</span></div>
+          <input type="file" id="fileInput" multiple accept=".dtm,.dxf,.str,.xyz,.csv,.txt,.asc,.grd,.pts,.dat,.tif,.tiff">
         </div>
         <div id="fileList" class="fileList"></div>
         <div id="gridInfo" class="info"></div>
@@ -685,6 +685,17 @@
           </div>
         </div>
 
+        <div class="propSection" id="orthoBox">
+          <div class="subhead">Orthophoto</div>
+          <div class="dim" id="orthoName"></div>
+          <div class="hint" id="orthoNote"></div>
+          <label class="chk" title="Drape the loaded photo over the terrain. The active layer is mixed over the top; where the layer has no value for a cell, the photo shows through on its own."><input type="checkbox" id="chkOrtho" checked> Drape photo on the terrain</label>
+          <div class="grid2">
+            <label title="How strongly the active layer's colours cover the photo. 100% hides the photo wherever the layer has a value; 0% shows the photo alone and keeps the layer only as a legend. Cells the layer says nothing about always show the photo.">Layer over photo<input type="range" id="inpOrthoMix" min="0" max="100" step="5" value="60"></label>
+            <label class="btnCell"><span id="outOrthoMix" class="dim">60%</span><button id="btnOrthoClear" title="Unload the photo. The terrain model is untouched.">Remove photo</button></label>
+          </div>
+        </div>
+
         <div class="propSection">
           <div class="subhead">Rendering</div>
           <div class="grid2">
@@ -801,7 +812,7 @@
   <div class="modalBox">
     <h2>SensiMap quick guide</h2>
     <ol>
-      <li><b>Add terrain data</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code> or ESRI <code>.asc</code> onto the window, or use <b>Data Sources ▸ Add terrain data</b>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. No file? Press <b>Load demo open pit</b>.</li>
+      <li><b>Add terrain data</b> — drop a <code>.dtm</code>, <code>.dxf</code>, <code>.str</code>, <code>.xyz</code>, <code>.csv</code>, ESRI <code>.asc</code> or GeoTIFF <code>.tif</code> onto the window, or use <b>Data Sources ▸ Add terrain data</b>. Point files get gridded; DXF 3DFACE / polyface meshes and Surpac DTM+STR triangulations are rasterised. A GeoTIFF is already a raster, so it is used as-is — and a GeoTIFF that holds a <i>photograph</i> (an orthophoto or hillshade) is draped over the terrain instead of becoming it. No file? Press <b>Load demo open pit</b>.</li>
       <li><b>Place a radar</b> — pick <i>Radar positions ▸ Radar 1</i> in the <b>Layers</b> tree, type coordinates in <b>Properties</b>, or arm the <b>Place radar</b> tool and click the model.</li>
       <li><b>Choose the movement vector</b> — <b>Processing</b> tab: steepest / horizontal / vertical / normal, or a custom trend &amp; plunge for a known failure mechanism. A custom vector can also be given as an offset flatter than the steepest line, which keeps each cell's own dip direction.</li>
       <li><b>Or let the structure choose it</b> — <b>Structure</b> tab: type the mapped dips and dip directions (or pick three points off the surface), set the slope face and friction angle, and choose a failure mode — wedge sliding, planar sliding with or without lateral limits, flexural or direct toppling. Press <b>Use</b> on a critical result and build or trace the block it would release: inside that polygon the model uses that mechanism’s own movement direction instead of the global assumption.</li>
@@ -968,6 +979,8 @@
 
 <script src="js/colormap.js"></script>
 <script src="js/parsers.js"></script>
+<script src="js/geotiff.js"></script>
+<script src="js/ortho.js"></script>
 <script src="js/grid.js"></script>
 <script src="js/sensitivity.js"></script>
 <script src="js/structure.js"></script>
@@ -982,6 +995,7 @@
 <script src="js/ui/commands.js"></script>
 <script src="js/ui/shell.js"></script>
 <script src="js/ui/layertree.js"></script>
+<script src="js/ui/photo.js"></script>
 <script src="js/ui/data.js"></script>
 <script src="js/ui/sensors.js"></script>
 <script src="js/ui/model.js"></script>

@@ -10,24 +10,39 @@
 var Grid = (function () {
 
   /* ------------------------------------------------ merge datasets */
+  /** a raster's cells as scattered points, so it can be gridded with others */
+  function gridToPoints(pts, po, g) {
+    for (var iy = 0; iy < g.ny; iy++) {
+      var y = g.y0 + iy * g.dy, row = iy * g.nx;
+      for (var ix = 0; ix < g.nx; ix++) {
+        var z = g.z[row + ix];
+        if (z !== z) continue;
+        pts[po++] = g.x0 + ix * g.dx; pts[po++] = y; pts[po++] = z;
+      }
+    }
+    return po;
+  }
+
   function merge(list) {
     var np = 0, nt = 0, i;
-    /* node-bearing files first, so an index-only Surpac .dtm can borrow
-       the vertices of the .str it was loaded with */
-    list = list.slice().sort(function (a, b) {
-      var ka = (a.kind === 'tri-index') ? 1 : 0, kb = (b.kind === 'tri-index') ? 1 : 0;
-      return ka - kb;
-    });
+    /* Node-bearing files first, so an index-only Surpac .dtm can borrow the
+       vertices of the .str it was loaded with. Rasters last: their cells are
+       appended as points, and doing that before the .str would shift the node
+       numbers the .dtm indexes into. */
+    list = list.slice().sort(function (a, b) { return rank(a) - rank(b); });
     for (i = 0; i < list.length; i++) {
-      if (list[i].grid) continue;
+      if (list[i].grid) { np += 3 * list[i].grid.nx * list[i].grid.ny; continue; }
       np += (list[i].pts || []).length;
       nt += (list[i].tris || []).length;
     }
     var pts = new Float64Array(np), tris = nt ? new Uint32Array(nt) : null;
-    var po = 0, to = 0, base = 0, needNodes = false;
+    var po = 0, to = 0, base = 0, needNodes = false, nvGeom = 0;
     for (i = 0; i < list.length; i++) {
       var d = list[i];
-      if (d.grid) continue;
+      /* A raster alongside other geometry cannot short-circuit the gridder, so
+         it goes in as points rather than being silently dropped — which is how
+         a perfectly good ESRI grid used to end up as "no coordinates found". */
+      if (d.grid) { po = gridToPoints(pts, po, d.grid); continue; }
       var p = d.pts || [], t = d.tris || [];
       for (var k = 0; k < p.length; k++) pts[po + k] = p[k];
       var vbase = po / 3;
@@ -36,12 +51,16 @@ var Grid = (function () {
       if (d.kind === 'tri-index') needNodes = true;
       for (var m = 0; m < t.length; m++) tris[to + m] = t[m] + ibase;
       po += p.length; to += t.length; base = vbase;
+      nvGeom = po / 3;
     }
+    /* no-data cells are skipped, so the count above was only an upper bound */
+    if (po < pts.length) pts = pts.subarray(0, po);
     /* drop triangles whose node numbers fall outside the loaded vertices —
-       happens when a .dtm is paired with the wrong .str */
+       happens when a .dtm is paired with the wrong .str. Raster points are not
+       vertices anything indexes, so they must not make a bad pairing look valid. */
     var dropped = 0;
     if (tris) {
-      var nv = pts.length / 3, w = 0;
+      var nv = nvGeom, w = 0;
       for (var q = 0; q < tris.length; q += 3) {
         if (tris[q] < nv && tris[q + 1] < nv && tris[q + 2] < nv) {
           tris[w++] = tris[q]; tris[w++] = tris[q + 1]; tris[w++] = tris[q + 2];
@@ -51,6 +70,12 @@ var Grid = (function () {
       if (!w) tris = null;
     }
     return { pts: pts, tris: tris, needNodes: needNodes, dropped: dropped };
+  }
+
+  /* merge order: geometry, then the triangle lists that index it, then rasters */
+  function rank(d) {
+    if (d.grid) return 2;
+    return (d.kind === 'tri-index') ? 1 : 0;
   }
 
   function bbox(pts) {

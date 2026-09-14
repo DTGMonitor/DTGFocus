@@ -99,6 +99,19 @@ SM.Tree = (function () {
         'Its colouring — the layer scale, or one flat colour — is in the View tab.'
     }));
 
+    /* ---- the draped photograph, under everything painted on the surface ---- */
+    if (SM.Photo.has()) {
+      h.push(row({
+        kind: 'photo', id: 'photo', name: S.photo.name || 'Orthophoto', depth: 0,
+        check: 'box', on: S.photo.on, icon: 'raster', removable: true,
+        meta: S.photo.away ? 'off the model'
+          : Math.round(SM.Photo.mix() * 100) + '% layer',
+        hint: 'A georeferenced photo draped over the terrain. The active layer is ' +
+          'mixed over it at the strength set in the View tab; where the layer has no ' +
+          'value, the photo shows through.'
+      }));
+    }
+
     /* ---- raster layers, one radio across both groups ---- */
     ['analysis', 'terrain'].forEach(function (grp) {
       h.push(groupRow(grp, grp === 'analysis' ? 'Analysis' : 'Terrain'));
@@ -305,6 +318,7 @@ SM.Tree = (function () {
   function removeSelected() {
     if (S.node.kind === 'sensor') SM.Sensors.remove(S.node.id);
     else if (S.node.kind === 'region') SM.AOI.removePoly(S.node.id);
+    else if (S.node.kind === 'photo') SM.Photo.clear();
   }
 
   /* hovering a plane or a domain row picks it out in the 3D view and, for a
@@ -364,6 +378,8 @@ SM.Tree = (function () {
       /* the surface has no properties of its own — how it is drawn lives in
          the View tab, so that is where the row goes */
       if (kind === 'surface') { SM.Shell.tab('view'); return; }
+      /* the photo's strength lives beside the surface controls */
+      if (kind === 'photo') { SM.Shell.tab('view'); return; }
     });
 
     host.addEventListener('change', function (e) {
@@ -386,6 +402,7 @@ SM.Tree = (function () {
       }
       if (kind === 'domain') { SM.Structure.toggleDomain(+id); return; }
       if (kind === 'surface') { SM.Symbology.setSurface(box.checked); return; }
+      if (kind === 'photo') { SM.Photo.setOn(box.checked); return; }
       if (kind === 'aoi') { SM.AOI.setOn(box.checked); return; }
       if (kind === 'scanItem') {
         if (window.RadarUI && RadarUI.toggleScan) RadarUI.toggleScan(id);

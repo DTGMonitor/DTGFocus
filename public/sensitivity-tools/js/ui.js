@@ -33,6 +33,7 @@
     SM.Cmd.build();
 
     SM.Symbology.init();
+    SM.Photo.init();
     SM.Data.init();
     SM.Sensors.init();
     SM.Model.init();
@@ -48,7 +49,7 @@
 
     SM.Cmd.refresh();
     SM.status('Ready — add terrain data, or load the demo open pit.');
-    SM.setHud('No model loaded', 'Drop a .dtm / .dxf / .xyz file anywhere on this window');
+    SM.setHud('No model loaded', 'Drop a .dtm / .dxf / .xyz / .tif file anywhere on this window');
     SM.Shell.updateFurniture();
 
     /* the two canvases that cache theme colours have to be repainted when a

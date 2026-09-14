@@ -206,7 +206,7 @@ const SensitivityTools = () => {
       <iframe
         ref={iframeRef}
         src={bootSrc}
-        title="Radar Line-of-Sight Sensitivity Tool"
+        title="Sensor Line-of-Sight Sensitivity Tool"
         allow="fullscreen"
         // Covers the case where the theme changed while the frame was still
         // loading and the initial postMessage had no document to land on.

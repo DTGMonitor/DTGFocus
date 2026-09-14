@@ -32,29 +32,192 @@ SM.IO = (function () {
     return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes());
   }
 
+  /* --------------------------------------------------- map furniture
+
+     An exported PNG leaves the app and is read by people who were not here
+     when it was made — in a report, a slide, an email. Everything they need to
+     interpret it has to be inside the image: what is being shown, what
+     movement was assumed, which way is north, and how big things are.
+     -------------------------------------------------------------------- */
+
+  /**
+   * Every colour the furniture uses, read once per draw rather than baked in
+   * when the module loads. A host build swaps these literals for its own theme
+   * tokens, and a token has to be resolved at draw time to follow a theme
+   * switch — so they live in one place, as values, not scattered through the
+   * drawing code.
+   */
+  function ink() {
+    return {
+      plate: SMTheme.col('--sm-hud-bg2'),
+      edge: SMTheme.col('--sm-line'),
+      head: SMTheme.col('--sm-fg'),
+      body: SMTheme.col('--sm-fg'),
+      dim: SMTheme.col('--sm-dim')
+    };
+  }
+
+  function plate(g, x, y, w, h, sc) {
+    var k = ink();
+    g.fillStyle = k.plate;
+    g.fillRect(x, y, w, h);
+    g.strokeStyle = k.edge; g.lineWidth = Math.max(1, sc);
+    g.strokeRect(x, y, w, h);
+  }
+
+  /** a plan view, where one scale holds across the whole image */
+  function isPlanView() { return SM.V.cam.pitch >= 80; }
+
+  /**
+   * Scale bar, bottom left, drawn the way the on-screen one is: four
+   * alternating segments over a round number of metres.
+   *
+   * `pixelsPerMetre` is measured at the camera target, so the bar is true
+   * across a plan view and true only near the centre of a tilted one. It says
+   * which, because a scale bar on a shared image is precisely the thing
+   * somebody will measure off.
+   */
+  function drawScaleBar(g, W, H, sc) {
+    var pick = SM.niceScale(150 * sc, SM.V.pixelsPerMetre() * sc);
+    if (!pick) return;
+
+    var k = ink();
+    var caption = isPlanView() ? 'plan view' : 'at view centre — the view is tilted';
+    var barW = pick.px, barH = 9 * sc, pad = 14 * sc;
+    /* the caption can be wider than the bar itself, so measure before sizing */
+    g.font = (9.5 * sc) + 'px Consolas, monospace';
+    var plateW = Math.max(barW, g.measureText(caption).width) + pad * 2;
+    var plateH = 50 * sc;
+    var x = 16 * sc, y = H - 16 * sc - plateH;
+    plate(g, x, y, plateW, plateH, sc);
+
+    var bx = x + pad, by = y + 22 * sc;
+    for (var i = 0; i < 4; i++) {
+      g.fillStyle = (i % 2) ? k.plate : k.body;
+      g.fillRect(bx + i * barW / 4, by, barW / 4, barH);
+    }
+    g.strokeStyle = k.body; g.lineWidth = Math.max(1, sc);
+    g.strokeRect(bx, by, barW, barH);
+
+    g.font = (11 * sc) + 'px Consolas, monospace';
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = k.body;
+    g.textAlign = 'left'; g.fillText('0', bx, by - 5 * sc);
+    g.textAlign = 'right'; g.fillText(pick.label, bx + barW, by - 5 * sc);
+
+    g.textAlign = 'left';
+    g.fillStyle = k.dim;
+    g.font = (9.5 * sc) + 'px Consolas, monospace';
+    g.fillText(caption, bx, by + barH + 12 * sc);
+  }
+
+  /**
+   * North arrow, bottom right. The camera's yaw is where it looks, so north on
+   * screen turns the other way — the same sign the on-screen rose uses. The
+   * letter stays upright while the needle turns, also as on screen, because a
+   * rotated "N" is unreadable at half the bearings.
+   */
+  function drawNorthArrow(g, W, H, sc) {
+    var k = ink();
+    var R = 22 * sc, box = 76 * sc;
+    var x = W - 16 * sc - box, y = H - 16 * sc - box;
+    plate(g, x, y, box, box, sc);
+    var cx = x + box / 2, cy = y + box / 2 + 6 * sc;
+
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(-SM.V.cam.yaw * Math.PI / 180);
+    g.beginPath();
+    g.arc(0, 0, R * 0.94, 0, Math.PI * 2);
+    g.strokeStyle = k.edge; g.lineWidth = Math.max(1, sc);
+    g.stroke();
+    /* the same needle as the on-screen rose: tip, right barb, notch, left barb */
+    g.beginPath();
+    g.moveTo(0, -R);
+    g.lineTo(R * 0.35, R * 0.59);
+    g.lineTo(0, R * 0.29);
+    g.lineTo(-R * 0.35, R * 0.59);
+    g.closePath();
+    g.fillStyle = k.body;
+    g.fill();
+    g.restore();
+
+    g.fillStyle = k.body;
+    g.font = 'bold ' + (12 * sc) + 'px Segoe UI, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillText('N', cx, y + 6 * sc);
+  }
+
+  /** what the map is: the layer, the movement assumed, and the sensors */
+  function titleLines() {
+    var L = SM.Symbology.currentLayer();
+    var det = [];
+    if (S.res) {
+      var o = S.res.opts;
+      var on = S.radars.filter(function (q) { return q.on !== false; }).length;
+      det.push('movement   ' + Sens.describeMode(o));
+      det.push('sensors    ' + on + ' of ' + S.radars.length +
+        '   combine ' + (o.combine || 'max') +
+        '   threshold ' + fmt(o.threshold, 2));
+      var nd = Sens.activeDomains(o);
+      if (nd) {
+        det.push('domains    ' + nd + ' structural domain' + (nd > 1 ? 's' : '') +
+          ' override that inside their outlines');
+      }
+    } else {
+      det.push('terrain view — no sensitivity computed');
+    }
+    var r = S.radars[S.sel];
+    if (r) {
+      det.push('selected   ' + r.name + '   ' +
+        fmt(r.x, 1) + ', ' + fmt(r.y, 1) + ', ' + fmt(r.z, 1));
+    }
+    det.push('grid       ' + S.grid.nx + ' × ' + S.grid.ny + ' @ ' + fmt(S.grid.dx, 2) + ' m');
+    if (SM.Photo.has()) det.push('backdrop   ' + S.photo.name);
+    return { head: 'SensiMap — ' + L.label, det: det };
+  }
+
+  /** the title block, sized to whatever it actually has to say */
+  function drawTitleBlock(g, sc) {
+    var k = ink(), t = titleLines();
+    var headFont = (14 * sc) + 'px Segoe UI, sans-serif';
+    var detFont = (11 * sc) + 'px Consolas, monospace';
+    var pad = 12 * sc, lh = 15 * sc;
+
+    g.font = headFont;
+    var w = g.measureText(t.head).width;
+    g.font = detFont;
+    t.det.forEach(function (d) { w = Math.max(w, g.measureText(d).width); });
+
+    var bw = w + pad * 2, bh = pad * 2 + 22 * sc + t.det.length * lh;
+    plate(g, 10 * sc, 10 * sc, bw, bh, sc);
+
+    g.textAlign = 'left'; g.textBaseline = 'top';
+    g.font = headFont; g.fillStyle = k.head;
+    g.fillText(t.head, 10 * sc + pad, 10 * sc + pad);
+    g.font = detFont; g.fillStyle = k.dim;
+    t.det.forEach(function (d, i) {
+      g.fillText(d, 10 * sc + pad, 10 * sc + pad + 24 * sc + i * lh);
+    });
+  }
+
   /* ------------------------------------------------------- raster out */
   function exportPNG() {
     if (!S.grid) return;
     var L = SM.Symbology.currentLayer(), c = SM.Symbology.cfg();
     var out = SM.V.snapshot(function (g, W, H, sc) {
-      /* title block */
-      g.font = (14 * sc) + 'px Segoe UI, sans-serif';
-      g.fillStyle = SMTheme.col('--sm-hud-bg2');
-      g.fillRect(10 * sc, 10 * sc, 430 * sc, 66 * sc);
-      g.strokeStyle = SMTheme.col('--sm-line'); g.strokeRect(10 * sc, 10 * sc, 430 * sc, 66 * sc);
-      g.fillStyle = SMTheme.col('--sm-fg'); g.textAlign = 'left'; g.textBaseline = 'top';
-      g.fillText('SensiMap — ' + L.label, 20 * sc, 18 * sc);
-      g.font = (11 * sc) + 'px Consolas, monospace';
-      g.fillStyle = SMTheme.col('--sm-dim');
-      var r = S.radars[S.sel];
-      var l2 = S.res ? ('mode ' + S.res.opts.mode + '   sensors ' +
-        S.radars.filter(function (q) { return q.on !== false; }).length +
-        '   threshold ' + fmt(S.res.opts.threshold, 2)) : 'terrain view';
-      g.fillText(l2, 20 * sc, 40 * sc);
-      g.fillText(r ? ('sensor ' + r.name + '  ' + fmt(r.x, 1) + ', ' + fmt(r.y, 1) + ', ' + fmt(r.z, 1)) : '', 20 * sc, 56 * sc);
-      /* colour bar */
-      ColorMaps.drawColorbarInto(g, W - 96 * sc, 60 * sc, 26 * sc, 300 * sc,
-        ColorMaps.buildLUT(c), c.vmin, c.vmax, L.label);
+      drawTitleBlock(g, sc);
+      /* The colour bar shares the right edge with the north arrow, so it takes
+         what is left rather than a fixed 300 px — otherwise its bottom label
+         ends up underneath the arrow on a short image. */
+      var cbTop = 60 * sc;
+      var cbH = Math.min(300 * sc, H - cbTop - 124 * sc);
+      if (cbH > 60 * sc) {
+        ColorMaps.drawColorbarInto(g, W - 96 * sc, cbTop, 26 * sc, cbH,
+          ColorMaps.buildLUT(c), c.vmin, c.vmax, L.label);
+      }
+      drawScaleBar(g, W, H, sc);
+      drawNorthArrow(g, W, H, sc);
     });
     out.toBlob(function (b) { download('sensimap_' + S.layer + '_' + stamp() + '.png', b); });
   }
@@ -244,6 +407,11 @@ SM.IO = (function () {
       /* how the terrain itself is painted, which is a view setting rather than
          a colour ramp and would otherwise be the one thing not restored */
       surface: { show: S.show.surface, flat: S.show.flat, flatColor: $('colFlat').value },
+      /* the draped photo by name and strength only — the pixels are megabytes
+         and belong to the file, not the project */
+      photo: SM.Photo.has()
+        ? { name: S.photo.name, on: S.photo.on, mix: S.photo.mix, mixAuto: S.photo.mixAuto }
+        : null,
       clipView: { box: $('chkClipBox').checked, handles: $('chkClipHandles').checked },
       /* structural geology: the mapped planes, the slope face and friction
          angle they were assessed against, and the domains that carry a
@@ -352,6 +520,17 @@ SM.IO = (function () {
       if (p.surface.flatColor) $('colFlat').value = p.surface.flatColor;
       SM.Symbology.setSurface(p.surface.show !== false);
       SM.Symbology.setFlat(!!p.surface.flat);
+    }
+    if (p.photo) {
+      S.photo.on = p.photo.on !== false;
+      if (p.photo.mix != null) S.photo.mix = p.photo.mix;
+      S.photo.mixAuto = p.photo.mixAuto !== false;
+      SM.Photo.syncForm();
+      /* the project remembers the settings, not the photograph */
+      if (!SM.Photo.has() && p.photo.name) {
+        SM.status('This project was saved with ' + p.photo.name +
+          ' draped on it — drop that file again to bring the photo back.');
+      }
     }
     SM.Sensors.loadForm(); SM.Symbology.syncForm();
     SM.Tree.applyShow();

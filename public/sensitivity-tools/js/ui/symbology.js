@@ -205,6 +205,8 @@ SM.Symbology = (function () {
         var fo = fi * 3, ok = g.z[fi] === g.z[fi], src = ok ? fc : nd;
         out[fo] = src[0] / 255; out[fo + 1] = src[1] / 255; out[fo + 2] = src[2] / 255;
       }
+      SM.Photo.blend(out, null);       /* flat colour is not a statement about a cell */
+      if (SM.Photo.has()) SM.Photo.syncForm();
       SM.V.setColors(out);
       SM.V.draw();
       updateLegend();
@@ -224,6 +226,9 @@ SM.Symbology = (function () {
     var thr = parseFloat($('inpThresh').value) || 0;
     if (S.layer === 'mmres') thr = thr * (parseFloat($('inpTrue').value) || 10);
     var VISC = Sens.VIS;
+    /* 1 where the layer gave the node a real colour; a draped photo shows
+       through everywhere else, so no-data stops meaning "grey field" */
+    var lit = new Uint8Array(n);
 
     for (var id = 0; id < n; id++) {
       var o = id * 3, r, gg, b;
@@ -242,11 +247,14 @@ SM.Symbology = (function () {
           t = t < 0 ? 0 : t > 1 ? 1 : t;
           var q = ColorMaps.sample(LUT, t);
           r = q[0]; gg = q[1]; b = q[2];
+          lit[id] = 1;
         }
         if (maskOn && !S.mask[id]) { r = r * 0.32 + cOut[0] * 0.68; gg = gg * 0.32 + cOut[1] * 0.68; b = b * 0.32 + cOut[2] * 0.68; }
       }
       out[o] = r / 255; out[o + 1] = gg / 255; out[o + 2] = b / 255;
     }
+    SM.Photo.blend(out, lit);
+    if (SM.Photo.has()) SM.Photo.syncForm();
     SM.V.setColors(out);
     SM.V.draw();
     updateLegend();

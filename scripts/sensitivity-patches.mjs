@@ -337,11 +337,15 @@ export const RULES = [
   {
     file: "js/ui/io.js",
     map: {
-      // canvas: PNG export title block
-      "g.fillStyle = '#0d1014dd'": `g.fillStyle = ${c("--sm-hud-bg2")}`,
-      "g.strokeStyle = '#2c3542'": `g.strokeStyle = ${c("--sm-line")}`,
-      "g.fillStyle = '#ffffff'": `g.fillStyle = ${c("--sm-fg")}`,
-      "g.fillStyle = '#9fb0c4'": `g.fillStyle = ${c("--sm-dim")}`,
+      // Canvas furniture on the exported PNG — title block, scale bar and
+      // north arrow. Upstream keeps every one of these in the single ink()
+      // accessor, which is called once per draw, so substituting the literals
+      // there themes the whole export and still follows a theme switch.
+      "plate: '#0d1014dd'": `plate: ${c("--sm-hud-bg2")}`,
+      "edge: '#2c3542'": `edge: ${c("--sm-line")}`,
+      "head: '#ffffff'": `head: ${c("--sm-fg")}`,
+      "body: '#e8eef6'": `body: ${c("--sm-fg")}`,
+      "dim: '#9fb0c4'": `dim: ${c("--sm-dim")}`,
     },
   },
 

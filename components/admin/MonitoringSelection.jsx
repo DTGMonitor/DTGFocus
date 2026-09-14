@@ -47,7 +47,7 @@ const MonitoringSelection = () => {
       title: "SENSI MAP",
       url: `/images/home/Sensitivity.svg`,
       Description:
-        "Radar line-of-sight sensitivity maps and slope monitoring position planning",
+        "Sensor line-of-sight sensitivity maps and slope monitoring position planning",
       Path: `/admin/SensitivityTools`,
       bgColor: "rgba(74,32,122,1)",
       gradColor: "linear-gradient(90deg, #3A1E63 0%, #6D3FB5 50%, #8B5CF6 100%)",

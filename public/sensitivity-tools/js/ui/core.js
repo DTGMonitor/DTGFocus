@@ -79,6 +79,18 @@ var SM = (function () {
       surface: true, flat: false, xline: true
     },
 
+    /* A draped photograph. Not a layer: it holds no values and nothing is
+       computed from it, so it sits under the active layer's colours rather
+       than in SM.LAYERS. `drape` is the photo resampled onto the current
+       grid's nodes, rebuilt whenever the model changes. */
+    photo: {
+      name: '', note: '', image: null, drape: null, on: true, away: false,
+      /* How strongly the active layer covers the photo. `mixAuto` follows
+         the same convention as a colour scale's `auto`: until the slider is
+         touched, the strength is chosen from what is on screen. */
+      mix: 0.85, mixAuto: true
+    },
+
     /* Bumped by whoever recomputes the selection mask or the domain index.
        The draped polygon fills are built from those two, and rebuilding them
        is a pass over the raster, so the overlay caches its geometry against
@@ -198,13 +210,42 @@ var SM = (function () {
   function icon(name, cls) {
     return '<svg class="ic' + (cls ? ' ' + cls : '') + '"><use href="#ic-' + name + '"></use></svg>';
   }
+  /* A scale bar has to be a round number of metres, or it is a ruler nobody
+     can read off. These are the steps surveyors expect; the bar takes the
+     smallest one that still fills the space it was given. */
+  var NICE_SCALE = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500,
+                    1000, 2000, 2500, 5000, 10000, 20000, 50000];
+
+  /**
+   * Pick a scale-bar length.
+   * @param {number} targetPx how wide the bar may be, in the same pixels as ppm
+   * @param {number} ppm      pixels per metre
+   * @returns {{metres:number, px:number, label:string}|null}
+   */
+  function niceScale(targetPx, ppm) {
+    if (!(ppm > 0) || !isFinite(ppm) || !(targetPx > 0)) return null;
+    /* the largest round length that still fits the space — a bar drawn wider
+       than the slot it was given overlaps whatever sits next to it. Only when
+       even the smallest step overflows (zoomed in past a metre a pixel) does
+       it give up and return that. */
+    var want = targetPx / ppm, pick = NICE_SCALE[0];
+    for (var i = NICE_SCALE.length - 1; i >= 0; i--) {
+      if (NICE_SCALE[i] <= want) { pick = NICE_SCALE[i]; break; }
+    }
+    return {
+      metres: pick,
+      px: pick * ppm,
+      label: pick >= 1000 ? (pick / 1000) + ' km' : pick + ' m'
+    };
+  }
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   return {
-    $: $, DEG: DEG, TERRAIN_LAYERS: TERRAIN_LAYERS,
+    $: $, DEG: DEG, TERRAIN_LAYERS: TERRAIN_LAYERS, niceScale: niceScale,
     LAYERS: LAYERS, LAYER_BY_ID: LAYER_BY_ID, LAYER_DEFAULTS: LAYER_DEFAULTS,
     S: S, LC: LC, EXT: EXT,
     V: null,                                  // the Viewer, once ui.js boots
