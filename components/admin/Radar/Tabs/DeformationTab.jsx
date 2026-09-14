@@ -9,6 +9,8 @@ import EditModal from '@/components/admin/Radar/shared/EditModal';
 import PatternRecognitionPopup from '@/components/admin/Radar/PatternRecognition/PatternRecognitionPopup';
 import MonitoringAreasPanel from '@/components/admin/Radar/Deformation/MonitoringAreasPanel';
 import ChainSelectDialog from '@/components/admin/Radar/Deformation/ChainSelectDialog';
+import ArchivedDeformationList from '@/components/admin/Radar/Deformation/ArchivedDeformationList';
+import BoardViewSwitch from '@/components/admin/Radar/Deformation/BoardViewSwitch';
 import { usesAreaRoster } from '@/config/movementTableStyle';
 import {
   resolveDetectedBy,
@@ -23,6 +25,9 @@ import {
   isNewChainBranch,
   archiveDefRecords,
   performEventArchiveFlow,
+  restoreDefRecords,
+  resolveArchivedChainTips,
+  resolveRestoreImpact,
 } from '@/utils/tabHelpers';
 import { TYPE_MATRIX, FIELD_DEFINITIONS, getConfigForType } from '@/config/formConfig';
 import { getTarpPolicyForSensor, resolveTarpLevel } from '@/config/tarpPolicy';
@@ -109,6 +114,20 @@ export default function DeformationTab({
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [isArchivePending, setIsArchivePending] = useState(false);
 
+  // ── Archived board state ──────────────────────────────────────────────────────
+  // The history behind this wall folder: every `isactive = 'No'` row, from which
+  // `resolveArchivedChainTips` picks the ones that are a CLOSED CHAIN rather than
+  // a node some live chain's timeline already prints. Held separately from
+  // `deformationList` rather than merged and filtered — the two boards answer
+  // different questions and the active one must keep costing a single query.
+  const [boardView, setBoardView] = useState('active');
+  const [archivedList, setArchivedList] = useState([]);
+  const [isArchivedLoading, setIsArchivedLoading] = useState(false);
+  const [archivedError, setArchivedError] = useState(null);
+  const [archivedSearch, setArchivedSearch] = useState('');
+  const [restoreTarget, setRestoreTarget] = useState(null);
+  const [isRestorePending, setIsRestorePending] = useState(false);
+
   // ── Pattern Recognition state (Requirements 1.1–1.6) ──────────────────────────
   const [showPRPrompt, setShowPRPrompt] = useState(false);
   const [showPRP, setShowPRP] = useState(false);
@@ -148,11 +167,49 @@ export default function DeformationTab({
     }
   }, [sensor?.wallfolder_id]);
 
+  const fetchArchivedRecords = useCallback(async () => {
+    if (!sensor?.wallfolder_id) return;
+    setIsArchivedLoading(true);
+    setArchivedError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('def_records')
+        .select(TIMELINE_SELECT)
+        .eq('wallfolder_id', sensor.wallfolder_id)
+        .eq('isactive', 'No')
+        .order('created_at', { ascending: false });
+
+      if (fetchError) throw fetchError;
+      setArchivedList(data || []);
+    } catch (err) {
+      console.error('Error fetching archived deformation records:', err);
+      setArchivedError('Failed to load archived deformation records.');
+    } finally {
+      setIsArchivedLoading(false);
+    }
+  }, [sensor?.wallfolder_id]);
+
+  /**
+   * Re-read BOTH boards.
+   *
+   * Every write here moves a record between them — an archive, an update, a
+   * delete that restores a predecessor, a restore — so refreshing only the
+   * active list leaves the archived one stating the previous state of the world.
+   */
+  const refreshBoards = useCallback(
+    () => Promise.all([fetchDeformationRecords(), fetchArchivedRecords()]),
+    [fetchDeformationRecords, fetchArchivedRecords]
+  );
+
   useEffect(() => {
     if (activeTab === 'deformation') {
       fetchDeformationRecords();
+      // The archived side is read up front, not on first switch: the count on the
+      // switch is what tells an engineer there is history to look at, and a badge
+      // that only appears after you go looking is a badge that never gets read.
+      fetchArchivedRecords();
     }
-  }, [activeTab, fetchDeformationRecords]);
+  }, [activeTab, fetchDeformationRecords, fetchArchivedRecords]);
 
   // One entry per LIVE chain.
   //
@@ -182,6 +239,26 @@ export default function DeformationTab({
       );
     return chainTips.filter((tip) => matches(tip.record) || matches(tip.branchRecord));
   }, [chainTips, search]);
+
+  // One entry per CLOSED chain. Both lists go in: a chain archived in one go
+  // leaves an archived record pointing at an archived record, and reading only
+  // the active set would call the predecessor a closed chain of its own.
+  const archivedTips = useMemo(
+    () => resolveArchivedChainTips(archivedList, [...deformationList, ...archivedList]),
+    [archivedList, deformationList]
+  );
+
+  const filteredArchivedTips = useMemo(() => {
+    const lower = archivedSearch.trim().toLowerCase();
+    if (!lower) return archivedTips;
+    return archivedTips.filter((record) =>
+      Boolean(
+        record?.location?.toLowerCase().includes(lower) ||
+        record?.def_type?.toLowerCase().includes(lower) ||
+        record?.tarp_level?.toLowerCase().includes(lower)
+      )
+    );
+  }, [archivedTips, archivedSearch]);
 
   // ── Edit flow (task 7.2) ─────────────────────────────────────────────────────
 
@@ -352,7 +429,7 @@ export default function DeformationTab({
           : 'Deformation record permanently deleted.'
       );
       setDeleteTarget(null);
-      await fetchDeformationRecords();
+      await refreshBoards();
     } catch (err) {
       console.error('Error deleting deformation record:', err);
       toast.error('Failed to delete deformation record.');
@@ -544,7 +621,7 @@ export default function DeformationTab({
           toast.success('Deformation record archived.');
         }
 
-        await fetchDeformationRecords();
+        await refreshBoards();
         return true;
       } catch (err) {
         console.error('Error archiving deformation:', err);
@@ -557,7 +634,7 @@ export default function DeformationTab({
     [
       openBranchesById,
       fetchPrecursorRecords,
-      fetchDeformationRecords,
+      refreshBoards,
       sensor?.wallfolder_id,
       sensor?.area,
       userID,
@@ -576,6 +653,77 @@ export default function DeformationTab({
   };
 
   const handleArchiveCancel = () => setArchiveTarget(null);
+
+  // ── Restore flow ──────────────────────────────────────────────────────────────
+
+  /**
+   * Put an archived chain back on the board.
+   *
+   * Only ever offered on a chain TIP (see `resolveArchivedChainTips`), so there
+   * is no successor to unpick: flipping `isactive` is the whole operation and
+   * there is no second write to compensate for. The record comes back exactly as
+   * it was — same values, same history, same location — and is reported again
+   * from the next daily report onward, which is why it asks first.
+   */
+  const handleRestore = (record) => setRestoreTarget(record);
+
+  const handleRestoreConfirm = async () => {
+    const record = restoreTarget;
+    if (!record) return;
+    setIsRestorePending(true);
+    try {
+      const restored = await restoreDefRecords(supabase, [record.id]);
+      if (!restored.ok) throw restored.error;
+
+      // Logged for the same reason the archive is: the board gaining a finding
+      // is a change to what the site is being told, not a display preference.
+      const { error: logError } = await supabase.from('work_log').insert([{
+        created_at: new Date().toISOString(),
+        subject: 7,
+        wallfolder: sensor?.wallfolder_id,
+        location: sensor?.area,
+        category: 'deformation',
+        action: 'No action required',
+        notes: `${record.def_type} record has been restored from the archive`,
+        submitted_by: userID,
+      }]);
+      if (logError) {
+        console.error('Work Log Insert Failed:', logError);
+        toast.error('Record restored, but failed to create log entry.');
+      } else {
+        toast.success('Record restored to the board.');
+      }
+
+      setRestoreTarget(null);
+      handleTimelineCollapse();
+      await refreshBoards();
+    } catch (err) {
+      console.error('Error restoring deformation record:', err);
+      toast.error('Could not restore the record.');
+    } finally {
+      setIsRestorePending(false);
+    }
+  };
+
+  const handleRestoreCancel = () => setRestoreTarget(null);
+
+  /**
+   * Continue an archived chain with a new record.
+   *
+   * The same Update flow the active board runs, with one difference that matters:
+   * `archiveOriginal` is false. The original is already off the board, and
+   * archiving it a second time is not a no-op in the failure path — the flow
+   * compensates by setting `isactive = 'Yes'`, which would RESURRECT a record the
+   * engineer deliberately archived. So the archive step is skipped entirely and
+   * the new record simply points back at the history.
+   */
+  const handleArchivedUpdate = (record) => {
+    if (!record) return;
+    setPendingPrecursors(record.id);
+    setPendingChainBranch(null);
+    setPendingArchiveOriginal(false);
+    setShowPRPrompt(true);
+  };
 
   // ── PR Prompt handlers (Requirements 1.2–1.5) ─────────────────────────────────
 
@@ -614,6 +762,21 @@ export default function DeformationTab({
    */
   const handlePRPArchive = async () => {
     if (!precursorsRecord) return;
+
+    // Continuing an ARCHIVED chain can reach here too, and the record is already
+    // off the board. Archiving it again would write a second work-log entry
+    // saying it was archived and, if that write failed, report an error for
+    // something that was already true — so this just closes.
+    if (precursorsRecord.isactive === 'No') {
+      setShowPRP(false);
+      setPrpAutoFillValues(null);
+      setPrpSummary(null);
+      setPendingPrecursors(null);
+      clearPendingChain();
+      toast.success('That record is already archived — nothing to do.');
+      return;
+    }
+
     setIsArchivingPrecursors(true);
     try {
       // Same archive the list's Archive button runs, so the blast leaving the
@@ -633,9 +796,17 @@ export default function DeformationTab({
   };
 
   // Pre-fill values for the AddDeformationForm from the precursors record.
+  //
+  // Both boards are searched: continuing an ARCHIVED chain hands the form a
+  // record that is by definition not in the active list, and without it the new
+  // record would open blank — no location, no alarm regions — even though the
+  // whole point of continuing a chain is that it inherits them.
   const precursorsRecord = useMemo(
-    () => deformationList.find((d) => d.id === pendingPrecursors) || null,
-    [deformationList, pendingPrecursors]
+    () =>
+      deformationList.find((d) => d.id === pendingPrecursors) ||
+      archivedList.find((d) => d.id === pendingPrecursors) ||
+      null,
+    [deformationList, archivedList, pendingPrecursors]
   );
 
   const addFormInitialValues = useMemo(() => {
@@ -663,7 +834,7 @@ export default function DeformationTab({
     setPrpAutoFillValues(null);
     setPrpSummary(null);
     clearPendingChain();
-    await fetchDeformationRecords();
+    await refreshBoards();
   };
 
   // ── Timeline flow (task 7.5) ──────────────────────────────────────────────────
@@ -789,6 +960,29 @@ export default function DeformationTab({
     };
   }, [archiveTarget, chainImpact]);
 
+  const restorePrompt = useMemo(() => {
+    const record = restoreTarget;
+    if (!record) return null;
+    const impact = resolveRestoreImpact(record, deformationList);
+    const type = record.def_type || 'record';
+    const items = [
+      impact.kind === 'steps-forward'
+        ? 'The record it supersedes is still on the board, so no new chain appears — that chain moves forward onto this record.'
+        : 'The chain is tracked again: it returns to the deformation list, the daily movement table and the reports.',
+      'It comes back exactly as it was — same values, same history. Nothing is copied and nothing is rewritten.',
+      <>
+        If the movement has CHANGED since it was archived, use <strong>Update</strong> instead. That
+        files this record as history and states the new reading as a record of its own.
+      </>,
+    ];
+
+    return {
+      title: 'Restore Record',
+      message: `This puts the ${type}${record.location ? ` at ${record.location}` : ''} back on the board.`,
+      details: consequences(items),
+    };
+  }, [restoreTarget, deformationList]);
+
   const deletePrompt = useMemo(() => {
     const record = deleteTarget;
     if (!record) return null;
@@ -832,6 +1026,26 @@ export default function DeformationTab({
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  /**
+   * The one control that switches boards, handed to whichever list is drawn so
+   * it sits in that list's own header rather than floating above both.
+   *
+   * Switching collapses the open timeline: the panel belongs to a card that is
+   * about to leave the screen, and leaving `timelineKey` set means the other
+   * board opens with a chain expanded that nobody asked for.
+   */
+  const boardViewSwitch = (
+    <BoardViewSwitch
+      value={boardView}
+      archivedCount={isArchivedLoading && archivedList.length === 0 ? null : archivedTips.length}
+      onChange={(next) => {
+        if (next === boardView) return;
+        handleTimelineCollapse();
+        setBoardView(next);
+      }}
+    />
+  );
+
   // While the AddDeformationForm (Update flow) is open, show it instead of the list.
   // Requirement 1.4: AddDeformationForm must NOT be simultaneously open when PRP is open.
   if (showAddForm && !showPRP) {
@@ -867,12 +1081,40 @@ export default function DeformationTab({
           <MonitoringAreasPanel sensor={sensor} activeTab={activeTab} />
         )}
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Spinner size={32} />
+        {boardView === 'archived' ? (
+          <ArchivedDeformationList
+            records={filteredArchivedTips}
+            search={archivedSearch}
+            onSearchChange={(e) => setArchivedSearch(e.target.value)}
+            crosscheckers={crosscheckers}
+            riskMode={getRiskDisplayMode(sensor)}
+            isLoading={isArchivedLoading}
+            error={archivedError}
+            onRestore={handleRestore}
+            onUpdate={handleArchivedUpdate}
+            onTimelineExpand={handleTimelineExpand}
+            onTimelineCollapse={handleTimelineCollapse}
+            timelineKey={timelineKey}
+            timelineChain={timelineChain}
+            timelineLoading={timelineLoading}
+            timelineError={timelineError}
+            timezone={timezone}
+            viewSwitch={boardViewSwitch}
+          />
+        ) : isLoading || error ? (
+          <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
+            <div className="flex w-full justify-between items-center border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
+              <h2 className="text-xl">Deformation/Event</h2>
+              {boardViewSwitch}
+            </div>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Spinner size={32} />
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm text-red-500">{error}</p>
+            )}
           </div>
-        ) : error ? (
-          <p className="py-8 text-center text-sm text-red-500">{error}</p>
         ) : (
           <DeformationList
             sensor={sensor}
@@ -894,8 +1136,9 @@ export default function DeformationTab({
             timelineLoading={timelineLoading}
             timelineError={timelineError}
             timezone={timezone}
-            onSuccess={fetchDeformationRecords}
+            onSuccess={refreshBoards}
             onRainfallSaved={onRainfallSaved}
+            viewSwitch={boardViewSwitch}
           />
         )}
       </div>
@@ -966,6 +1209,18 @@ export default function DeformationTab({
         onCancel={handleArchiveCancel}
         confirmLabel={archivePrompt?.confirmLabel ?? 'Archive'}
         isConfirmDisabled={isArchivePending}
+      />
+
+      {/* Restore Confirm Dialog — what comes back on the board, and what does not */}
+      <ConfirmDialog
+        isOpen={Boolean(restoreTarget)}
+        title={restorePrompt?.title ?? 'Restore Record'}
+        message={restorePrompt?.message ?? ''}
+        details={restorePrompt?.details}
+        onConfirm={handleRestoreConfirm}
+        onCancel={handleRestoreCancel}
+        confirmLabel="Restore"
+        isConfirmDisabled={isRestorePending}
       />
 
       {/* PR Prompt — step between update confirm and add form (Requirements 1.1–1.5) */}

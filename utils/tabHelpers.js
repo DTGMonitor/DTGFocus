@@ -652,6 +652,88 @@ export async function archiveDefRecords(client, ids = []) {
 }
 
 /**
+ * Put records back on the board.
+ *
+ * The exact inverse of `archiveDefRecords`, and deliberately no more than that:
+ * restoring is only ever offered for a record NOTHING points at (see
+ * `resolveArchivedChainTips`), so there is no successor to unpick and no second
+ * write to compensate for.
+ *
+ * @param {object} client  Supabase-like client
+ * @param {Array<number|string>} ids
+ * @returns {Promise<{ ok: boolean, error?: any }>}
+ */
+export async function restoreDefRecords(client, ids = []) {
+  const unique = [...new Set(ids.filter((id) => id !== null && id !== undefined).map(String))];
+  if (unique.length === 0) return { ok: true };
+
+  const res = await filterByIds(client.from('def_records').update({ isactive: 'Yes' }), unique);
+  if (res && res.error) return { ok: false, error: res.error };
+  return { ok: true };
+}
+
+/**
+ * The archived records that are a CLOSED CHAIN rather than a superseded node.
+ *
+ * Most archived rows are not history in their own right: the Update flow archives
+ * a record the moment it writes the one that replaces it, so the folder fills up
+ * with nodes that are already printed inside a live chain's timeline. Listing
+ * those again would show the same trend three or four times, and "restore" on one
+ * of them would put a second record of a chain that already has a current record
+ * back on the board.
+ *
+ * A chain is closed when its LAST record was archived — that is, when nothing at
+ * all points back at it. That record is the one worth listing, the one whose
+ * timeline carries the whole history behind it, and the only one that can be
+ * restored or continued without contradicting something already on the board.
+ *
+ * `allRecords` must span BOTH sets (active and archived): a chain archived in one
+ * go leaves an archived successor pointing at an archived predecessor, and reading
+ * only the active records would wrongly call the predecessor a tip.
+ *
+ * @param {object[]} archivedRecords  the `isactive = 'No'` rows under consideration
+ * @param {object[]} allRecords       every row in the folder, active and archived
+ * @returns {object[]} the archived tips, newest `created_at` first
+ */
+export function resolveArchivedChainTips(archivedRecords = [], allRecords = []) {
+  const referenced = new Set();
+  (allRecords ?? []).filter(Boolean).forEach((record) => {
+    normalizePrecursorss(record.precursors).forEach((pid) => referenced.add(String(pid)));
+  });
+
+  return (archivedRecords ?? [])
+    .filter(Boolean)
+    .filter((record) => !referenced.has(String(record.id)))
+    .sort((a, b) => new Date(b?.created_at ?? 0) - new Date(a?.created_at ?? 0));
+}
+
+/**
+ * What putting an archived record back on the board would do to its chain.
+ *
+ * Two shapes, and the difference matters to the engineer reading the dialog:
+ *
+ *   'steps-forward'  the record it supersedes is ACTIVE — the chain is already on
+ *                    the board one node behind, so this does not add a chain, it
+ *                    moves the existing one forward onto this record.
+ *   'reopens'        nothing of the chain is on the board, so restoring puts the
+ *                    chain back as a live finding that will be reported again.
+ *
+ * Archived-ness is inferred from absence, the same way `resolveChainImpact` does
+ * it: a precursor that is not among the active records is not being shown.
+ *
+ * @param {object} record
+ * @param {object[]} [activeRecords]
+ * @returns {{kind: 'steps-forward'|'reopens', spineId: number|string|null}}
+ */
+export function resolveRestoreImpact(record, activeRecords = []) {
+  const ids = normalizePrecursorss(record?.precursors);
+  const spineId = ids.length ? ids[0] : null;
+  const activeIds = new Set((activeRecords ?? []).filter(Boolean).map((r) => String(r.id)));
+  const kind = spineId !== null && activeIds.has(String(spineId)) ? 'steps-forward' : 'reopens';
+  return { kind, spineId };
+}
+
+/**
  * Build the insert that carries ONE chain forward past the merge event it was
  * sitting on.
  *

@@ -5,7 +5,7 @@ import { resolveRiskPresentation, pendingPresentation } from "@/config/riskDispl
 import { Button } from "@/components/ui/button";
 import {
     X, Download, Mail, Printer, Calendar, ListChecks, Wifi, TriangleAlert,
-    Wrench, Check, Plus, Pencil
+    Wrench, Check, Plus, Pencil, Archive
 } from 'lucide-react';
 import { LocalTime } from "@/components/Reusable/Formatting";
 import { QualityTable } from "./Dqp/DqpTable";
@@ -34,6 +34,7 @@ import { resolveEmailLocale, emailStrings } from '../../../config/emailLocale';
 import toast, { Toaster } from 'react-hot-toast';
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 import SiteWideStatusModal from "@/components/admin/Radar/SiteWideStatusModal";
+import ArchivedFoldersModal from "@/components/admin/Radar/ArchivedFoldersModal";
 import { isSiteWideStatus } from "@/utils/siteWideStatus";
 import { openOutlookDraft } from "@/utils/openOutlookDraft";
 import { fetchCrosscheckers } from "@/utils/crosscheckers";
@@ -141,6 +142,10 @@ const SensorDetail = ({
     // the current folder's location_group so the report clusters them as one wall;
     // when unchecked it is treated as a different location (its own report section).
     const [sameLocation, setSameLocation] = useState(false);
+    // The read-only window onto this radar's retired folders. Opened from the
+    // wrench because that is already the folder menu — rename, rotate, and now
+    // "what was on the ones we rotated away from".
+    const [showArchivedFolders, setShowArchivedFolders] = useState(false);
 
     const now = new Date();
     const menuRef = useRef(null);
@@ -1657,6 +1662,13 @@ const SensorDetail = ({
                                                                 from every sensor because that is where an engineer
                                                                 is standing when they notice the masthead is wrong. */}
                                                             <button
+                                                                onClick={() => { setShowArchivedFolders(true); setShowWrenchMenu(false); }}
+                                                                className="flex items-center gap-2 text-left px-3 py-2 hover:bg-[var(--dtg-bg-primary)] rounded text-sm text-[var(--dtg-text-primary)]"
+                                                            >
+                                                                <Archive size={14} />
+                                                                <span>Archived Wall Folders</span>
+                                                            </button>
+                                                            <button
                                                                 onClick={() => { setShowSiteDetails(true); setShowWrenchMenu(false); }}
                                                                 className="flex items-center gap-2 text-left px-3 py-2 hover:bg-[var(--dtg-bg-primary)] rounded text-sm text-[var(--dtg-text-primary)]"
                                                             >
@@ -2125,6 +2137,17 @@ const SensorDetail = ({
                 siteId={sensor?.site_id}
                 onClose={() => setShowSiteDetails(false)}
                 onSaved={() => onRefresh?.()}
+            />
+
+            {/* The folders this radar has retired. Read-only, and takes no
+                onSaved/onRefresh for that reason — it cannot change anything
+                the panel behind it is showing. */}
+            <ArchivedFoldersModal
+                isOpen={showArchivedFolders}
+                sensor={sensor}
+                timezone={timezone}
+                crosscheckers={crosscheckers}
+                onClose={() => setShowArchivedFolders(false)}
             />
         </div >
     )

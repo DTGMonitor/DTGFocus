@@ -96,6 +96,9 @@ const DeformationList = ({
     timelineError = null,
     timezone,
     onRainfallSaved,
+    // Active ↔ Archived. Rendered in this list's own header so the two boards
+    // switch from the same place rather than from a control floating above them.
+    viewSwitch = null,
 }) => {
     const [viewMode, setViewMode] = useState('list');
     // How this sensor's site states a record's severity — a TARP level, or the
@@ -359,13 +362,17 @@ const DeformationList = ({
         <div className="flex flex-col w-full gap-2 text-[var(--dtg-text-primary)]">
             <div className="flex w-full justify-between border-b border-[var(--dtg-border-medium)] mb-4 pb-2">
                 <h2 className="text-xl">Deformation/Event</h2>
+                <div className="flex items-center gap-2">
                 {viewMode !== 'form' ? (
+                    <>
+                    {viewSwitch}
                     <Button
                         className='text-sm'
                         variant='orange'
                         onClick={() => { onNewRecordClick?.(); setViewMode('form'); }}
                     >+ New Record
-                    </Button>) : (
+                    </Button>
+                    </>) : (
                     <Button
                         className='text-sm'
                         variant='orange'
@@ -374,6 +381,7 @@ const DeformationList = ({
                         ← Back to List
                     </Button>
                 )}
+                </div>
             </div>
             {renderContent()}
         </div>)
