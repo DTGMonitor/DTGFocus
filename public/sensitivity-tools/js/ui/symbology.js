@@ -67,8 +67,13 @@ SM.Symbology = (function () {
     $('colFlat').oninput = function () { if (S.show.flat) colorize(); };
     $('btnRevertColour').onclick = function () { setFlat(false); };
 
+    /* The terrain's opacity is the viewer's mesh alpha, and it has two
+       controls — the terrain's own sheet and the View tab — kept on one value. */
+    $('inpTerrainAlpha').oninput = function () { setTerrainAlpha(SM.readOpacity('inpTerrainAlpha')); };
+    $('inpResultAlpha').oninput = function () { setResultAlpha(SM.readOpacity('inpResultAlpha')); };
+
     /* rendering controls live in the View tab but belong to the viewer */
-    $('inpOpacity').oninput = function () { SM.V.opt.alpha = +this.value; SM.V.draw(); };
+    $('inpOpacity').oninput = function () { setTerrainAlpha(+this.value); };
     $('inpZScale').oninput = function () { SM.V.opt.zScale = +this.value; SM.V.draw(); };
     $('inpSunAz').oninput = function () { SM.V.opt.sunAz = +this.value; SM.V.draw(); };
     $('inpSunEl').oninput = function () { SM.V.opt.sunEl = +this.value; SM.V.draw(); };
@@ -109,6 +114,24 @@ SM.Symbology = (function () {
       : 'Terrain back to the ' + (currentLayer() || {}).label + ' colour scale.');
   }
 
+  /** see-through terrain: the mesh alpha, never low enough to lose the surface */
+  function setTerrainAlpha(a) {
+    a = clamp(+a || 1, 0.15, 1);
+    SM.V.opt.alpha = a;
+    $('inpOpacity').value = a;
+    SM.showOpacity('inpTerrainAlpha', 'outTerrainAlpha', a);
+    SM.V.draw();
+    SM.Tree.refresh();
+  }
+
+  /** how strongly the processing result covers the terrain's own colouring */
+  function setResultAlpha(a) {
+    S.result.alpha = clamp(a == null || a !== a ? 1 : +a, 0, 1);
+    SM.showOpacity('inpResultAlpha', 'outResultAlpha', S.result.alpha);
+    colorize();
+    SM.Tree.refresh();
+  }
+
   function cfg() { return LC[S.layer] || LC.sens; }
   function lut() { return ColorMaps.buildLUT(cfg()); }
 
@@ -124,6 +147,9 @@ SM.Symbology = (function () {
     $('selAnalysisMode').value = S.analysisMode;
     $('chkSurface').checked = !!S.show.surface;
     $('chkFlat').checked = !!S.show.flat;
+    $('inpOpacity').value = SM.V.opt.alpha;
+    SM.showOpacity('inpTerrainAlpha', 'outTerrainAlpha', SM.V.opt.alpha);
+    SM.showOpacity('inpResultAlpha', 'outResultAlpha', S.result.alpha);
     /* The ramp editor is shared by the terrain and the result, so say which
        one it is editing — otherwise an unticked result silently edits the
        terrain's scale while its own row is selected. */
@@ -186,9 +212,12 @@ SM.Symbology = (function () {
     $('inpVmin').value = c.vmin; $('inpVmax').value = c.vmax;
   }
 
-  function currentLayer() {
+  function currentLayer() { return layerOf(S.layer); }
+
+  /** the values behind one named raster, falling back to elevation for an
+      analysis that has no run behind it yet */
+  function layerOf(name) {
     if (!S.grid) return null;
-    var name = S.layer;
     if (!S.res && !TERRAIN[name]) name = 'elev';
     if (S.res) return Sens.layer(name, S.res, S.grid, S.der, { trueDispl: parseFloat($('inpTrue').value) || 10 });
     /* terrain-only layers before a compute */
@@ -207,7 +236,7 @@ SM.Symbology = (function () {
     if (!S.grid) return;
     var L = currentLayer(); if (!L) return;
     S.curLayer = L;                       // cached for the hover read-out
-    var c = cfg(), LUT = ColorMaps.buildLUT(c);
+    var c = cfg();
     var g = S.grid, n = g.nx * g.ny;
     var out = new Float32Array(n * 3);
 
@@ -233,18 +262,67 @@ SM.Symbology = (function () {
       return;
     }
 
+    out = paint(S.layer, L, c);
+
+    /* A part-transparent result is mixed over what the terrain would show with
+       the result unticked — photo and all — so 0% is exactly that view rather
+       than some third look nobody asked for. Only paid for in between. */
+    var a = resultAlpha();
+    if (a < 1) {
+      var TL = layerOf(S.terrainMode), tc = LC[S.terrainMode];
+      /* an auto-ranged terrain scale is only stretched while it is the active
+         layer, so read its natural range here rather than a stale one —
+         rounded as autoRange() rounds it, or 0% would not match unticking */
+      if (tc.auto && TL.vmin != null && TL.vmax != null) {
+        var lo = +(+TL.vmin).toFixed(3), hi = +(+TL.vmax).toFixed(3);
+        tc = { stops: tc.stops, bands: tc.bands, gamma: tc.gamma, reverse: tc.reverse,
+               discrete: tc.discrete, vmin: lo, vmax: hi > lo ? hi : lo + 1 };
+      }
+      var under = paint(S.terrainMode, TL, tc);
+      for (var k = 0; k < out.length; k++) out[k] = under[k] + (out[k] - under[k]) * a;
+    }
+
+    if (SM.Photo.has()) SM.Photo.syncForm();
+    SM.V.setColors(out);
+    SM.V.draw();
+    updateLegend();
+  }
+
+  /** the result's opacity while it is what is painted; 1 whenever it is not */
+  function resultAlpha() {
+    if (!S.res || TERRAIN[S.layer]) return 1;
+    var a = S.result.alpha;
+    return (a == null || a !== a) ? 1 : clamp(a, 0, 1);
+  }
+
+  /**
+   * Colour every node by one raster, photo blended underneath.
+   * @param {string} name  the raster's id — decides the visibility codes and
+   *        the below-threshold grey-out, which belong to analyses only
+   * @param {object} L     its values, from layerOf()
+   * @param {object} c     its colour config
+   * @returns {Float32Array} n*3 of 0-1 RGB
+   */
+  function paint(name, L, c) {
+    var LUT = ColorMaps.buildLUT(c);
+    var g = S.grid, n = g.nx * g.ny;
+    var out = new Float32Array(n * 3);
     var vmin = c.vmin, vmax = c.vmax, span = (vmax - vmin) || 1;
 
     var cNo = ColorMaps.hex2rgb($('colNoData').value);
     var cOcc = ColorMaps.hex2rgb($('colOccluded').value);
     var cOut = ColorMaps.hex2rgb($('colOutside').value);
     var cLow = ColorMaps.hex2rgb($('colBelow').value);
-    var useVis = S.res && !TERRAIN[S.layer] && S.layer !== 'vis';
+    var useVis = S.res && !TERRAIN[name] && name !== 'vis';
     var vis = S.res ? S.res.combined.vis : null;
     var maskOn = $('chkAOI').checked && S.mask;
-    var maskBelow = $('chkMaskBelow').checked && (S.layer === 'sens' || S.layer === 'mmres');
+    /* how far a cell outside the mask is pulled toward the out-of-scan
+       colour — the mask's own opacity scales it, so 0% leaves no trace */
+    var dim = 0.68 * clamp(S.aoiAlpha == null ? 1 : S.aoiAlpha, 0, 1), keep = 1 - dim;
+    if (dim <= 0) maskOn = false;
+    var maskBelow = $('chkMaskBelow').checked && (name === 'sens' || name === 'mmres');
     var thr = parseFloat($('inpThresh').value) || 0;
-    if (S.layer === 'mmres') thr = thr * (parseFloat($('inpTrue').value) || 10);
+    if (name === 'mmres') thr = thr * (parseFloat($('inpTrue').value) || 10);
     var VISC = Sens.VIS;
     /* 1 where the layer gave the node a real colour; a draped photo shows
        through everywhere else, so no-data stops meaning "grey field" */
@@ -269,15 +347,12 @@ SM.Symbology = (function () {
           r = q[0]; gg = q[1]; b = q[2];
           lit[id] = 1;
         }
-        if (maskOn && !S.mask[id]) { r = r * 0.32 + cOut[0] * 0.68; gg = gg * 0.32 + cOut[1] * 0.68; b = b * 0.32 + cOut[2] * 0.68; }
+        if (maskOn && !S.mask[id]) { r = r * keep + cOut[0] * dim; gg = gg * keep + cOut[1] * dim; b = b * keep + cOut[2] * dim; }
       }
       out[o] = r / 255; out[o + 1] = gg / 255; out[o + 2] = b / 255;
     }
-    SM.Photo.blend(out, lit);
-    if (SM.Photo.has()) SM.Photo.syncForm();
-    SM.V.setColors(out);
-    SM.V.draw();
-    updateLegend();
+    SM.Photo.blend(out, lit, name);
+    return out;
   }
 
   function updateLegend() {
@@ -317,6 +392,7 @@ SM.Symbology = (function () {
 
   return {
     init: init, setSurface: setSurface, setFlat: setFlat,
+    setTerrainAlpha: setTerrainAlpha, setResultAlpha: setResultAlpha, resultAlpha: resultAlpha,
     cfg: cfg, lut: lut, syncForm: syncForm, refreshStopEditor: refreshStopEditor,
     autoRange: autoRange, currentLayer: currentLayer, colorize: colorize,
     updateLegend: updateLegend

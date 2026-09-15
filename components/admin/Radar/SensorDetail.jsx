@@ -18,6 +18,7 @@ import AlarmTab from "./Tabs/AlarmTab";
 import DQPTab from "./Tabs/DQPTab";
 import DowntimeTab from "./Tabs/DowntimeTab";
 import TarpTab from "./Tabs/TarpTab";
+import FailureHistoryTab from "./Tabs/FailureHistoryTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
@@ -2074,6 +2075,14 @@ const SensorDetail = ({
                                         userSite={userSite}
                                         activeTab={activeTab}
                                         timezone={timezone}
+                                    />
+                                )}
+
+                                {activeTab === 'failures' && (
+                                    <FailureHistoryTab
+                                        sensor={sensor}
+                                        timezone={timezone}
+                                        activeTab={activeTab}
                                     />
                                 )}
                             </div>

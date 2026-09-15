@@ -1539,6 +1539,33 @@ var RadarUI = (function () {
     }
   }
 
+  /**
+   * Show or hide every scan of one wall folder — or of every folder, when
+   * `key` is null — in one go. The tree's group tick boxes land here.
+   *
+   * Folders that are not georeferenced are skipped: their scans have nowhere
+   * to be drawn, and the tree lists none of them to tick.
+   */
+  function setVisible(key, on) {
+    var V = viewer(), n = 0;
+    for (var i = 0; i < S.order.length; i++) {
+      var f = S.folders[S.order[i]];
+      if (key != null && f.key !== key) continue;
+      if (!f.transform) continue;
+      for (var j = 0; j < f.scans.length; j++) {
+        var rec = f.scans[j];
+        rec.visible = !!on;
+        if (V && rec.mesh) V.setScanOpts(rec.id, { visible: rec.visible });
+        n++;
+      }
+    }
+    if (!n) return;
+    if (V) V.draw();
+    render();
+    status((on ? 'Showing ' : 'Hiding ') + (n === 1 ? 'the scan' : 'all ' + n + ' scans') +
+      (key != null ? ' of ' + key : '') + '.');
+  }
+
   /* ui.js boots on DOMContentLoaded and creates the viewer; this must land
      after that, or SensiMap is not there yet. */
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
@@ -1546,7 +1573,7 @@ var RadarUI = (function () {
 
   return {
     acceptFile: acceptFile, folders: listFolders,
-    toggleScan: toggleScan, georeference: startGeoref,
+    toggleScan: toggleScan, setVisible: setVisible, georeference: startGeoref,
     /* the layer tree drives the same selection this sheet is written against */
     pick: pickRow, setSelection: setSelection, selection: selection,
     isSelected: isSelected, refreshRegistry: loadRegistry,

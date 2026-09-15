@@ -638,6 +638,38 @@ export const CAUSE_OPTIONS = {
     ]
 };
 
+/**
+ * Deformation type → the Alarm tab's cause name.
+ *
+ * An alarm raised from the deformation form used to be saved with the bare
+ * def_type ('Progressive') as its cause, so it matched none of CAUSE_OPTIONS:
+ * the Alarm tab, the cause pie and the improvement picker each saw a cause the
+ * taxonomy did not know. Types with no counterpart (Forecast, Data
+ * Contamination) are passed through unchanged.
+ */
+export const DEF_TYPE_ALARM_CAUSE: Record<string, string> = {
+    "Failure": "Failure Pattern Indication",
+    "Progressive": "Progressive Deformation Trend",
+    "Linear Accelerating": "Linear Accelerating Trend",
+    "Linear": "Linear Deformation Trend",
+    "Regressive": "Regressive Deformation Trend",
+    "Rapid Movement": "Rapid Movement",
+    "Rock Fall": "Rock Fall",
+    "Material Detachment": "Material Detachment Indication",
+    "Blast Event": "Blasting Event",
+    "Rainfall Event": "Rainfall Event",
+};
+
+/**
+ * The reason and cause to record for an alarm raised from a deformation of
+ * `defType`. The reason follows the cause's group, so a blast or rainfall alarm
+ * is filed as False — the same pairing the Alarm tab's own form would give it.
+ */
+export const alarmCauseForDefType = (defType: string): { reason: 'Valid' | 'False'; cause: string } => {
+    const cause = DEF_TYPE_ALARM_CAUSE[defType] ?? defType;
+    return { reason: CAUSE_OPTIONS.False.includes(cause) ? 'False' : 'Valid', cause };
+};
+
 // NEW: Dynamic Subject Generator
 // config/formConfig.js or .ts
 

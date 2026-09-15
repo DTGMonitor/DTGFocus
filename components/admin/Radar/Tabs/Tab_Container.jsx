@@ -5,7 +5,7 @@
  * Owns no internal state — the parent controls `activeTab` and `onTabChange`.
  *
  * Props:
- *   activeTab   : 'onboarding' | 'deformation' | 'alarm' | 'dqp' | 'downtime' | 'tarp'
+ *   activeTab   : 'onboarding' | 'deformation' | 'alarm' | 'dqp' | 'downtime' | 'tarp' | 'failures'
  *   onTabChange : (tabKey: string) => void
  *   showOnboarding : boolean — offer the Onboarding tab at all. False for sites
  *                    with no onboarding record (everything live before the flow
@@ -27,6 +27,7 @@ const TABS = [
   { key: 'dqp',         label: 'Data Quality' },
   { key: 'downtime',    label: 'Downtime' },
   { key: 'tarp',        label: 'TARP' },
+  { key: 'failures',    label: 'Failure History' },
 ];
 
 /** The tabs a sensor shows, given where its site is in onboarding. */

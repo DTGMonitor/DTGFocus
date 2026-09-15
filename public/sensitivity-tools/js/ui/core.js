@@ -45,6 +45,9 @@ var SM = (function () {
     polyNames: [],      // their labels, kept in step by ui/aoi.js
     regions: [],        // masked cell count per region, refilled with the mask
     polyHi: -1,         // region highlighted from the list
+    /* how visible the mask is drawn — its outline, its fill and the dimming
+       outside it. Drawing only: the statistics use the mask at any opacity. */
+    aoiAlpha: 1,
 
     /* ---- structural geology ----
        `planes` are mapped discontinuities (dip / dip direction); `kin` is the
@@ -72,7 +75,10 @@ var SM = (function () {
        was, and reticking it returns to the analysis you were reading. */
     terrainMode: 'elev',    // elev | slope | aspect
     analysisMode: 'sens',   // sens | amp | vis | range | mmres | which
-    result: { on: true },   // is the processing result drawn over the terrain
+    /* `on`: is the processing result drawn over the terrain. `alpha`: how
+       strongly it covers what the terrain would show without it — 0 is
+       indistinguishable from unticking it, 1 hides the terrain's colours. */
+    result: { on: true, alpha: 1 },
     layer: 'elev',          // resolved: the raster actually painted
     curLayer: null,     // the resolved layer object, cached for the read-out
 
@@ -101,7 +107,10 @@ var SM = (function () {
       /* How strongly the active layer covers the photo. `mixAuto` follows
          the same convention as a colour scale's `auto`: until the slider is
          touched, the strength is chosen from what is on screen. */
-      mix: 0.85, mixAuto: true
+      mix: 0.85, mixAuto: true,
+      /* the photo's own opacity over whatever it is draped on: 0 lets the
+         layer colours through untouched, as if the photo were unticked */
+      alpha: 1
     },
 
     /* Bumped by whoever recomputes the selection mask or the domain index.
@@ -212,6 +221,23 @@ var SM = (function () {
   }
   function num(id, d) { var v = parseFloat($(id).value); return isFinite(v) ? v : d; }
 
+  /* Every layer's opacity is the same control: a 0-100 slider and a read-out
+     beside it, holding a 0-1 value. `lo` is the slider's own floor, so a layer
+     that must never vanish entirely cannot be dragged past it. */
+  function readOpacity(id) {
+    var el = $(id), lo = parseFloat(el.min) || 0;
+    return clamp(num(id, 100), lo, 100) / 100;
+  }
+  function showOpacity(id, outId, a) {
+    var pct = Math.round(clamp(a == null ? 1 : +a, 0, 1) * 100);
+    if ($(id)) $(id).value = pct;
+    if (outId && $(outId)) $(outId).textContent = pct + '%';
+  }
+  /** " · 60% opacity" for a tree row, or nothing while the layer is solid */
+  function opacityMeta(a) {
+    return (a == null || a >= 0.995) ? '' : ' · ' + Math.round(a * 100) + '% opacity';
+  }
+
   /** the raster's own extent, in survey units — wanted in half a dozen places */
   function extentOf(g) {
     if (!g) return null;
@@ -266,6 +292,7 @@ var SM = (function () {
     throttle: throttle, status: status, setHud: setHud, badge: badge,
     fmt: fmt, fmtInt: fmtInt, fmtCoord: fmtCoord, cssVar: cssVar,
     nearXY: nearXY, clamp: clamp, numOr: numOr, num: num,
+    readOpacity: readOpacity, showOpacity: showOpacity, opacityMeta: opacityMeta,
     extentOf: extentOf, icon: icon, esc: esc
   };
 })();

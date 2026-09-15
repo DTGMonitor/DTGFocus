@@ -68,8 +68,10 @@ SM.Tree = (function () {
       : '<span class="ttwist empty"></span>';
 
     if (o.check === 'box') {
+      /* `boxDisabled` locks the tick alone, for a row that is still worth
+         selecting — `disabled` greys out the whole row */
       h += '<input class="tbox" type="checkbox"' + (o.on ? ' checked' : '') +
-        (o.disabled ? ' disabled' : '') + '>';
+        (o.disabled || o.boxDisabled ? ' disabled' : '') + '>';
     } else {
       h += '<span class="tbox"></span>';
     }
@@ -106,7 +108,8 @@ SM.Tree = (function () {
       active: !resultOn(),
       ramp: S.show.flat ? null : rampCss(S.terrainMode),
       swatch: S.show.flat ? ($('colFlat') && $('colFlat').value) : null,
-      meta: S.show.flat ? 'flat colour' : terrainName(),
+      meta: (S.show.flat ? 'flat colour' : terrainName()) +
+        SM.opacityMeta(SM.V ? SM.V.opt.alpha : 1),
       hint: 'The survey surface. Tick to draw the mesh — overlays keep drawing either ' +
         'way. What colours it, and how it was gridded, are its properties.'
     }));
@@ -118,7 +121,7 @@ SM.Tree = (function () {
         check: 'box', on: S.photo.on, icon: 'raster', removable: true,
         selected: sel.kind === 'photo',
         meta: S.photo.away ? 'off the model'
-          : Math.round(SM.Photo.mix() * 100) + '% layer',
+          : Math.round(SM.Photo.mix() * 100) + '% layer' + SM.opacityMeta(SM.Photo.alpha()),
         hint: 'A georeferenced photo draped over the terrain. The active layer is ' +
           'mixed over it at the strength set in its properties; where the layer has no ' +
           'value, the photo shows through.'
@@ -137,15 +140,20 @@ SM.Tree = (function () {
         /* a ticked result under a flat-coloured terrain is not on screen, and
            a row that claims otherwise sends you hunting for a bug */
         meta: (resultOn() && S.show.flat) ? analysisName() + ' · hidden by flat colour'
-          : analysisName(),
+          : analysisName() + SM.opacityMeta(S.result.alpha),
         hint: 'The sensitivity run, painted over the terrain. Untick it to see the ' +
           'terrain underneath; select it to choose which analysis it shows.'
       }));
     }
 
     /* ---- radar positions ---- */
+    var rOn = S.radars.filter(function (r) { return r.on !== false; }).length;
     h.push(groupRow('sensors', 'Radar positions',
-      S.radars.length ? S.radars.length + '' : ''));
+      S.radars.length ? rOn + ' / ' + S.radars.length : '', S.radars.length ? {
+        check: 'box', on: rOn === S.radars.length,
+        indet: rOn > 0 && rOn < S.radars.length,
+        hint: 'Tick to include every radar position in the computation, untick to leave them all out'
+      } : null));
     if (open.sensors) {
       if (!S.radars.length) h.push('<div class="treeEmpty">No radar positions yet — use <b>+</b> above.</div>');
       S.radars.forEach(function (r, i) {
@@ -170,10 +178,25 @@ SM.Tree = (function () {
     var folders = (window.RadarUI && RadarUI.folders) ? RadarUI.folders() : [];
     scanOwner = Object.create(null);
     if (folders.length) {
-      h.push(groupRow('scans', 'Deformation scans', folders.length + ''));
+      /* Only georeferenced scans can be drawn, so only they count towards the
+         group's tick — an unplaced folder cannot be ticked on at all. */
+      var sAll = 0, sOn = 0;
+      folders.forEach(function (f) {
+        if (!f.placed) return;
+        f.scans.forEach(function (s) { sAll++; if (s.visible) sOn++; });
+      });
+      h.push(groupRow('scans', 'Deformation scans', folders.length + '', sAll ? {
+        check: 'box', on: sOn === sAll, indet: sOn > 0 && sOn < sAll,
+        hint: 'Tick to show every placed scan in the 3D view, untick to hide them all'
+      } : null));
       if (open.scans) folders.forEach(function (f) {
+        var fOn = f.scans.filter(function (s) { return s.visible; }).length;
+        var canTick = f.placed && f.scans.length > 0;
         h.push(row({
           kind: 'scan', id: f.key, name: f.name, depth: 1, icon: 'scan',
+          check: 'box', boxDisabled: !canTick,
+          on: canTick && fOn === f.scans.length,
+          indet: canTick && fOn > 0 && fOn < f.scans.length,
           /* Scans are the one kind of row that can be selected several at a
              time, so the mark comes from the add-on's own selection rather
              than from S.node, which holds only the row Properties is titled by */
@@ -183,7 +206,7 @@ SM.Tree = (function () {
             : 'no scan loaded',
           hint: f.placed
             ? (f.scans.length
-                ? 'Georeferenced — ' + f.radar
+                ? 'Georeferenced — ' + f.radar + '. Tick to show every scan of this folder, untick to hide them all'
                 : 'Registered on the platform — drop a CSV of it to draw it')
             : 'Needs georeferencing before it can be drawn'
         }));
@@ -258,7 +281,11 @@ SM.Tree = (function () {
     }
 
     /* ---- annotations ---- */
-    h.push(groupRow('anno', 'Annotations'));
+    var aOn = ANNO.filter(function (a) { return !!S.show[a.key]; }).length;
+    h.push(groupRow('anno', 'Annotations', aOn + ' / ' + ANNO.length, {
+      check: 'box', on: aOn === ANNO.length, indet: aOn > 0 && aOn < ANNO.length,
+      hint: 'Tick to draw every annotation, untick to clear them all off the view'
+    }));
     if (open.anno) ANNO.forEach(function (a) {
       h.push(row({
         kind: 'anno', id: a.key, name: a.name, depth: 1, check: 'box',
@@ -267,9 +294,9 @@ SM.Tree = (function () {
     });
 
     host.innerHTML = h.join('');
-    /* the middle state of a group's tick box is not an attribute, so it has to
-       be set on the element after the markup lands */
-    Array.prototype.forEach.call(host.querySelectorAll('.tnode.group[data-indet] .tbox'),
+    /* the middle state of a tick box is not an attribute, so it has to be set
+       on the element after the markup lands — groups and wall folders alike */
+    Array.prototype.forEach.call(host.querySelectorAll('.tnode[data-indet] .tbox'),
       function (b) { b.indeterminate = true; });
   }
 
@@ -433,6 +460,14 @@ SM.Tree = (function () {
     SM.Cmd.refresh();
   }
 
+  /** every annotation on or off at once — the Annotations group's tick box */
+  function setAllShow(on) {
+    ANNO.forEach(function (a) { S.show[a.key] = !!on; });
+    applyShow();
+    refresh();
+    SM.Cmd.refresh();
+  }
+
   function applyShow() {
     if (SM.V) { SM.V.opt.wire = !!S.show.wire; }
     SM.Overlays.update();
@@ -515,6 +550,13 @@ SM.Tree = (function () {
       if (kind === 'group') {
         if (id === 'planes') SM.Structure.setAllPlanes(box.checked);
         else if (id === 'domains') SM.Structure.setAllDomains(box.checked);
+        else if (id === 'sensors') SM.Sensors.setAllEnabled(box.checked);
+        else if (id === 'anno') setAllShow(box.checked);
+        else if (id === 'scans' && window.RadarUI && RadarUI.setVisible) RadarUI.setVisible(null, box.checked);
+        return;
+      }
+      if (kind === 'scan') {
+        if (window.RadarUI && RadarUI.setVisible) RadarUI.setVisible(id, box.checked);
         return;
       }
       if (kind === 'anno') { setShow(id); return; }
@@ -569,6 +611,6 @@ SM.Tree = (function () {
     init: init, refresh: refresh, select: select, setLayer: setLayer,
     setTerrainMode: setTerrainMode, setAnalysisMode: setAnalysisMode,
     setResultOn: setResultOn, applyActive: applyActive, resultOn: resultOn,
-    setShow: setShow, applyShow: applyShow, removeSelected: removeSelected
+    setShow: setShow, setAllShow: setAllShow, applyShow: applyShow, removeSelected: removeSelected
   };
 })();

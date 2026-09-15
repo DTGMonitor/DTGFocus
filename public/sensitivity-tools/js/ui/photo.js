@@ -37,6 +37,8 @@ SM.Photo = (function () {
         SM.Tree.refresh();
       };
     }
+    var a = $('inpOrthoAlpha');
+    if (a) a.oninput = function () { setAlpha(SM.readOpacity('inpOrthoAlpha')); };
     var r = $('btnOrthoClear');
     if (r) r.onclick = function () { clear(); };
     showMix();
@@ -62,10 +64,23 @@ SM.Photo = (function () {
    * the photo and the hill shading already say, so it gets out of the way and
    * the photograph is what you see. The slider overrides both.
    */
-  function mix() {
+  function mix(name) {
     if (!S.photo.mixAuto) return S.photo.mix;
-    var analysis = !!S.res && !SM.TERRAIN_LAYERS[S.layer];
+    var analysis = !!S.res && !SM.TERRAIN_LAYERS[name || S.layer];
     return analysis ? 0.85 : 0;
+  }
+
+  /** the photo's own opacity, 0-1 */
+  function alpha() {
+    var a = S.photo.alpha;
+    return (a == null || a !== a) ? 1 : SM.clamp(a, 0, 1);
+  }
+
+  function setAlpha(a) {
+    S.photo.alpha = SM.clamp(a == null || a !== a ? 1 : +a, 0, 1);
+    SM.showOpacity('inpOrthoAlpha', 'outOrthoAlpha', S.photo.alpha);
+    repaint();
+    SM.Tree.refresh();
   }
 
   /** the photo is sampled onto grid nodes, so a new model needs a new drape */
@@ -183,6 +198,7 @@ SM.Photo = (function () {
     var m = $('inpOrthoMix');
     if (m) m.value = Math.round(mix() * 100);
     showMix();
+    SM.showOpacity('inpOrthoAlpha', 'outOrthoAlpha', alpha());
   }
 
   /**
@@ -192,25 +208,31 @@ SM.Photo = (function () {
    * @param {Uint8Array} [lit]  1 where the active layer gave the node a real
    *        colour. Nodes it says nothing about — and every node when this is
    *        omitted, which is flat-colour mode — show the photo alone.
+   * @param {string} [name]  the raster `out` was painted from, when it is not
+   *        the active layer — the automatic mix depends on which it is
    */
-  function blend(out, lit) {
+  function blend(out, lit, name) {
     if (!S.photo.on || !has() || !S.photo.drape) return;
     var d = S.photo.drape, cover = d.cover, prgb = d.rgb;
-    var m0 = mix(), n = cover.length;
+    /* The photo's opacity scales its share: at 0 the layer colours come
+       through untouched, the same as unticking the photo. */
+    var m0 = mix(name), pa = alpha(), n = cover.length;
+    if (pa <= 0) return;
     for (var id = 0; id < n; id++) {
       if (!cover[id]) continue;
       var o = id * 3, m = (lit && lit[id]) ? m0 : 0;
-      if (m >= 1) continue;
-      var k = 1 - m;
-      out[o] = prgb[o] * k + out[o] * m;
-      out[o + 1] = prgb[o + 1] * k + out[o + 1] * m;
-      out[o + 2] = prgb[o + 2] * k + out[o + 2] * m;
+      var k = (1 - m) * pa;
+      if (k <= 0) continue;
+      var kk = 1 - k;
+      out[o] = prgb[o] * k + out[o] * kk;
+      out[o + 1] = prgb[o + 1] * k + out[o + 1] * kk;
+      out[o + 2] = prgb[o + 2] * k + out[o + 2] * kk;
     }
   }
 
   return {
     init: init, load: load, clear: clear, rebuild: rebuild, report: report,
-    rebuildAndReport: rebuildAndReport, mix: mix,
+    rebuildAndReport: rebuildAndReport, mix: mix, alpha: alpha, setAlpha: setAlpha,
     blend: blend, has: has, setOn: setOn, syncForm: syncForm
   };
 })();

@@ -373,16 +373,19 @@ SM.Overlays = (function () {
         var v = drapeRing(g, ext, ring, true);
         if (a.polys && i === S.polyHi) lit = lit.concat(v); else plain = plain.concat(v);
       });
-      if (plain.length) batches.push(ground({ verts: plain, color: [1, 1, 1, 0.85] }));
-      if (lit.length) batches.push(ground({ verts: lit, color: [0.07, 0.76, 0.63, 1] }));
+      /* the mask's opacity dims the outline and the shading; a hovered region
+         keeps a floor, since hovering it is asking where it is */
+      var aa = SM.clamp(S.aoiAlpha == null ? 1 : S.aoiAlpha, 0, 1);
+      if (plain.length && aa > 0) batches.push(ground({ verts: plain, color: [1, 1, 1, 0.85 * aa] }));
+      if (lit.length) batches.push(ground({ verts: lit, color: [0.07, 0.76, 0.63, Math.max(aa, 0.6)] }));
       /* Only once a region has actually been drawn: the plain X/Y rectangle is
          already described by everything outside it being dimmed, and washing
          the whole model in white on top of that explains nothing. Faintest of
          the three fills even so — the mask can cover most of the map, and the
          colours underneath it are the thing being read. */
-      if (S.show.fill && S.polys.length && !(S.editGrab && S.editGrab.kind === 'region')) {
+      if (S.show.fill && S.polys.length && aa > 0 && !(S.editGrab && S.editGrab.kind === 'region')) {
         var af = aoiFill(g, ext);
-        if (af && af.length) fills.push(ground({ verts: af, color: [1, 1, 1, 0.1], tris: true }));
+        if (af && af.length) fills.push(ground({ verts: af, color: [1, 1, 1, 0.1 * aa], tris: true }));
       }
     }
 
@@ -645,7 +648,9 @@ SM.Overlays = (function () {
     /* sensors */
     S.radars.forEach(function (r, i) {
       var col = ColorMaps.hex2rgb(r.color).map(function (v) { return v / 255; });
-      var alpha = (r.on === false) ? 0.28 : 1;
+      /* a left-out position is ghosted, on top of its own opacity */
+      var ra = SM.Sensors.alphaOf(r);
+      var alpha = ((r.on === false) ? 0.28 : 1) * ra;
       var v = [], s = ext * 0.012;
       /* mast */
       var zt = Grid.sampleZ(g, r.x, r.y);
@@ -696,7 +701,7 @@ SM.Overlays = (function () {
         var z0 = Grid.sampleZ(g, e0x, e0y), z1b = Grid.sampleZ(g, e1x, e1y);
         V.seg(f, r.x, r.y, r.z, e0x, e0y, (z0 === z0 ? z0 : g.zmin) + lift);
         V.seg(f, r.x, r.y, r.z, e1x, e1y, (z1b === z1b ? z1b : g.zmin) + lift);
-        batches.push({ verts: f, color: [col[0], col[1], col[2], 0.4] });
+        batches.push({ verts: f, color: [col[0], col[1], col[2], 0.4 * ra] });
       }
     });
 

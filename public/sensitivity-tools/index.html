@@ -264,6 +264,7 @@
             <option value="aspect">Aspect</option>
           </select>
           <label class="chk" title="Hide the terrain mesh without unloading it. Everything drawn on top — structures, domains, sensors, a measurement, the wireframe — keeps drawing, so you can read the geometry against nothing at all."><input type="checkbox" id="chkSurface" checked> Show terrain surface</label>
+          <label class="opacity" title="See-through terrain. Lower it to read the sensor masts, drapes and lines of sight through the surface. The same setting as Opacity in the View tab.">Opacity<input type="range" id="inpTerrainAlpha" min="15" max="100" step="5" value="100"><output id="outTerrainAlpha">100%</output></label>
           <label class="chk" title="Paint the whole surface one colour instead of the colour mode's scale, so the terrain becomes a backdrop rather than a map competing with what is drawn on it. Hill shading still applies, so the relief stays readable. Untick to go back to the layer's colours."><input type="checkbox" id="chkFlat"> Single flat colour</label>
           <div class="grid2">
             <label title="The flat colour. Only used while “Single flat colour” is ticked.">Colour<input type="color" id="colFlat" value="#8d949c"></label>
@@ -285,6 +286,7 @@
             <option value="mmres">Measurable displacement</option>
             <option value="which">Best sensor</option>
           </select>
+          <label class="opacity" title="How strongly the result covers the terrain underneath. 100% hides the terrain's own colouring; 0% shows only the terrain, exactly as if the result were unticked. Statistics and exports are unaffected.">Opacity<input type="range" id="inpResultAlpha" min="0" max="100" step="5" value="100"><output id="outResultAlpha">100%</output></label>
           <div id="resultNote" class="info"></div>
           <p class="hint">Untick this layer in the tree to see the terrain's own colouring
             underneath it. The run that produced it is set up in <b>Processing</b>, which
@@ -296,6 +298,7 @@
           <div class="dim" id="orthoName"></div>
           <div class="hint" id="orthoNote"></div>
           <label class="chk" title="Drape the loaded photo over the terrain. The active layer is mixed over the top; where the layer has no value for a cell, the photo shows through on its own."><input type="checkbox" id="chkOrtho" checked> Drape photo on the terrain</label>
+          <label class="opacity" title="The photo's own opacity. 100% shows the photo wherever the layer lets it through; 0% hides it, as if it were unticked.">Opacity<input type="range" id="inpOrthoAlpha" min="0" max="100" step="5" value="100"><output id="outOrthoAlpha">100%</output></label>
           <div class="grid2">
             <label title="How strongly the active layer's colours cover the photo. 100% hides the photo wherever the layer has a value; 0% shows the photo alone and keeps the layer only as a legend. Cells the layer says nothing about always show the photo.">Layer over photo<input type="range" id="inpOrthoMix" min="0" max="100" step="5" value="60"></label>
             <label class="btnCell"><span id="outOrthoMix" class="dim">60%</span><button id="btnOrthoClear" title="Unload the photo. The terrain model is untouched.">Remove photo</button></label>
@@ -376,6 +379,7 @@
             <label title="Height of the antenna above ground in metres — mast, trailer or vehicle. Added to the terrain level when snapping.">Ant. height<input type="number" id="rDz" value="3" step="0.1"></label>
           </div>
           <label class="chk" title="Keeps the antenna a fixed height above the terrain, so moving X/Y automatically re-levels it. Untick to type an absolute RL."><input type="checkbox" id="chkSnap" checked> Z = terrain + antenna height</label>
+          <label class="opacity" title="How solidly this position's marker, mast and scan footprint are drawn. Display only — it has no effect on the computation.">Opacity<input type="range" id="rAlpha" min="10" max="100" step="5" value="100"><output id="outRAlpha">100%</output></label>
           <div id="rNote" class="info hidden"></div>
           <div class="row">
             <button data-cmd="tool.sensor" class="wide"><svg class="ic"><use href="#ic-sensor"></use></svg> Place on model</button>
@@ -398,6 +402,7 @@
         <!-- ───────── selection mask / AOI ───────── -->
         <div class="propSection hidden" id="propAOI">
           <label class="chk" title="Limits statistics, the histogram and the position ranking to the cells inside the mask. Cells outside are dimmed in the view, not deleted. It does not change the gridding extent."><input type="checkbox" id="chkAOI"> Restrict analysis to area of interest</label>
+          <label class="opacity" title="How visibly the mask is drawn: its outline, its shading, and the dimming of everything outside it. At 0% it is invisible but still restricts the statistics.">Opacity<input type="range" id="aoiAlpha" min="0" max="100" step="5" value="100"><output id="outAoiAlpha">100%</output></label>
           <div class="grid2">
             <label title="Western edge of the box of interest, in grid eastings.">X min<input type="number" id="aoiXmin" step="1"></label>
             <label title="Eastern edge of the box of interest.">X max<input type="number" id="aoiXmax" step="1"></label>
@@ -761,7 +766,7 @@
         <div class="propSection">
           <div class="subhead">Rendering</div>
           <div class="grid2">
-            <label title="Surface transparency. Lower it to see the sensor mast and line-of-sight rays through the terrain.">Opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
+            <label title="Surface transparency. Lower it to see the sensor mast and line-of-sight rays through the terrain. The same setting as the Terrain layer's opacity.">Terrain opacity<input type="range" id="inpOpacity" min="0.15" max="1" step="0.05" value="1"></label>
             <label title="Vertical exaggeration for display only. It never affects the computed sensitivity — the maths always uses true coordinates.">Z exagg.<input type="range" id="inpZScale" min="0.5" max="4" step="0.1" value="1"></label>
             <label title="Azimuth of the artificial sun used for hill shading. Purely cosmetic; rotate it to reveal relief.">Sun az °<input type="range" id="inpSunAz" min="0" max="360" step="5" value="315"></label>
             <label title="Elevation of the artificial sun. Low angles exaggerate small features.">Sun el °<input type="range" id="inpSunEl" min="5" max="90" step="5" value="45"></label>

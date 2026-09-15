@@ -270,6 +270,10 @@ input[type=checkbox]{
 }
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 label.chk{display:flex;align-items:center;color:var(--fg);font-size:11.5px;margin-bottom:7px;cursor:pointer}
+/* every layer's opacity: slider takes the width, the read-out keeps its place */
+label.opacity{display:flex;align-items:center;gap:8px;margin:2px 0 8px}
+label.opacity input[type=range]{flex:1;min-width:0;width:auto;margin:0}
+label.opacity output{flex:0 0 auto;min-width:34px;text-align:right;font-family:var(--mono);font-size:10.5px;color:var(--dim)}
 .row{display:flex;gap:6px;margin-top:8px;align-items:center}
 button{
   padding:6px 10px;background:var(--sm-panel2);border:1px solid var(--line2);

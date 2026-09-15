@@ -13,6 +13,7 @@ SM.AOI = (function () {
 
   function init() {
     $('chkAOI').onchange = function () { apply(); };
+    $('aoiAlpha').oninput = function () { setAlpha(SM.readOpacity('aoiAlpha')); };
     $('aoiRegionName').onchange = function () {
       rename(+this.dataset.i, this.value);
       SM.status('Region renamed to “' + nameOf(+this.dataset.i) + '”.');
@@ -40,6 +41,19 @@ SM.AOI = (function () {
     SM.Model.invalidate();
     SM.Tree.refresh();
     SM.Cmd.refresh();
+  }
+
+  /**
+   * How visibly the mask is drawn. Drawing only: the mask, and every
+   * statistic built on it, is the same at any opacity — so this repaints and
+   * never recomputes or invalidates.
+   */
+  function setAlpha(a) {
+    S.aoiAlpha = SM.clamp(a == null || a !== a ? 1 : +a, 0, 1);
+    SM.showOpacity('aoiAlpha', 'outAoiAlpha', S.aoiAlpha);
+    if (!S.grid) return;
+    SM.Symbology.colorize();
+    SM.Overlays.update();
   }
 
   function toggle() { $('chkAOI').checked = !$('chkAOI').checked; apply(); }
@@ -242,7 +256,7 @@ SM.AOI = (function () {
   }
 
   return {
-    init: init, apply: apply, toggle: toggle, setOn: setOn,
+    init: init, apply: apply, toggle: toggle, setOn: setOn, setAlpha: setAlpha,
     aoiObj: aoiObj, recomputeMask: recomputeMask,
     setPolys: setPolys, addPoly: addPoly, removePoly: removePoly, clearPolys: clearPolys,
     nameOf: nameOf, rename: rename, showRegion: showRegion, duplicatePoly: duplicatePoly,

@@ -403,19 +403,22 @@ SM.IO = (function () {
         threshold: +$('inpThresh').value, trueDispl: +$('inpTrue').value,
         combine: $('selCombine').value
       },
-      aoi: SM.AOI.aoiObj(), aoiNames: S.polyNames, layer: S.layer, colors: LC, show: S.show,
+      aoi: SM.AOI.aoiObj(), aoiNames: S.polyNames, aoiAlpha: S.aoiAlpha,
+      layer: S.layer, colors: LC, show: S.show,
       /* the two layers that can paint the surface, each remembering its own
          raster — `layer` above is only the resolved winner, and a project
          reloaded with the result unticked must still know which analysis it
          was showing */
-      modes: { terrain: S.terrainMode, analysis: S.analysisMode, result: S.result.on },
+      modes: { terrain: S.terrainMode, analysis: S.analysisMode, result: S.result.on,
+        resultAlpha: S.result.alpha },
       /* how the terrain itself is painted, which is a view setting rather than
          a colour ramp and would otherwise be the one thing not restored */
       surface: { show: S.show.surface, flat: S.show.flat, flatColor: $('colFlat').value },
       /* the draped photo by name and strength only — the pixels are megabytes
          and belong to the file, not the project */
       photo: SM.Photo.has()
-        ? { name: S.photo.name, on: S.photo.on, mix: S.photo.mix, mixAuto: S.photo.mixAuto }
+        ? { name: S.photo.name, on: S.photo.on, mix: S.photo.mix, mixAuto: S.photo.mixAuto,
+            alpha: S.photo.alpha }
         : null,
       clipView: { box: $('chkClipBox').checked, handles: $('chkClipHandles').checked },
       /* structural geology: the mapped planes, the slope face and friction
@@ -471,6 +474,10 @@ SM.IO = (function () {
          rings rather than trusted — the pre-reject and the rings stay in step */
       SM.AOI.writePolyBounds();
     }
+    /* every opacity below is absent from projects saved before it existed,
+       and absent means solid */
+    S.aoiAlpha = p.aoiAlpha != null ? SM.clamp(+p.aoiAlpha, 0, 1) : 1;
+    SM.showOpacity('aoiAlpha', 'outAoiAlpha', S.aoiAlpha);
     /* projects saved before the Structure tab existed have no `structure` key;
        everything below simply stays empty for them */
     if (p.structure) {
@@ -506,6 +513,7 @@ SM.IO = (function () {
       if (p.modes.terrain) S.terrainMode = p.modes.terrain;
       if (p.modes.analysis) S.analysisMode = p.modes.analysis;
       S.result.on = p.modes.result !== false;
+      S.result.alpha = p.modes.resultAlpha != null ? SM.clamp(+p.modes.resultAlpha, 0, 1) : 1;
     } else if (p.layer) {
       if (SM.TERRAIN_LAYERS[p.layer]) { S.terrainMode = p.layer; S.result.on = false; }
       else { S.analysisMode = p.layer; S.result.on = true; }
@@ -541,6 +549,7 @@ SM.IO = (function () {
       S.photo.on = p.photo.on !== false;
       if (p.photo.mix != null) S.photo.mix = p.photo.mix;
       S.photo.mixAuto = p.photo.mixAuto !== false;
+      S.photo.alpha = p.photo.alpha != null ? SM.clamp(+p.photo.alpha, 0, 1) : 1;
       SM.Photo.syncForm();
       /* the project remembers the settings, not the photograph */
       if (!SM.Photo.has() && p.photo.name) {

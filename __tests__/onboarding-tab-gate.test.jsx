@@ -18,7 +18,7 @@ describe('visibleTabs', () => {
         ]);
     });
 
-    test('a finished onboarding keeps its tab alongside the other five', () => {
+    test('a finished onboarding keeps its tab alongside the others', () => {
         const tabs = visibleTabs({ showOnboarding: true, onboardingOnly: false });
         expect(tabs.map((t) => t.key)).toEqual([
             'onboarding',
@@ -26,11 +26,12 @@ describe('visibleTabs', () => {
             'alarm',
             'dqp',
             'downtime',
-            'tarp'
+            'tarp',
+            'failures'
         ]);
     });
 
-    test('a site with no onboarding record shows the original five, unchanged', () => {
+    test('a site with no onboarding record shows the standard tabs, unchanged', () => {
         // Everything live before this feature existed. Adding an empty tab to
         // every one of those sensors would be noise, not information.
         const tabs = visibleTabs({ showOnboarding: false, onboardingOnly: false });
@@ -39,7 +40,8 @@ describe('visibleTabs', () => {
             'alarm',
             'dqp',
             'downtime',
-            'tarp'
+            'tarp',
+            'failures'
         ]);
     });
 
@@ -49,7 +51,8 @@ describe('visibleTabs', () => {
             'alarm',
             'dqp',
             'downtime',
-            'tarp'
+            'tarp',
+            'failures'
         ]);
     });
 
@@ -83,7 +86,8 @@ describe('Tab_Container', () => {
             'Alarm',
             'Data Quality',
             'Downtime',
-            'TARP'
+            'TARP',
+            'Failure History'
         ]);
     });
 
@@ -94,7 +98,8 @@ describe('Tab_Container', () => {
             'Alarm',
             'Data Quality',
             'Downtime',
-            'TARP'
+            'TARP',
+            'Failure History'
         ]);
     });
 });

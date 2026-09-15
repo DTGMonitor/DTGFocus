@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from '@/components/ui/checkbox';
 import { toUTC } from "@/utils/timezoneUtils";
-import { composeFinding, DATA_CONTAMINATION_TYPE, FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
+import { alarmCauseForDefType, composeFinding, DATA_CONTAMINATION_TYPE, FIELD_DEFINITIONS, getConfigForType, TYPE_MATRIX, generateEmailBody } from '../../../../config/formConfig';
 import { emailStrings, resolveEmailLocale } from '../../../../config/emailLocale';
 import { getTarpPolicyForSensor } from '../../../../config/tarpPolicy';
 import { composeDeformationSubject } from '../../../../config/emailSubject';
@@ -728,14 +728,16 @@ const AddDeformationForm = ({
 
             // 4. Insert Linked Alarm Records
             if (formData.alarmRegions.length > 0 && standingRecord) {
+                // The CAUSE is still the trend — that is what set the alarm off,
+                // whatever the data quality behind it — named as the Alarm tab
+                // names it.
+                const alarmCause = alarmCauseForDefType(formData.Type);
                 const alarmPayloads = formData.alarmRegions.map(regionId => ({
                     triggered_at: formData.triggeredTimes[regionId] ? toUTC(formData.triggeredTimes[regionId], clientTimezone) : null,
                     alarm_region: regionId,
                     location: formData.Location,
-                    reason: 'Valid',
-                    // The CAUSE is still the trend — that is what set the alarm
-                    // off, whatever the data quality behind it.
-                    cause: formData.Type,
+                    reason: alarmCause.reason,
+                    cause: alarmCause.cause,
                     deformation: standingRecord.id,
                     detected_by: formData.DetectedBy,
                     crosschecked_by: formData.CrosscheckedBy || null

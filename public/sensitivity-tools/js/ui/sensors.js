@@ -15,6 +15,9 @@ SM.Sensors = (function () {
     ['rName', 'rColor', 'rX', 'rY', 'rZ', 'rDz', 'rAz', 'rEl', 'rApAz', 'rApEl', 'rRmin', 'rRmax']
       .forEach(function (id) { $(id).oninput = saveForm; });
     ['chkSnap', 'chkAutoAim'].forEach(function (id) { $(id).onchange = saveForm; });
+    /* Opacity is drawing only, so it stays out of saveForm: that path
+       re-levels the antenna and throws the last computation away. */
+    $('rAlpha').oninput = function () { setAlpha(S.sel, SM.readOpacity('rAlpha')); };
     $('selCombine').onchange = function () {
       /* asking which sensor wins is asking to look at that map */
       if ($('selCombine').value === 'which') S.analysisMode = 'which';
@@ -33,7 +36,8 @@ SM.Sensors = (function () {
       snap: o.snap !== false, az: o.az || 0, el: o.el || 0, apAz: o.apAz != null ? o.apAz : 90,
       apEl: o.apEl != null ? o.apEl : 45, rmin: o.rmin != null ? o.rmin : 30,
       rmax: o.rmax != null ? o.rmax : (g ? Math.round(Math.max((g.nx - 1) * g.dx, (g.ny - 1) * g.dy) * 1.3 / 50) * 50 : 4000),
-      on: true, autoAim: o.autoAim !== false
+      on: true, autoAim: o.autoAim !== false,
+      alpha: o.alpha != null ? o.alpha : 1
     };
     S.radars.push(r);
     snap(r);
@@ -84,6 +88,29 @@ SM.Sensors = (function () {
     SM.Model.invalidate(); SM.Overlays.update(); SM.Tree.refresh();
   }
 
+  /** every position in or out of the computation at once — the tree's group box */
+  function setAllEnabled(on) {
+    if (!S.radars.length) return;
+    S.radars.forEach(function (r) { r.on = !!on; });
+    SM.Model.invalidate(); SM.Overlays.update(); SM.Tree.refresh();
+    SM.status(on
+      ? 'All ' + S.radars.length + ' radar positions included in the computation.'
+      : 'All radar positions left out — tick at least one before computing.');
+  }
+
+  /** how solidly one position is drawn, 0-1; projects saved before it carry none */
+  function alphaOf(r) {
+    var a = r ? r.alpha : 1;
+    return (a == null || a !== a) ? 1 : clamp(a, 0, 1);
+  }
+
+  function setAlpha(i, a) {
+    var r = S.radars[i]; if (!r) return;
+    r.alpha = clamp(a == null || a !== a ? 1 : +a, 0, 1);
+    SM.showOpacity('rAlpha', 'outRAlpha', r.alpha);
+    SM.Overlays.update();
+  }
+
   /** put the antenna on the terrain, and point it at the model if asked */
   function snap(r) {
     if (!S.grid) return;
@@ -124,6 +151,7 @@ SM.Sensors = (function () {
     $('rApAz').value = fmt(r.apAz * 2, 0); $('rApEl').value = fmt(r.apEl * 2, 0);
     $('rRmin').value = r.rmin; $('rRmax').value = r.rmax;
     $('chkAutoAim').checked = r.autoAim;
+    SM.showOpacity('rAlpha', 'outRAlpha', alphaOf(r));
     $('rZ').disabled = r.snap;
     $('rAz').disabled = r.autoAim; $('rEl').disabled = r.autoAim;
     updateNote();
@@ -184,7 +212,8 @@ SM.Sensors = (function () {
 
   return {
     init: init, create: create, add: add, duplicate: duplicate, remove: remove,
-    select: select, setEnabled: setEnabled, snap: snap, clearance: clearance,
+    select: select, setEnabled: setEnabled, setAllEnabled: setAllEnabled,
+    alphaOf: alphaOf, setAlpha: setAlpha, snap: snap, clearance: clearance,
     loadForm: loadForm, saveForm: saveForm, placeAt: placeAt
   };
 })();
