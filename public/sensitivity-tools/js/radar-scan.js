@@ -62,6 +62,20 @@ var RadarScan = (function () {
   }
 
   /**
+   * Split a wall-folder key into its parts, without a scan window to go with it.
+   *
+   * A registry entry is just the key, so this is how a folder that has been
+   * georeferenced but has no CSV loaded still knows which radar it belongs to.
+   * Returns null when the key does not carry the RADAR_YYMMDD_ prefix, which
+   * is possible for a name the parser could not split.
+   */
+  function parseKey(key) {
+    var k = KEY_RE.exec(String(key || ''));
+    if (!k) return null;
+    return { key: String(key), radar: k[1], commenced: k[2], folder: k[3] };
+  }
+
+  /**
    * Split a scan filename into the wall-folder identity and its time window.
    *
    * `key` is everything before the trailing date-time pair — the value that
@@ -239,6 +253,7 @@ var RadarScan = (function () {
 
   return {
     parseName: parseName,
+    parseKey: parseKey,
     parse: parse,
     sniff: sniff,
     _mapColumns: mapColumns   // exported for tests

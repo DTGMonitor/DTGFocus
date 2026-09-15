@@ -658,6 +658,20 @@ describe('AnnotatedImage — paste ownership across figures', () => {
     expect(document.querySelectorAll(`[${DROPZONE_ATTR}]`)).toHaveLength(1);
   });
 
+  // Regression: a click that moved while drawing a zone started a native drag of
+  // the figure, which wedged the page — no clicks, but scrolling still worked.
+  it('never lets a native drag start from an interactive figure', () => {
+    render(<AnnotatedImage image="data:image/png;base64,AAA" interactive />);
+    const img = screen.getByAltText('Report figure');
+    expect(img).toHaveAttribute('draggable', 'false');
+
+    const drag = new Event('dragstart', { bubbles: true, cancelable: true });
+    act(() => {
+      img.dispatchEvent(drag);
+    });
+    expect(drag.defaultPrevented).toBe(true);
+  });
+
   it('leaves the figures alone in the export render, which owns no pastes', () => {
     render(<AnnotatedImage image="data:image/png;base64,AAA" interactive={false} />);
     expect(document.querySelectorAll(`[${DROPZONE_ATTR}]`)).toHaveLength(0);

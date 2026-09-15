@@ -17,6 +17,21 @@
    georeferenced a scan has no position, so there is nothing in 3-D to click.
    The front view is the one place the scan definitely exists, and it is also
    how the operator already reads these images.
+
+   Two things this file holds that are easy to miss:
+
+     the registry   every folder the platform has a georeference for is read
+                    at start-up, whether or not a CSV of it is open. It is not
+                    LISTED — a row that cannot be drawn, coloured or
+                    georeferenced is only clutter — but it is what lets a click
+                    in the pit answer "which wall folders watch this spot"
+                    for someone who has loaded nothing yet.
+     the style      the colour scale and the opacity can belong to the whole
+                    session, to a wall folder, or to a single scan, and are
+                    resolved most-specific-first. The override is created when
+                    a control is TOUCHED, never when a row is selected, so
+                    tuning the default keeps reaching everything the operator
+                    has merely clicked on.
    ============================================================ */
 'use strict';
 
@@ -26,6 +41,12 @@ var RadarUI = (function () {
 
   var SCALE_KEY = 'sensimap.radarScale.v1';
 
+  /* The colour scale and the opacity are a STYLE, and three things can own
+     one: these defaults, a wall folder, or a single scan. `styleOf` resolves
+     them most-specific-first, so a scan that has never been touched keeps
+     following the defaults instead of being detached the moment it is
+     selected. The fields below are the style's own shape as well — the
+     defaults ARE a style, which is what lets the form edit either. */
   var S = {
     folders: Object.create(null),   // key -> folder record
     order: [],                      // keys, newest activity first
@@ -34,11 +55,17 @@ var RadarUI = (function () {
     limit: 5,
     alpha: 1,
     /* Project each pixel down its sight line onto the survey surface, so the
-       drape cannot float above or sink into the terrain. */
+       drape cannot float above or sink into the terrain. Geometry, not style:
+       it is about the drape being right, so it stays global. */
     drape: true,
     stops: ScanLayer.defaultStops(),
     bands: 0,
     gamma: 1,
+    /* What the properties sheet is editing: [] = the defaults, one entry = one
+       scan or one folder, several = one edit applied across all of them.
+       Each entry is {key, id} — `id` null means the whole folder. */
+    sel: [],
+    anchor: null,                   // the row Shift-click extends from
     gr: null,                       // active georeference session
     booted: false
   };
@@ -69,17 +96,298 @@ var RadarUI = (function () {
     } catch (e) { /* private browsing, quota — the scale still works this session */ }
   }
 
-  function rampLut() {
-    return ScanLayer.lut(S.stops, { bands: S.bands, gamma: S.gamma });
+  function rampLut(st) {
+    st = st || S;
+    return ScanLayer.lut(st.stops, { bands: st.bands, gamma: st.gamma });
   }
 
   /** Redraw everything the scale touches: the drapes, the bar, the front view. */
   function applyScale() {
-    saveScale();
+    /* Only the defaults are worth remembering — a per-scan override belongs to
+       scans that are not on disk next time anyway. */
+    if (!S.sel.length) saveScale();
     recolourAll();
     drawBar();
     renderStopsNote();
+    renderStyleNote();
     if (S.gr) drawFrontView();
+  }
+
+  /* ---------------------------------------------- style resolution */
+
+  function cloneStops(stops) {
+    return stops.map(function (s) { return [s[0], s[1]]; });
+  }
+
+  function cloneStyle(st) {
+    return { limit: st.limit, stops: cloneStops(st.stops), bands: st.bands,
+             gamma: st.gamma, alpha: st.alpha };
+  }
+
+  /** The style one scan is actually drawn with: its own, its folder's, or the defaults. */
+  function styleOf(rec) {
+    if (rec.style) return rec.style;
+    var f = S.folders[rec.folderKey];
+    if (f && f.style) return f.style;
+    return S;
+  }
+
+  /* ---------------------------------------------- the selection
+
+     Properties describes ONE thing at a time — a scan, or a wall folder — and
+     that is what gives the sheet the authority to send it to the georeference
+     workflow. Several rows can be selected together, and the edits that have
+     an obvious answer for a set — the colour scale, the opacity — then apply
+     to all of them at once, every row taking the same value. A georeference is
+     the exception: it belongs to exactly one wall folder, so it is locked out
+     rather than applied to a set and hoped for. */
+
+  function folderOf(entry) { return entry ? S.folders[entry.key] || null : null; }
+
+  function recOf(folder, id) {
+    for (var i = 0; folder && i < folder.scans.length; i++) {
+      if (folder.scans[i].id === id) return folder.scans[i];
+    }
+    return null;
+  }
+
+  /** Every scan record the selection covers, in list order, no duplicates. */
+  function targetRecs() {
+    var seen = Object.create(null), out = [];
+    for (var i = 0; i < S.sel.length; i++) {
+      var e = S.sel[i], f = folderOf(e);
+      if (!f) continue;
+      for (var j = 0; j < f.scans.length; j++) {
+        var rec = f.scans[j];
+        if (e.id && rec.id !== e.id) continue;
+        if (seen[rec.id]) continue;
+        seen[rec.id] = 1;
+        out.push(rec);
+      }
+    }
+    return out;
+  }
+
+  /** True while the sheet may offer the georeference — one folder, no guessing. */
+  function singleTarget() { return S.sel.length === 1; }
+
+  /** The style the form DISPLAYS — resolved, never materialised. */
+  function viewStyle() {
+    var t = targetRecs();
+    if (t.length) return styleOf(t[0]);
+    var f = folderOf(S.sel[0]);
+    if (f) return f.style || S;
+    return S;
+  }
+
+  /**
+   * The style objects the form EDITS, created on demand.
+   *
+   * Materialising here rather than on selection is the whole point: selecting
+   * a scan must not detach it from the defaults, or tuning the default scale
+   * would quietly stop reaching everything the operator had ever clicked.
+   */
+  function editStyles() {
+    if (!S.sel.length) return [S];
+    var out = [];
+    for (var i = 0; i < S.sel.length; i++) {
+      var e = S.sel[i], f = folderOf(e);
+      if (!f) continue;
+      if (!e.id) {
+        /* A folder owns one scale for everything under it, so its scans give
+           up their own — the operator asked for the folder, not for five
+           scans that happen to be in it. */
+        if (!f.style) f.style = cloneStyle(f.scans[0] ? styleOf(f.scans[0]) : S);
+        for (var j = 0; j < f.scans.length; j++) f.scans[j].style = null;
+        out.push(f.style);
+      } else {
+        var rec = recOf(f, e.id);
+        if (!rec) continue;
+        if (!rec.style) rec.style = cloneStyle(styleOf(rec));
+        out.push(rec.style);
+      }
+    }
+    return out.length ? out : [S];
+  }
+
+  function beginEdit() { return editStyles()[0]; }
+
+  /* An edit made with several rows selected gives them all the SAME value.
+     Nudging each one's own setting by the same delta would be the other
+     reading, and nobody can predict the result of that.
+
+     Colour and opacity spread separately: they are on the same sheet but they
+     are not one edit, and changing the ramp must not quietly flatten opacities
+     that were set one at a time. */
+  function spread(primary) {
+    if (S.sel.length < 2) return;
+    var styles = editStyles();
+    for (var i = 0; i < styles.length; i++) {
+      var st = styles[i];
+      if (st === primary) continue;
+      st.limit = primary.limit;
+      st.bands = primary.bands;
+      st.gamma = primary.gamma;
+      st.stops = cloneStops(primary.stops);
+    }
+  }
+
+  function spreadAlpha(primary) {
+    if (S.sel.length < 2) return;
+    var styles = editStyles();
+    for (var i = 0; i < styles.length; i++) {
+      if (styles[i] !== primary) styles[i].alpha = primary.alpha;
+    }
+  }
+
+  /** Give the selected rows their inherited scale back. */
+  function clearStyle() {
+    for (var i = 0; i < S.sel.length; i++) {
+      var e = S.sel[i], f = folderOf(e);
+      if (!f) continue;
+      if (!e.id) {
+        f.style = null;
+        for (var j = 0; j < f.scans.length; j++) f.scans[j].style = null;
+      } else {
+        var rec = recOf(f, e.id);
+        if (rec) rec.style = null;
+      }
+    }
+    syncScaleForm();
+    applyScale();
+    applyAlphaAll();
+  }
+
+  /** How many of the selected rows carry a scale of their own. */
+  function ownStyleCount() {
+    var n = 0;
+    for (var i = 0; i < S.sel.length; i++) {
+      var e = S.sel[i], f = folderOf(e);
+      if (!f) continue;
+      if (!e.id) {
+        /* A folder counts when anything under it has been detached, because
+           resetting it is what puts those scans back on the default too. */
+        if (f.style) { n++; continue; }
+        for (var j = 0; j < f.scans.length; j++) {
+          if (f.scans[j].style) { n++; break; }
+        }
+      } else { var rec = recOf(f, e.id); if (rec && rec.style) n++; }
+    }
+    return n;
+  }
+
+  /**
+   * Point the properties sheet at a set of rows.
+   *
+   * `list` is [{key, id}], `id` null meaning the whole wall folder. The tree
+   * owns the click semantics — plain, ctrl, shift — and hands the answer here.
+   */
+  function setSelection(list) {
+    var out = [], seen = Object.create(null);
+    for (var i = 0; list && i < list.length; i++) {
+      var e = list[i];
+      if (!e || !S.folders[e.key]) continue;
+      var tag = e.key + '|' + (e.id || '');
+      if (seen[tag]) continue;
+      seen[tag] = 1;
+      out.push({ key: e.key, id: e.id || null });
+    }
+    S.sel = out;
+    syncScaleForm();
+    render();
+  }
+
+  function selection() {
+    return S.sel.map(function (e) { return { key: e.key, id: e.id }; });
+  }
+
+  function isSelected(key, id) {
+    for (var i = 0; i < S.sel.length; i++) {
+      if (S.sel[i].key === key && (S.sel[i].id || null) === (id || null)) return true;
+    }
+    return false;
+  }
+
+  /* Reflect the selection into every control the sheet owns. */
+  function syncScaleForm() {
+    if (!S.booted) return;
+    var st = viewStyle();
+    $('radarLimit').value = st.limit;
+    $('radarBands').value = st.bands;
+    $('radarGamma').value = st.gamma;
+    $('radarAlpha').value = Math.round(st.alpha * 100);
+    renderStops();
+    drawBar();
+    renderSelHeader();
+  }
+
+  /** The header that says what the sheet is about to change, and what it cannot. */
+  function renderSelHeader() {
+    var name = $('radarSelName');
+    if (!name) return;
+    var note = $('radarSelNote');
+    var recs = targetRecs();
+    var one = singleTarget();
+    var f = one ? folderOf(S.sel[0]) : null;
+
+    if (!S.sel.length) {
+      name.textContent = 'Default scale · every scan';
+      note.textContent = 'Select a scan in the Layers tree to give it its own colour and ' +
+        'opacity. Ctrl-click or Shift-click to select several — then only the colour can ' +
+        'be changed.';
+    } else if (one && !S.sel[0].id) {
+      name.textContent = f.key;
+      note.textContent = 'The whole wall folder — ' + recs.length + ' scan' +
+        (recs.length === 1 ? '' : 's') + ' share this colour and opacity.';
+    } else if (one) {
+      name.textContent = f.key + '  ·  ' + (recs[0] ? fmtWindow(recs[0].scan.meta) : '—');
+      note.textContent = 'This scan only. Colour, opacity and the georeference all apply here.';
+    } else {
+      name.textContent = S.sel.length + ' rows selected · ' + recs.length + ' scan' +
+        (recs.length === 1 ? '' : 's');
+      note.textContent = 'Colour and opacity apply to all of them at once. A georeference ' +
+        'belongs to one wall folder, so that needs a single selection.';
+    }
+
+    /* A georeference belongs to exactly one folder, so it is switched off
+       rather than guessing which of the selection was meant. Colour and
+       opacity have an obvious answer for a set — give them all the same — so
+       they stay live however many rows are selected. */
+    var canOne = !!(one && f);
+
+    var geo = $('radarGeoref');
+    geo.disabled = !canOne || !recs.length;
+    geo.textContent = canOne && f.transform ? 'Re-georeference…' : 'Georeference…';
+    geo.title = !canOne
+      ? 'Select a single scan or wall folder to georeference it'
+      : !recs.length
+        ? 'Drop a scan of this folder first — tie points are picked on the radar image'
+        : 'Tie this wall folder to the mine grid';
+
+    $('radarSelClear').disabled = !S.sel.length;
+    renderStyleNote();
+  }
+
+  /* Says whether what is on screen is this row's own scale or an inherited
+     one, because otherwise "why did the default not change it" has no answer. */
+  function renderStyleNote() {
+    var btn = $('radarStyleReset');
+    if (!btn) return;
+    var own = ownStyleCount();
+    btn.classList.toggle('hidden', !own);
+    btn.textContent = own > 1 ? 'Use the default scale (' + own + ')' : 'Use the default scale';
+  }
+
+  /* Opacity is a renderer option rather than a colour, so recolouring does not
+     carry it and it gets its own push. */
+  function applyAlphaAll() {
+    var V = viewer();
+    if (!V) return;
+    var recs = allRecs();
+    for (var i = 0; i < recs.length; i++) {
+      if (recs[i].mesh) V.setScanOpts(recs[i].id, { alpha: styleOf(recs[i]).alpha });
+    }
+    V.draw();
   }
 
   function drawBar() {
@@ -88,7 +396,7 @@ var RadarUI = (function () {
     var w = cv.clientWidth || 260;
     cv.width = w;
     var ctx = cv.getContext('2d');
-    var L = rampLut();
+    var L = rampLut(viewStyle());
     for (var x = 0; x < w; x++) {
       var c = ColorMaps.sample(L, w === 1 ? 0 : x / (w - 1));
       ctx.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
@@ -107,18 +415,25 @@ var RadarUI = (function () {
   }
 
   /* What the scale actually spans right now: the typed limit, or — on auto —
-     the widest limit any loaded scan resolved to, so the bar never claims a
-     range the drapes are not using. */
-  function effectiveLimit() {
-    if (S.limit > 0) return S.limit;
-    var lim = 0;
-    for (var i = 0; i < S.order.length; i++) {
-      var f = S.folders[S.order[i]];
-      for (var j = 0; j < f.scans.length; j++) {
-        if (f.scans[j].dom && f.scans[j].dom.limit > lim) lim = f.scans[j].dom.limit;
-      }
+     the widest limit any scan drawn with this style resolved to, so the bar
+     never claims a range the drapes are not using. */
+  function effectiveLimit(st) {
+    st = st || viewStyle();
+    if (st.limit > 0) return st.limit;
+    var lim = 0, recs = S.sel.length ? targetRecs() : allRecs();
+    for (var i = 0; i < recs.length; i++) {
+      if (recs[i].dom && recs[i].dom.limit > lim) lim = recs[i].dom.limit;
     }
     return lim;
+  }
+
+  function allRecs() {
+    var out = [];
+    for (var i = 0; i < S.order.length; i++) {
+      var f = S.folders[S.order[i]];
+      for (var j = 0; j < f.scans.length; j++) out.push(f.scans[j]);
+    }
+    return out;
   }
 
   function renderStops() {
@@ -126,7 +441,12 @@ var RadarUI = (function () {
     if (!box) return;
     box.innerHTML = '';
 
-    S.stops.forEach(function (stop, i) {
+    /* The rows are built from the style being LOOKED at, but every handler
+       edits through beginEdit(): touching a control is what gives a selected
+       scan a scale of its own, so merely selecting one leaves it following the
+       defaults. The row index survives that, because the override starts as a
+       copy of what is on screen. */
+    viewStyle().stops.forEach(function (stop, i) {
       var row = document.createElement('div');
       row.className = 'stopRow';
       row.innerHTML =
@@ -137,18 +457,23 @@ var RadarUI = (function () {
       bar.style.background = stop[1];
 
       ci.oninput = function () {
-        stop[1] = ci.value; bar.style.background = ci.value; applyScale();
+        var st = beginEdit();
+        st.stops[i][1] = ci.value; bar.style.background = ci.value;
+        spread(st); applyScale();
       };
       pi.onchange = function () {
+        var st = beginEdit();
         var v = parseFloat(pi.value);
-        stop[0] = Math.max(0, Math.min(1, isFinite(v) ? v : 0));
-        S.stops.sort(function (a, b) { return a[0] - b[0]; });
-        renderStops(); applyScale();
+        st.stops[i][0] = Math.max(0, Math.min(1, isFinite(v) ? v : 0));
+        st.stops.sort(function (a, b) { return a[0] - b[0]; });
+        spread(st); renderStops(); applyScale();
       };
       row.children[3].onclick = function () {
         /* Two stops is the least a gradient can be made of. */
-        if (S.stops.length <= 2) return;
-        S.stops.splice(i, 1); renderStops(); applyScale();
+        var st = beginEdit();
+        if (st.stops.length <= 2) return;
+        st.stops.splice(i, 1);
+        spread(st); renderStops(); applyScale();
       };
       box.appendChild(row);
     });
@@ -177,6 +502,16 @@ var RadarUI = (function () {
      scanRec = { id, scan, mesh, cidx, visible, dom } */
 
   /* ---------------------------------------------- small helpers */
+
+  /* The wall folder's full identity, exactly as the filename spells it —
+     SSR535_260808_HVM_HVK7_East_Wall-1. The bare folder name is not enough to
+     name a folder by: two radars can watch walls the operators called the same
+     thing, and a wall re-surveyed months later commences again under a new
+     date, which the registry files as a different folder. That leading
+     RADAR_YYMMDD_ is exactly what tells those apart. */
+  function label(f) {
+    return (f && (f.key || (f.meta && f.meta.key))) || '—';
+  }
 
   function fmtWindow(meta) {
     if (!meta.startAt) return meta.filename || '—';
@@ -233,9 +568,14 @@ var RadarUI = (function () {
     if (!folder) {
       folder = S.folders[key] = {
         key: key, meta: scan.meta, transform: null, record: null,
-        scans: [], registered: false, loading: true
+        scans: [], registered: false, loading: true, style: null
       };
       S.order.push(key);
+    } else if (folder.fromRegistry) {
+      /* The folder was listed from the registry before any CSV arrived; the
+         file is the better source for the identity, so take it over. */
+      folder.fromRegistry = false;
+      folder.meta = scan.meta;
     }
 
     /* Re-dropping the same window replaces it rather than stacking duplicates. */
@@ -243,7 +583,9 @@ var RadarUI = (function () {
     for (var i = 0; i < folder.scans.length; i++) {
       if (folder.scans[i].scan.meta.filename === scan.meta.filename) existing = folder.scans[i];
     }
-    var rec = existing || { id: key + '|' + scan.meta.filename, visible: true };
+    var rec = existing || {
+      id: key + '|' + scan.meta.filename, folderKey: key, visible: true, style: null
+    };
     rec.scan = scan;
     if (!existing) folder.scans.push(rec);
 
@@ -275,7 +617,7 @@ var RadarUI = (function () {
           folder.record = record;
           folder.registered = true;
           for (var k = 0; k < folder.scans.length; k++) placeScan(folder, folder.scans[k]);
-          status('“' + folder.meta.folder + '” is already registered — scan placed automatically.');
+          status('“' + label(folder) + '” is already registered — scan placed automatically.');
         }
       }
       rememberWindows(folder);
@@ -317,10 +659,11 @@ var RadarUI = (function () {
 
   /* On auto, the tails are trimmed so one noisy pixel cannot flatten the whole
      scan to the middle of the ramp. An explicit limit is taken as written. */
-  function domainFor(scan) {
-    return ScanLayer.domain(scan, {
-      limit: S.limit > 0 ? S.limit : 0,
-      clipPercentile: S.limit > 0 ? 0 : 0.5
+  function domainFor(rec) {
+    var st = styleOf(rec);
+    return ScanLayer.domain(rec.scan, {
+      limit: st.limit > 0 ? st.limit : 0,
+      clipPercentile: st.limit > 0 ? 0 : 0.5
     });
   }
 
@@ -328,12 +671,12 @@ var RadarUI = (function () {
     var V = viewer();
     if (!V || !folder.transform) return;
 
-    rec.dom = domainFor(rec.scan);
+    rec.dom = domainFor(rec);
 
     /* Projecting onto the survey surface costs a raycast per pixel, so say so
        before starting rather than appearing to hang on a 25k-pixel scan. */
     var grid = S.drape ? SensiMap.grid() : null;
-    if (grid) status('Draping ' + (rec.scan.meta.folder || 'scan') + ' onto the surface…');
+    if (grid) status('Draping ' + (rec.scan.meta.key || 'scan') + ' onto the surface…');
 
     rec.mesh = ScanLayer.buildMesh(rec.scan, folder.transform,
       grid ? { terrain: grid } : {});
@@ -348,13 +691,13 @@ var RadarUI = (function () {
       ? Math.round(100 * d.hit / rec.scan.n) + '% draped · offset ' + num(d.medianOffset, 1) + ' m'
       : null;
     if (d) {
-      status('Draped ' + (rec.scan.meta.folder || 'scan') + ' — ' + rec.drapeNote +
+      status('Draped ' + (rec.scan.meta.key || 'scan') + ' — ' + rec.drapeNote +
         (d.medianOffset > 25 ? '  (large offset: check the georeference)' : ''));
     }
 
-    var cols = ScanLayer.colours(rec.scan, rec.dom, rampLut());
+    var cols = ScanLayer.colours(rec.scan, rec.dom, rampLut(styleOf(rec)));
     V.setScan(rec.id, rec.mesh, cols, rec.mesh.normals,
-      { visible: rec.visible, alpha: S.alpha });
+      { visible: rec.visible, alpha: styleOf(rec).alpha });
     V.draw();
   }
 
@@ -363,15 +706,13 @@ var RadarUI = (function () {
   function recolourAll() {
     var V = viewer();
     if (!V) return;
-    var L = rampLut();
-    for (var i = 0; i < S.order.length; i++) {
-      var f = S.folders[S.order[i]];
-      for (var j = 0; j < f.scans.length; j++) {
-        var rec = f.scans[j];
-        if (!rec.mesh) continue;
-        rec.dom = domainFor(rec.scan);
-        V.setScanColours(rec.id, ScanLayer.colours(rec.scan, rec.dom, L));
-      }
+    var recs = allRecs();
+    for (var i = 0; i < recs.length; i++) {
+      var rec = recs[i];
+      if (!rec.mesh) continue;
+      rec.dom = domainFor(rec);
+      V.setScanColours(rec.id,
+        ScanLayer.colours(rec.scan, rec.dom, rampLut(styleOf(rec))));
     }
     V.draw();
   }
@@ -390,7 +731,13 @@ var RadarUI = (function () {
 
   function startGeoref(key) {
     var folder = S.folders[key];
-    if (!folder || !folder.scans.length) return;
+    if (!folder) return;
+    /* Tie points are picked on the radar image, so a folder listed from the
+       registry with nothing loaded has nothing to pick on. */
+    if (!folder.scans.length) {
+      status('Drop a scan of “' + label(folder) + '” first — tie points are picked on the radar image.');
+      return;
+    }
     if (!SensiMap.grid()) {
       status('Load the survey surface first — tie points are placed on it.');
       return;
@@ -422,7 +769,7 @@ var RadarUI = (function () {
     if (folder.record && folder.record.mode) $('grMode').value = folder.record.mode;
     if (prior.length) solve();
     $('georefPanel').classList.remove('hidden');
-    $('grFolder').textContent = folder.meta.folder || key;
+    $('grFolder').textContent = label(folder);
     open();
     drawFrontView();
     renderTies();
@@ -444,8 +791,8 @@ var RadarUI = (function () {
     var scan = g.rec.scan, cv = $('grCanvas');
     /* Same scale as the 3-D drape, so a feature the operator is aiming at
        looks the same in both places while they are tying it down. */
-    var dom = domainFor(scan);
-    var L = rampLut();
+    var dom = domainFor(g.rec);
+    var L = rampLut(styleOf(g.rec));
 
     var off = document.createElement('canvas');
     off.width = scan.nx; off.height = scan.ny;
@@ -742,7 +1089,7 @@ var RadarUI = (function () {
       folder.registered = true;
       for (var i = 0; i < folder.scans.length; i++) placeScan(folder, folder.scans[i]);
       rememberWindows(folder);
-      status('“' + (folder.meta.folder || g.key) + '” registered — later scans will place automatically.');
+      status('“' + label(folder) + '” registered — later scans will place automatically.');
       cancelGeoref();
     }).catch(function (e) {
       $('grSave').disabled = false;
@@ -759,6 +1106,9 @@ var RadarUI = (function () {
 
     for (var i = 0; i < S.order.length; i++) {
       var f = S.folders[S.order[i]];
+      /* Registry-only folders are held for the coverage panel, not shown here
+         — see listFolders(). A card with no scan under it offers nothing. */
+      if (!f.scans.length) continue;
       var placed = !!f.transform;
       var cls = placed ? 'placed' : 'unplaced';
 
@@ -773,7 +1123,8 @@ var RadarUI = (function () {
         var s = f.scans[j], m = s.scan.meta;
         var peak = Math.max(Math.abs(s.scan.defMin), Math.abs(s.scan.defMax));
         scans.push(
-          '<div class="scanRow">' +
+          '<div class="scanRow' + (isSelected(f.key, s.id) ? ' sel' : '') +
+          '" data-pick="' + esc(s.id) + '" data-key="' + esc(f.key) + '">' +
           '<button class="eyeBtn ' + (s.visible ? 'on' : '') + '" data-vis="' + esc(s.id) +
           '" title="Show / hide in 3-D">' + (s.visible ? '◉' : '○') + '</button>' +
           '<span class="when">' + esc(fmtWindow(m)) + '</span>' +
@@ -781,11 +1132,10 @@ var RadarUI = (function () {
           '</div>'
         );
       }
-
       out.push(
-        '<div class="folderCard ' + cls + '">' +
-        '<div class="folderHead">' +
-        '<span class="folderName" title="' + esc(f.key) + '">' + esc(f.meta.folder || f.key) + '</span>' +
+        '<div class="folderCard ' + cls + (isSelected(f.key, null) ? ' sel' : '') + '">' +
+        '<div class="folderHead" data-pick="" data-key="' + esc(f.key) + '">' +
+        '<span class="folderName" title="' + esc(f.key) + '">' + esc(label(f)) + '</span>' +
         tag +
         '</div>' +
         '<div class="folderMeta">' + esc(f.meta.radar || '') +
@@ -802,7 +1152,9 @@ var RadarUI = (function () {
     }
 
     host.innerHTML = out.join('');
-    $('radarIntro').classList.toggle('hidden', S.order.length > 0);
+    /* Keyed off the cards actually drawn, not off S.order: a registry listing
+       must not make the "drop a scan" introduction disappear. */
+    $('radarIntro').classList.toggle('hidden', out.length > 0);
     /* the folders are also rows in the layer tree */
     if (window.SensiMap && SensiMap.refreshTree) SensiMap.refreshTree();
   }
@@ -818,17 +1170,23 @@ var RadarUI = (function () {
     var out = [];
     for (var i = 0; i < S.order.length; i++) {
       var f = S.folders[S.order[i]], scans = [];
+      /* A folder listed from the registry with no CSV open is a row that
+         cannot be drawn, coloured or georeferenced — nothing but a name — so
+         it stays out of the tree and the cards. It is still held in memory,
+         which is what lets a click in the pit name it. */
+      if (!f.scans.length) continue;
       for (var j = 0; j < f.scans.length; j++) {
         var s = f.scans[j];
         var peak = Math.max(Math.abs(s.scan.defMin), Math.abs(s.scan.defMax));
         scans.push({
-          id: s.id, visible: !!s.visible,
+          id: s.id, key: f.key, visible: !!s.visible,
+          selected: isSelected(f.key, s.id),
           when: fmtWindow(s.scan.meta), peak: num(peak, 0) + ' mm'
         });
       }
       out.push({
-        key: f.key, name: f.meta.folder || f.key, radar: f.meta.radar || '',
-        placed: !!f.transform, scans: scans
+        key: f.key, name: label(f), radar: f.meta.radar || '',
+        placed: !!f.transform, selected: isSelected(f.key, null), scans: scans
       });
     }
     return out;
@@ -923,7 +1281,7 @@ var RadarUI = (function () {
       }
       out.push(
         '<div class="coverFolder">' +
-        '<div class="cf">' + esc(f.meta.folder || f.key) + '</div>' +
+        '<div class="cf">' + esc(label(f)) + '</div>' +
         '<div class="cm">' + esc(f.meta.radar || '') + ' · ' + scans.length + ' scan' +
         (scans.length === 1 ? '' : 's') +
         (scans[0].approximate ? ' · from registry' : '') + '</div>' +
@@ -966,61 +1324,89 @@ var RadarUI = (function () {
       var geo = t.getAttribute && t.getAttribute('data-geo');
       if (geo) { startGeoref(geo); return; }
       var vis = t.getAttribute && t.getAttribute('data-vis');
-      if (vis) toggleScan(vis);
+      if (vis) { toggleScan(vis); return; }
+      /* The cards are the same rows as the tree's, so clicking one selects it
+         there too — two lists of the same thing must not disagree about which
+         of them is being edited. */
+      var row = t.closest && t.closest('[data-key]');
+      if (!row) return;
+      var key = row.getAttribute('data-key');
+      var id = row.getAttribute('data-pick') || null;
+      pickRow({ key: key, id: id }, e);
     });
 
     $('coverClose').onclick = function () { $('coverPanel').classList.add('hidden'); };
 
-    /* ---- colour scale controls ---- */
+    /* ---- selection ---- */
+    $('radarGeoref').onclick = function () {
+      if (S.sel.length !== 1) return;
+      startGeoref(S.sel[0].key);
+    };
+    $('radarSelClear').onclick = function () { setSelection([]); };
+    $('radarStyleReset').onclick = clearStyle;
+
+    /* ---- colour scale controls ----
+       Every one of these edits whatever the selection points at: the defaults
+       when nothing is selected, otherwise the selected scans' own scale. */
     $('radarLimit').onchange = function () {
-      S.limit = Math.max(0, +this.value || 0);
-      applyScale();
+      var st = beginEdit();
+      st.limit = Math.max(0, +this.value || 0);
+      spread(st); applyScale();
     };
     $('radarAuto').onclick = function () {
-      S.limit = 0;
+      var st = beginEdit();
+      st.limit = 0;
       $('radarLimit').value = 0;
-      applyScale();
+      spread(st); applyScale();
     };
     $('radarBands').onchange = function () {
-      S.bands = Math.max(0, Math.min(32, +this.value || 0));
-      applyScale();
+      var st = beginEdit();
+      st.bands = Math.max(0, Math.min(32, +this.value || 0));
+      spread(st); applyScale();
     };
     $('radarGamma').onchange = function () {
+      var st = beginEdit();
       var v = +this.value;
-      S.gamma = (isFinite(v) && v > 0) ? v : 1;
-      applyScale();
+      st.gamma = (isFinite(v) && v > 0) ? v : 1;
+      spread(st); applyScale();
     };
     $('radarAddStop').onclick = function () {
       /* Drop the new stop in the widest gap and give it the colour already
          there, so adding one never changes how the map looks — it only gives
          the operator a handle to pull. */
+      var st = beginEdit();
       var at = 0.5, gap = -1;
-      for (var i = 0; i + 1 < S.stops.length; i++) {
-        var d = S.stops[i + 1][0] - S.stops[i][0];
-        if (d > gap) { gap = d; at = (S.stops[i][0] + S.stops[i + 1][0]) / 2; }
+      for (var i = 0; i + 1 < st.stops.length; i++) {
+        var d = st.stops[i + 1][0] - st.stops[i][0];
+        if (d > gap) { gap = d; at = (st.stops[i][0] + st.stops[i + 1][0]) / 2; }
       }
-      var c = ColorMaps.sample(rampLut(), at);
-      S.stops.push([at, ColorMaps.rgb2hex(c[0], c[1], c[2])]);
-      S.stops.sort(function (a, b) { return a[0] - b[0]; });
-      renderStops(); applyScale();
+      var c = ColorMaps.sample(rampLut(st), at);
+      st.stops.push([at, ColorMaps.rgb2hex(c[0], c[1], c[2])]);
+      st.stops.sort(function (a, b) { return a[0] - b[0]; });
+      spread(st); renderStops(); applyScale();
     };
     $('radarEvenStops').onclick = function () {
-      var n = S.stops.length - 1;
-      S.stops.forEach(function (s, i) { s[0] = n ? i / n : 0; });
-      renderStops(); applyScale();
+      var st = beginEdit();
+      var n = st.stops.length - 1;
+      st.stops.forEach(function (s, i) { s[0] = n ? i / n : 0; });
+      spread(st); renderStops(); applyScale();
     };
     $('radarRevStops').onclick = function () {
-      var cols = S.stops.map(function (s) { return s[1]; }).reverse();
-      S.stops.forEach(function (s, i) { s[1] = cols[i]; });
-      renderStops(); applyScale();
+      var st = beginEdit();
+      var cols = st.stops.map(function (s) { return s[1]; }).reverse();
+      st.stops.forEach(function (s, i) { s[1] = cols[i]; });
+      spread(st); renderStops(); applyScale();
     };
     $('radarResetStops').onclick = function () {
-      S.stops = ScanLayer.defaultStops();
-      S.bands = 0; S.gamma = 1;
+      var st = beginEdit();
+      st.stops = ScanLayer.defaultStops();
+      st.bands = 0; st.gamma = 1;
       $('radarBands').value = 0; $('radarGamma').value = 1;
-      renderStops(); applyScale();
+      spread(st); renderStops(); applyScale();
     };
 
+    /* Drape is geometry rather than style — whether the image sits ON the
+       surveyed surface is not a per-scan taste — so it stays global. */
     $('radarDrape').onchange = function () {
       S.drape = this.checked;
       saveScale();
@@ -1030,27 +1416,113 @@ var RadarUI = (function () {
     };
 
     $('radarAlpha').oninput = function () {
-      S.alpha = Math.max(0.2, (+this.value || 100) / 100);
-      var V = viewer();
-      if (!V) return;
-      for (var i = 0; i < V.scans.length; i++) V.setScanOpts(V.scans[i].id, { alpha: S.alpha });
-      V.draw();
-      saveScale();
+      var st = beginEdit();
+      st.alpha = Math.max(0.2, (+this.value || 100) / 100);
+      spreadAlpha(st);
+      if (!S.sel.length) saveScale();
+      applyAlphaAll();
+      renderStyleNote();
     };
 
     SensiMap.onProbe(onProbe);
 
     /* Reflect the stored preference into the controls before anything draws. */
     loadScale();
-    $('radarLimit').value = S.limit;
-    $('radarBands').value = S.bands;
-    $('radarGamma').value = S.gamma;
-    $('radarAlpha').value = Math.round(S.alpha * 100);
     $('radarDrape').checked = S.drape;
-    renderStops();
-    drawBar();
+    syncScaleForm();
 
     render();
+    loadRegistry();
+  }
+
+  /**
+   * One click on a folder or scan row, with the modifiers applied.
+   *
+   * Ctrl/Cmd toggles a row in or out; Shift extends from the row clicked last
+   * over the list as it is displayed; a plain click replaces the selection.
+   * Clicking the selected row again clears it, which is the only way back to
+   * editing the defaults without hunting for a button.
+   */
+  function pickRow(entry, ev) {
+    var rows = rowOrder();
+    var sel = selection();
+
+    if (ev && (ev.ctrlKey || ev.metaKey)) {
+      var at = indexOfEntry(sel, entry);
+      if (at >= 0) sel.splice(at, 1);
+      else sel.push(entry);
+    } else if (ev && ev.shiftKey && S.anchor) {
+      var a = indexOfEntry(rows, S.anchor), b = indexOfEntry(rows, entry);
+      if (a < 0 || b < 0) sel = [entry];
+      else sel = rows.slice(Math.min(a, b), Math.max(a, b) + 1);
+    } else {
+      sel = (sel.length === 1 && indexOfEntry(sel, entry) === 0) ? [] : [entry];
+    }
+
+    if (!ev || !ev.shiftKey) S.anchor = entry;
+    setSelection(sel);
+  }
+
+  /** Every selectable row, folder then its scans, in the order they are shown. */
+  function rowOrder() {
+    var out = [];
+    for (var i = 0; i < S.order.length; i++) {
+      var f = S.folders[S.order[i]];
+      /* Must match what is on screen, or a Shift-range spans rows nobody can
+         see — registry-only folders are not drawn. */
+      if (!f.scans.length) continue;
+      out.push({ key: f.key, id: null });
+      for (var j = 0; j < f.scans.length; j++) out.push({ key: f.key, id: f.scans[j].id });
+    }
+    return out;
+  }
+
+  function indexOfEntry(list, entry) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].key === entry.key && (list[i].id || null) === (entry.id || null)) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Folders that were georeferenced on some other machine, or in an earlier
+   * session, listed before any CSV is dropped.
+   *
+   * Without this the coverage panel can only answer for folders whose scans
+   * happen to be open, which is exactly backwards: the operator asking "what
+   * watches this spot" is usually the one who has loaded nothing yet.
+   */
+  function loadRegistry() {
+    if (!window.GeorefStore || !GeorefStore.list) return;
+    GeorefStore.list().then(function (records) {
+      var added = 0;
+      for (var i = 0; i < (records || []).length; i++) {
+        var rec = records[i];
+        if (!rec || !rec.key || S.folders[rec.key]) continue;
+        var tr = Georef.deserialise(rec);
+        if (!tr) continue;
+        var meta = RadarScan.parseKey(rec.key) || {};
+        S.folders[rec.key] = {
+          key: rec.key,
+          meta: {
+            key: rec.key,
+            radar: rec.radar || meta.radar || null,
+            commenced: rec.commenced || meta.commenced || null,
+            folder: rec.folder || meta.folder || rec.key,
+            startAt: null, endAt: null, filename: rec.key
+          },
+          transform: tr, record: rec, scans: [],
+          registered: true, fromRegistry: true, style: null
+        };
+        S.order.push(rec.key);
+        added++;
+      }
+      if (added) render();
+    }).catch(function () {
+      /* A registry that cannot be listed is not an error the operator can act
+         on — dropping a CSV still works, and a failed LOOKUP is reported per
+         folder where it does mean something. */
+    });
   }
 
   function toggleScan(id) {
@@ -1074,6 +1546,10 @@ var RadarUI = (function () {
 
   return {
     acceptFile: acceptFile, folders: listFolders,
-    toggleScan: toggleScan, georeference: startGeoref, _state: S
+    toggleScan: toggleScan, georeference: startGeoref,
+    /* the layer tree drives the same selection this sheet is written against */
+    pick: pickRow, setSelection: setSelection, selection: selection,
+    isSelected: isSelected, refreshRegistry: loadRegistry,
+    _state: S
   };
 })();

@@ -127,11 +127,29 @@ export function AnnotatedImage({
       }}
     >
       {image ? (
-        <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', lineHeight: 0 }}>
+        <div
+          // No native drag may start from the figure. Drawing a zone is a run of
+          // clicks on this <img>, and a click that moves a few pixels becomes an
+          // HTML5 image drag instead — carrying the whole data-URL image. On
+          // Windows that drag can wedge: every click and right-click is swallowed
+          // by the drag loop while wheel scrolling and timers carry on, so the
+          // page looks frozen with the report reminder still popping up over it.
+          // Blocked on the wrapper as well as the <img>, so a drag started from a
+          // selection or a label is caught too.
+          onDragStart={interactive ? (e) => e.preventDefault() : undefined}
+          style={{
+            position: 'relative',
+            display: 'inline-block',
+            maxWidth: '100%',
+            lineHeight: 0,
+            userSelect: interactive ? 'none' : undefined,
+          }}
+        >
           <img
             ref={interactive ? imageRef : undefined}
             src={image}
             alt="Report figure"
+            draggable={interactive ? false : undefined}
             onClick={interactive ? onImageClick : undefined}
             onLoad={onImageLoad}
             crossOrigin="anonymous"

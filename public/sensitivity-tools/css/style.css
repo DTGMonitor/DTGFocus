@@ -64,7 +64,7 @@ button,input,select,textarea{font-family:inherit;font-size:12px;color:var(--fg)}
 }
 .menuRoot.open .menuPop{display:block}
 .menuItem{
-  display:flex;align-items:center;justify-content:flex-start;gap:9px;width:100%;padding:5px 9px;
+  display:flex;align-items:center;gap:9px;width:100%;padding:5px 9px;
   background:transparent;border:0;border-radius:4px;cursor:pointer;
   font-size:12.5px;color:var(--fg);text-align:left;white-space:nowrap
 }
@@ -606,6 +606,19 @@ label[title]{cursor:help}
 .scanRow+.scanRow{border-top:1px solid var(--line)}
 .scanRow .when{flex:1;min-width:0;font-family:var(--mono);color:var(--dim);font-size:10px}
 .scanRow .peak{font-family:var(--mono);font-size:10px}
+
+/* The card rows are the same selection the layer tree shows, so they carry
+   the same mark. rgba rather than an 8-digit hex: the platform's sync patches
+   the 6-digit chrome colours by string match and would corrupt the alpha. */
+.folderHead[data-key],.scanRow[data-pick]{cursor:pointer}
+.folderCard.sel{border-left-color:var(--acc);box-shadow:inset 0 0 0 1px rgba(31,111,208,.45)}
+.scanRow.sel{background:rgba(31,111,208,.18);border-radius:3px}
+.scanRow.dim .when{font-style:italic}
+/* The folder key is operator-typed and case carries meaning, so it must not
+   inherit the subhead's uppercasing; it is long, so it must be free to wrap. */
+.selName{font-family:var(--mono);font-size:11px;color:var(--fg);
+  word-break:break-all;line-height:1.35}
+.selNote{font-size:10.5px;margin-top:4px}
 
 .tag{
   display:inline-block;padding:0 5px;border-radius:8px;font-size:9.5px;

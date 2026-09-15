@@ -23,6 +23,11 @@ SM.Tree = (function () {
   var open = { sensors: true, scans: true, aoi: true,
     planes: true, domains: true, anno: false };
 
+  /* scan row id -> the wall folder it belongs to. A tree row carries only its
+     own id, and a scan is addressed by folder AND window, so the pairing is
+     recorded while the rows are built rather than parsed back out of the id. */
+  var scanOwner = Object.create(null);
+
   var ANNO = [
     { key: 'fan', name: 'Scan footprint / LOS', icon: 'fan',
       hint: 'The selected sensor’s scan sector draped on the terrain, and the line of sight to the probed cell' },
@@ -163,20 +168,33 @@ SM.Tree = (function () {
 
     /* ---- radar deformation scans, owned by the add-on ---- */
     var folders = (window.RadarUI && RadarUI.folders) ? RadarUI.folders() : [];
+    scanOwner = Object.create(null);
     if (folders.length) {
       h.push(groupRow('scans', 'Deformation scans', folders.length + ''));
       if (open.scans) folders.forEach(function (f) {
         h.push(row({
           kind: 'scan', id: f.key, name: f.name, depth: 1, icon: 'scan',
-          selected: sel.kind === 'scan',
-          meta: f.placed ? f.scans.length + ' scan' + (f.scans.length === 1 ? '' : 's') : 'not placed',
-          hint: f.placed ? 'Georeferenced — ' + f.radar : 'Needs georeferencing before it can be drawn'
+          /* Scans are the one kind of row that can be selected several at a
+             time, so the mark comes from the add-on's own selection rather
+             than from S.node, which holds only the row Properties is titled by */
+          selected: !!f.selected,
+          meta: !f.placed ? 'not placed'
+            : f.scans.length ? f.scans.length + ' scan' + (f.scans.length === 1 ? '' : 's')
+            : 'no scan loaded',
+          hint: f.placed
+            ? (f.scans.length
+                ? 'Georeferenced — ' + f.radar
+                : 'Registered on the platform — drop a CSV of it to draw it')
+            : 'Needs georeferencing before it can be drawn'
         }));
         if (!f.placed) return;
         f.scans.forEach(function (s) {
+          scanOwner[s.id] = s.key;
           h.push(row({
             kind: 'scanItem', id: s.id, name: s.when, depth: 2, check: 'box', on: s.visible,
-            icon: 'raster', meta: s.peak, hint: 'Show or hide this scan in the 3D view'
+            icon: 'raster', meta: s.peak, selected: !!s.selected,
+            hint: 'Tick to draw it. Click the row to give this scan its own colour and ' +
+              'opacity — Ctrl-click or Shift-click to take several at once'
           }));
         });
       });
@@ -340,8 +358,28 @@ SM.Tree = (function () {
   }
 
   /* ------------------------------------------------------- actions */
-  function select(kind, id) {
+
+  /**
+   * A click on a deformation row, modifiers and all.
+   *
+   * The add-on owns what plain / Ctrl / Shift mean, because it owns the list
+   * being extended over; the tree's job is to say which row was hit and to
+   * route Properties at the group afterwards.
+   */
+  function pickScan(kind, id, ev) {
+    if (!window.RadarUI || !RadarUI.pick) { select('scan', id); return; }
+    RadarUI.pick(
+      kind === 'scan' ? { key: id, id: null } : { key: scanOwner[id], id: id },
+      ev
+    );
+    select('scan', id, true);
+  }
+
+  function select(kind, id, keepScanSel) {
     S.node = { kind: kind, id: id };
+    /* Selecting anything else puts the deformation sheet back on its defaults,
+       so a colour edit cannot land on scans the operator has stopped looking at. */
+    if (!keepScanSel && window.RadarUI && RadarUI.setSelection) RadarUI.setSelection([]);
     var name = '';
     if (kind === 'terrain') name = 'Terrain';
     else if (kind === 'result') name = 'Processing result';
@@ -454,7 +492,7 @@ SM.Tree = (function () {
       if (kind === 'sensor') { SM.Sensors.select(+id); return; }
       if (kind === 'region') { select('region', +id); return; }
       if (kind === 'aoi') { select('aoi', 'aoi'); return; }
-      if (kind === 'scan' || kind === 'scanItem') { select('scan', id); return; }
+      if (kind === 'scan' || kind === 'scanItem') { pickScan(kind, id, e); return; }
       /* structural rows have no Properties pane of their own: everything about
          them is edited in the Structure tab, so clicking one goes there */
       if (kind === 'plane' || kind === 'domain') {
