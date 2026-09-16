@@ -85,6 +85,10 @@ SM.Shell = (function () {
     g.classList.toggle('hidden', off);
     if (SM.V) SM.V.resize();
     layoutAll();
+    /* Three things show whether a dock is up — the View menu's tick, the edge
+       handle's chevron and the dock itself — and they are only ever in step
+       because every change ends here and says so. */
+    if (SM.Cmd) SM.Cmd.refresh();
   }
 
   /* ------------------------------------------------------- panels */

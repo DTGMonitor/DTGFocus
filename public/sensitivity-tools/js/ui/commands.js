@@ -136,10 +136,12 @@ SM.Cmd = (function () {
       hint: 'Fill the selection mask, the structural domains and the mapped planes, not just outline them',
       toggle: function () { return S.show.fill; },
       run: function () { call('Tree.setShow', 'fill'); } },
-    { id: 'panel.left', label: 'Layers panel', icon: 'layers',
+    { id: 'panel.left', label: 'Layers panel', icon: 'layers', key: '[',
+      hint: 'Give the map the left dock’s width. The handle on the map’s left edge brings it back',
       toggle: function () { return !$('dockLeft').classList.contains('collapsed'); },
       run: function () { call('Shell.toggleDock', 'left'); } },
-    { id: 'panel.right', label: 'Properties panel', icon: 'ramp',
+    { id: 'panel.right', label: 'Properties panel', icon: 'ramp', key: ']',
+      hint: 'Give the map the right dock’s width. The handle on the map’s right edge brings it back',
       toggle: function () { return !$('dockRight').classList.contains('collapsed'); },
       run: function () { call('Shell.toggleDock', 'right'); } },
 
@@ -361,7 +363,15 @@ SM.Cmd = (function () {
     });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'F1') { e.preventDefault(); run('help.show'); }
+      if (e.key === 'F1') { e.preventDefault(); run('help.show'); return; }
+      /* Bare keys, so they must not fire while something is being typed — and
+         no modifier, so they never shadow the browser's own shortcuts. The
+         brackets are chosen to point at the dock they fold: [ is the left one. */
+      var tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key === '[') { e.preventDefault(); run('panel.left'); }
+      else if (e.key === ']') { e.preventDefault(); run('panel.right'); }
     });
 
     refresh();

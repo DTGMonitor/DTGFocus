@@ -164,6 +164,12 @@
           <span id="coverTitle">Wall folders here</span>
           <button id="coverClose" class="coverX" aria-label="Close"><svg class="ic"><use href="#ic-close"></use></svg></button>
         </div>
+        <!-- Narrow the whole tool down to what watches this one spot. -->
+        <div id="coverActs" class="coverActs hidden">
+          <button id="coverOnly" class="miniBtn" title="Draw only the scans listed here and point Properties at them — every other scan is hidden.">Only these</button>
+          <button id="coverAll" class="miniBtn hidden" title="Bring every scan back and go back to editing the default scale.">Show all</button>
+          <button id="coverTrend" class="miniBtn" title="Plot deformation, velocity, inverse velocity and acceleration against time at this point, from every scan of the folder that covers it.">Trend…</button>
+        </div>
         <div id="coverBody"></div>
       </div>
 
@@ -199,12 +205,90 @@
         <div id="scaleBar"><div class="sbBar"><i></i><i></i><i></i><i></i></div><span id="scaleBarText">—</span></div>
       </div>
 
+      <!-- The way back. A collapsed dock is display:none and takes its drag
+           gutter with it, so without these handles the only route to an
+           accidentally hidden panel is a menu item at the bottom of View.
+           The chevron points the way the dock will go: outward to put it
+           away, inward to bring it back. -->
+      <button id="edgeLeft" class="edgeTab" data-cmd="panel.left"
+              title="Show or hide the Layers panel   [">
+        <svg class="ic"><use href="#ic-chevron"></use></svg>
+      </button>
+      <button id="edgeRight" class="edgeTab" data-cmd="panel.right"
+              title="Show or hide the Properties panel   ]">
+        <svg class="ic"><use href="#ic-chevron"></use></svg>
+      </button>
+
       <div id="viewHint" class="hud hint2">
         drag = orbit · right/middle drag = pan · wheel = zoom · click = identify
       </div>
 
       <div id="pickBanner" class="pickBanner hidden"></div>
       <div id="progWrap" class="progWrap hidden"><div id="progBar"></div><span id="progText"></span></div>
+
+      <!-- ───────── deformation against time ─────────
+           Across the foot of the map rather than in the right dock: four
+           y-axes over a week of scans need width far more than they need to
+           sit beside the layer they describe, and the point being plotted is
+           in the view above it. -->
+      <div id="trendPanel" class="trendPanel hidden">
+        <div id="trendGrip" class="trendGrip" title="Drag to trade map for chart"></div>
+
+        <div class="trendHead">
+          <span class="trendTitle">Trend</span>
+          <span id="trendWhere" class="trendWhere">—</span>
+
+          <span class="trendGap"></span>
+
+          <label class="trendCtl" title="What the curve is of. “The point I click” follows the Identify tool; a drawn region summarises every radar pixel inside it.">of
+            <select id="trendSource"></select>
+          </label>
+          <label class="trendCtl hidden" id="trendStatWrap" title="How the pixels inside the region become one number per scan. The worst pixel is what a trigger level is usually written against; the mean is the block's own behaviour.">as
+            <select id="trendStat">
+              <option value="mean">the mean</option>
+              <option value="median">the median</option>
+              <option value="peak">the worst pixel</option>
+            </select>
+          </label>
+          <label class="trendCtl hidden" id="trendFolderWrap" title="More than one wall folder watches this spot, and by default they are joined into one continuous record — each later folder offset to continue the curve rather than restart it, never added to it. Narrow to a single folder to check what one of them measured on its own.">from
+            <select id="trendFolder"></select>
+          </label>
+          <label class="trendCtl" title="Velocity is the slope of the deformation curve measured back over this much time. Shorter follows the wall more closely; longer is less dominated by the radar's own noise.">rate over
+            <select id="trendWindow"></select>
+          </label>
+          <label class="trendCtl" title="Whether the rates read per hour or per day. The deformation curve is millimetres either way.">per
+            <select id="trendUnit">
+              <option value="h">hour</option>
+              <option value="d">day</option>
+            </select>
+          </label>
+          <label class="trendCtl" title="How the scan windows compose into one cumulative curve — the one thing the files themselves cannot say. Auto reads it from the start stamps and says underneath what it decided.">windows
+            <select id="trendMode">
+              <option value="auto">auto</option>
+              <option value="shared">share one start</option>
+              <option value="chained">run end to start</option>
+            </select>
+          </label>
+
+          <button id="trendCsv" class="miniBtn" title="The plotted series as CSV, in the units on screen, with the scan behind every row.">CSV</button>
+          <button id="trendClose" class="coverX" aria-label="Close"><svg class="ic"><use href="#ic-close"></use></svg></button>
+        </div>
+
+        <div id="trendSeries" class="trendSeries"></div>
+
+        <div class="trendPlot">
+          <canvas id="trendCanvas"></canvas>
+          <div id="trendTip" class="trendTip hidden"></div>
+        </div>
+
+        <!-- One line of it is always up; the rest is behind the toggle,
+             bounded and scrollable, because a note long enough to squeeze
+             the chart out has defeated its own purpose. -->
+        <div class="trendNote">
+          <div id="trendNoteHead" class="tnHead"></div>
+          <div id="trendNoteBody" class="tnBody hidden"></div>
+        </div>
+      </div>
     </div>
 
     <div id="statusbar">
@@ -440,7 +524,8 @@
             <b>georeferenced</b> by hand; every later scan of the same folder is placed automatically.
             Folders already registered on the platform are known even before anything is
             dropped: they are not listed here, but clicking the pit still names them under
-            <i>Wall folders here</i>.
+            <i>Wall folders here</i> — where <b>Only these</b> hides every other scan and points
+            this sheet at the ones watching that spot, and <b>Show all</b> puts them back.
           </div>
 
           <!-- What the sheet below is about to change. One scan or one wall
@@ -452,6 +537,7 @@
             <div class="row">
               <button id="radarGeoref" class="miniBtn" disabled>Georeference…</button>
               <button id="radarSelClear" class="miniBtn" disabled title="Go back to editing the default scale every untouched scan follows.">Clear selection</button>
+              <button id="radarTrend" class="miniBtn" title="Open the trend strip along the foot of the map: deformation, velocity, inverse velocity and acceleration against time, at a point you click or at a drawn region.">Trend…</button>
             </div>
           </div>
 
@@ -893,8 +979,10 @@
 
     <h3>Getting around the window</h3>
     <table class="helpTable">
-      <tr><td>Layers tree</td><td>Left, below <i>Data Sources</i>. It lists <b>layers</b> and nothing else: <b>Terrain</b>, a draped photo, the <b>Processing result</b> once a run has produced one, <b>Radar positions</b>, <b>Deformation scans</b>, <b>Area of interest</b>, <b>Discontinuities</b>, <b>Structural domains</b> and <b>Annotations</b>. Every tick box is the same question — is this drawn — and the two raster layers, the terrain and the result, stack: untick the result and the terrain's own colouring is what you see. <b>Annotations ▸ Shade drawn areas</b> paints the inside of every drawn polygon onto the terrain instead of only outlining it. Clicking a row selects it — one at a time — and <i>everything</i> about it is then edited in <b>Properties</b>: which raster the terrain is coloured by and how it was gridded, which analysis the result shows, a radar's coordinates and scan geometry, the mask's bounds. <b>Deformation scans</b> are the exception to one-at-a-time: Ctrl-click or Shift-click takes several, and the colour scale and opacity then apply to every one of them at once, each taking the same value. Only the <b>georeference</b> insists on a single selection, because it belongs to exactly one wall folder.</td></tr>
+      <tr><td>Layers tree</td><td>Left, below <i>Data Sources</i>. It lists <b>layers</b> and nothing else: <b>Terrain</b>, a draped photo, the <b>Processing result</b> once a run has produced one, <b>Radar positions</b>, <b>Deformation scans</b>, <b>Area of interest</b>, <b>Discontinuities</b>, <b>Structural domains</b> and <b>Annotations</b>. Every tick box is the same question — is this drawn — and the two raster layers, the terrain and the result, stack: untick the result and the terrain's own colouring is what you see. <b>Annotations ▸ Shade drawn areas</b> paints the inside of every drawn polygon onto the terrain instead of only outlining it. Clicking a row selects it — one at a time — and <i>everything</i> about it is then edited in <b>Properties</b>: which raster the terrain is coloured by and how it was gridded, which analysis the result shows, a radar's coordinates and scan geometry, the mask's bounds. <b>Deformation scans</b> are the exception to one-at-a-time: Ctrl-click or Shift-click takes several, and the colour scale and opacity then apply to every one of them at once, each taking the same value. Only the <b>georeference</b> insists on a single selection, because it belongs to exactly one wall folder. Once anything is selected the folder cards in <b>Properties</b> narrow to it, so what is on screen is what the sheet is about to change; <b>Clear selection</b>, or the <b>Show all</b> beside the “showing n of m” note, lists them all again.</td></tr>
+      <tr><td>Panels</td><td>Either dock folds away to give the map its width: the small handle on that edge of the map, <b>[</b> for the Layers panel and <b>]</b> for Properties, or <b>View ▸ Layers panel / Properties panel</b>. The handle stays put while the dock is folded — a collapsed dock takes its drag gutter with it, so the handle is the only way back — and its chevron points where the dock will go: outward to fold it away, inward to bring it in.</td></tr>
       <tr><td>Map tools</td><td>The second toolbar group. Only one is armed at a time: <b>Navigate</b> (orbit / pan / zoom), <b>Identify</b> (probe a cell), <b>Place radar</b>, <b>Draw region</b>, <b>Pick a plane</b>, <b>Stretch vertices</b>, <b>Measure</b>. <b>Esc</b> always returns to Navigate.</td></tr>
+      <tr><td>Trend strip</td><td>Along the foot of the map, opened with <b>Trend…</b> — in <b>Wall folders here</b> after an Identify click, or in the deformation sheet. One chart carrying four quantities against four y-axes: <b>cumulative deformation</b> (mm), <b>velocity</b> (mm/h), <b>inverse velocity</b> (h/mm) and <b>acceleration</b> (mm/h²), from every wall folder that covers the spot, joined into one continuous record — each later folder offset to continue the curve rather than restart it, never added to it, with a dashed mark and the offset shown at every handover. They share a chart because the reading is a comparison — a large movement that is slowing and a small one that is accelerating are opposite calls. Plot <i>the point I click</i>, which follows Identify, or a <i>drawn region</i> summarised by its mean, median or worst pixel. The <b>rate over</b> window smooths the three rates; <b>windows</b> says how the scan windows compose into one cumulative curve, and whichever rule was used is written under the chart because it decides the shape of the whole thing. <b>Drag across the chart</b> to frame a stretch of time — both pairs of axes refit to what is inside it — and <b>double-click</b> to fit the whole record again. Drag the top edge of the strip to trade map for chart.</td></tr>
       <tr><td>Right dock</td><td><b>Properties</b> follows the tree selection · <b>Processing</b> holds the sensitivity model, and is <i>only available while a radar position is selected</i>, because a run is one radar measured against the terrain — gridding, which is a property of the terrain, moved to the <b>Terrain</b> layer's own sheet · <b>Structure</b> holds mapped discontinuities, the kinematic analysis and the structural domains it feeds · <b>Statistics</b> holds the summary, histogram, ranking and exports · <b>View</b> holds rendering and clipping only.</td></tr>
       <tr><td>Status bar</td><td>Cursor easting / northing / RL, the active layer's value under the cursor, the cell size, and what the tool is doing. Coordinates are plain mine-grid metres — nothing is ever reprojected.</td></tr>
       <tr><td>Keyboard</td><td><b>Esc</b> cancel tool · <b>Enter</b> close the region being drawn, accept the plane being fitted, or finish a measurement · <b>Backspace</b> undo a vertex, a pick or a measured point · <b>F1</b> this help.</td></tr>
@@ -1063,6 +1151,7 @@
 <script src="js/georef.js"></script>
 <script src="js/georef-store.js"></script>
 <script src="js/scan-layer.js"></script>
+<script src="js/radar-trend.js"></script>
 
 <!-- application layer — core first, it defines the SM namespace the rest extend -->
 <script src="js/ui/core.js"></script>
@@ -1087,5 +1176,6 @@
 <script src="js/ui.js"></script>
 <!-- after ui.js: the radar module attaches through window.SensiMap -->
 <script src="js/radar-ui.js"></script>
+<script src="js/radar-trend-ui.js"></script>
 </body>
 </html>

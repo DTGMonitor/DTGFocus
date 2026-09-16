@@ -350,6 +350,21 @@ export const RULES = [
   },
 
   {
+    file: "js/radar-trend-ui.js",
+    map: {
+      // The four quantities on the trend chart. Categorical, like the sensor
+      // palette: they identify a quantity rather than decorate a surface, so
+      // they do not follow the theme — but all four are on ONE chart, which is
+      // exactly where a near-miss pair costs a misreading, so they are mapped
+      // to slots the platform already keeps distinct from each other.
+      "colour: '#2f9bff'": `colour: '${DATA_COLOURS.sensor2}'`, //  deformation
+      "colour: '#ff9800'": `colour: '${DATA_COLOURS.sensor6}'`, //  velocity
+      "colour: '#e040fb'": `colour: '${DATA_COLOURS.sensor5}'`, //  inverse velocity
+      "colour: '#ff5252'": `colour: '${DATA_COLOURS.sensor3}'`, //  acceleration
+    },
+  },
+
+  {
     file: "js/colormap.js",
     // Everything from the preset table up to the discrete sensor scale is a
     // published colour standard — leave it exactly as upstream ships it.

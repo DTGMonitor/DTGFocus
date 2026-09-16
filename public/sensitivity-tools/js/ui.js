@@ -96,7 +96,21 @@
     releasePick: function () { SM.Tools.extRelease(); },
 
     /* Observe ordinary probe clicks — the ones that are not placing anything. */
-    onProbe: function (fn) { EXT.probe.push(fn); }
+    onProbe: function (fn) { EXT.probe.push(fn); },
+
+    /**
+     * The drawn regions, so an add-on can summarise one.
+     *
+     * Names come out alongside the rings because they are how a region is
+     * referred to everywhere else — the tree, the statistics note, the
+     * Properties sheet — and an add-on that identified regions by index alone
+     * would follow the wrong one the moment an earlier region was deleted.
+     */
+    regions: function () {
+      return S.polys.map(function (ring, i) {
+        return { index: i, name: SM.AOI.nameOf(i), ring: ring };
+      });
+    }
   };
 
   /* ---------------------------------------------------- start */

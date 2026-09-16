@@ -427,7 +427,27 @@ label.mode:has(input:checked){border-color:var(--acc);background:var(--sm-acc-so
 .hudSub{color:var(--dim);margin-top:2px;line-height:1.5;white-space:pre-line}
 .readout{top:12px;right:120px;color:var(--fg);line-height:1.6}
 .readout b{color:var(--acc2)}
-.hint2{bottom:10px;left:12px;color:var(--dim2);font-size:10px}
+.hint2{bottom:calc(var(--trendH, 0px) + 10px);left:12px;color:var(--dim2);font-size:10px}
+
+/* ---------- dock handles ----------
+   Small tabs on the map's own edges, always there. A collapsed dock is
+   display:none and its drag gutter goes with it, so these are the only thing
+   standing between an accidental fold and a menu hunt. Vertically centred,
+   which is the one part of either edge no HUD panel or map furniture uses. */
+.edgeTab{
+  position:absolute;top:50%;transform:translateY(-50%);z-index:13;
+  width:13px;height:46px;padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--sm-hud-bg);border:1px solid var(--line);color:var(--dim2);
+  backdrop-filter:blur(3px);
+}
+#edgeLeft{left:0;border-left:0;border-radius:0 4px 4px 0}
+#edgeRight{right:0;border-right:0;border-radius:4px 0 0 4px}
+.edgeTab:hover{color:var(--acc2);border-color:var(--acc2)}
+.edgeTab .ic{width:11px;height:11px}
+/* `on` means the dock is up, so the chevron points at where it would go: out
+   to the edge to fold it away, back toward the map to bring it in. */
+#edgeLeft.on .ic,#edgeRight:not(.on) .ic{transform:rotate(180deg)}
 #legend{
   position:absolute;top:12px;right:12px;background:var(--sm-hud-bg);
   border:1px solid var(--line);border-radius:5px;padding:8px;
@@ -450,7 +470,7 @@ label.mode:has(input:checked){border-color:var(--acc);background:var(--sm-acc-so
 
 /* ---------- map furniture: north arrow + scale bar ---------- */
 #mapFurniture{
-  position:absolute;right:12px;bottom:12px;display:flex;align-items:flex-end;
+  position:absolute;right:12px;bottom:calc(var(--trendH, 0px) + 12px);display:flex;align-items:flex-end;
   gap:12px;pointer-events:none
 }
 #northArrow{position:relative;width:38px;height:38px;color:var(--fg);opacity:.82}
@@ -618,6 +638,12 @@ label[title]{cursor:help}
 .folderCard.sel{border-left-color:var(--acc);box-shadow:inset 0 0 0 1px rgba(31,111,208,.45)}
 .scanRow.sel{background:rgba(31,111,208,.18);border-radius:3px}
 .scanRow.dim .when{font-style:italic}
+/* Says the card list is narrowed to the selection, and offers the way back. */
+.folderFilter{
+  display:flex;align-items:center;gap:6px;margin:0 0 6px;
+  font-size:10px;color:var(--dim);line-height:1.4;
+}
+.folderFilter .miniBtn{flex:0 0 auto;margin-left:auto}
 /* The folder key is operator-typed and case carries meaning, so it must not
    inherit the subhead's uppercasing; it is long, so it must be free to wrap. */
 .selName{font-family:var(--mono);font-size:11px;color:var(--fg);
@@ -645,7 +671,7 @@ label[title]{cursor:help}
 /* ---- coverage panel over the viewport ---- */
 .coverPanel{
   position:absolute; left:12px; top:96px; z-index:12; width:270px;
-  max-height:calc(100% - 130px); overflow-y:auto; padding:0;
+  max-height:calc(100% - 130px - var(--trendH, 0px)); overflow-y:auto; padding:0;
   /* .hud is a passive read-out and disables pointer events; this one is
      interactive — it has a close button and clickable scan rows. */
   pointer-events:auto;
@@ -659,6 +685,8 @@ label[title]{cursor:help}
 .coverX{border:0;background:transparent;color:var(--dim);cursor:pointer;padding:0;flex:0 0 auto}
 .coverX .ic{width:12px;height:12px}
 .coverX:hover{color:var(--fg)}
+.coverActs{display:flex;gap:6px;padding:7px 9px 0}
+.coverActs .miniBtn{flex:1 1 auto}
 #coverBody{padding:6px 9px 9px}
 .coverFolder{padding:6px 0}
 .coverFolder+.coverFolder{border-top:1px solid #ffffff14}
@@ -841,8 +869,8 @@ label.btnCell button{width:100%;margin-top:3px}
 /* Bottom-right of the map, opposite the wall-folder panel so the two can be
    open at once, and clear of the legend on the right edge. */
 .measurePanel{
-  position:absolute; right:12px; bottom:44px; z-index:12; width:262px;
-  max-height:calc(100% - 120px); overflow-y:auto; padding:0;
+  position:absolute; right:12px; bottom:calc(var(--trendH, 0px) + 44px); z-index:12; width:262px;
+  max-height:calc(100% - 120px - var(--trendH, 0px)); overflow-y:auto; padding:0;
   pointer-events:auto;
 }
 #measureBody{padding:6px 9px 9px;font-family:var(--mono);font-size:10.5px}
@@ -859,6 +887,125 @@ label.btnCell button{width:100%;margin-top:3px}
 .mTable td{padding:1px 4px 1px 0;border:0;color:var(--fg)}
 .mTable td:first-child{color:var(--dim2)}
 .mTable th:not(:first-child),.mTable td:not(:first-child){text-align:right}
+
+/* ---------- deformation trend strip ---------- */
+/* Across the foot of the map, sized by the operator. The map furniture and
+   the two floating panels above are offset by --trendH (set from
+   radar-trend-ui.js) rather than by a fixed amount, because the strip is
+   resizable and a compass hidden behind a chart is a compass nobody has. */
+.trendPanel{
+  position:absolute;left:0;right:0;bottom:0;z-index:14;
+  display:flex;flex-direction:column;min-height:0;
+  background:var(--panel);border-top:1px solid var(--line2);
+  box-shadow:0 -4px 14px rgba(0,0,0,0.30);
+}
+/* The drag target has to be grabbable without being a visible bar, so it sits
+   half over the panel edge and only shows itself under the pointer. */
+.trendGrip{
+  position:absolute;left:0;right:0;top:-3px;height:7px;z-index:2;
+  cursor:row-resize;background:transparent;
+}
+.trendGrip:hover,.trendGrip.dragging{background:var(--acc);opacity:.55}
+
+.trendHead{
+  display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;
+  padding:6px 10px;border-bottom:1px solid var(--line);flex:0 0 auto;
+}
+.trendTitle{
+  font-size:10px;font-weight:600;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.5px;flex:0 0 auto;
+}
+.trendWhere{
+  font-family:var(--mono);font-size:10px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46%;
+}
+.trendGap{flex:1 1 auto;min-width:0}
+/* The controls read as a sentence — "of the point I click, rate over 12
+   hours, per hour" — so the label sits beside its select, not above it the
+   way the dock's stacked forms do. */
+.trendCtl{
+  display:flex;align-items:center;gap:5px;margin:0;flex:0 0 auto;
+  font-size:10px;color:var(--dim2);white-space:nowrap;
+}
+.trendCtl select{
+  display:block;width:auto;margin:0;padding:2px 4px;font-size:10.5px;
+  max-width:190px;
+}
+
+/* ---- the four quantities ---- */
+/* Each chip carries its own latest value: with four axes on one chart, "what
+   is it now" should not require finding the right axis first. */
+.trendSeries{
+  display:flex;align-items:center;flex-wrap:wrap;gap:5px;
+  padding:5px 10px;flex:0 0 auto;
+}
+.trendChip{
+  display:flex;align-items:center;gap:6px;cursor:pointer;
+  border:1px solid var(--line2);border-radius:11px;background:transparent;
+  padding:2px 9px 2px 6px;font-size:10px;color:var(--dim2);
+}
+.trendChip:hover{border-color:var(--line2);color:var(--fg)}
+.trendChip.on{color:var(--fg);background:var(--panel2)}
+.trendChip.dead{opacity:.45}
+.trendChip i{width:8px;height:8px;border-radius:50%;flex:0 0 auto;opacity:.35}
+.trendChip.on i{opacity:1}
+.tcName{white-space:nowrap}
+.tcVal{font-family:var(--mono);font-size:10.5px;color:var(--fg)}
+.trendChip:not(.on) .tcVal{color:var(--dim2)}
+.tcVal em{font-style:normal;color:var(--dim2);font-size:9px}
+
+/* ---- the chart ---- */
+/* The chart is the panel. min-height is what guarantees that: a wall with a
+   dozen handovers produces a long note, and without a floor here the note
+   shrinks the plot to nothing and the strip shows everything except the one
+   thing it exists for. */
+.trendPlot{position:relative;flex:1 1 auto;min-height:96px;padding:0 2px}
+#trendCanvas{display:block;width:100%;height:100%;cursor:crosshair}
+/* The span being dragged out. Faint: it sits over the curves it is selecting,
+   and the point of the gesture is to see what is inside it. */
+.trendPlot.dragging #trendCanvas{cursor:ew-resize}
+.trendTip{
+  position:absolute;pointer-events:none;z-index:3;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:3px;
+  padding:5px 7px;font-family:var(--mono);font-size:9.5px;line-height:1.5;
+  color:var(--dim);white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.35);
+}
+.trendTip b{display:block;color:var(--fg);font-weight:600}
+.ttWin{display:block;color:var(--dim2);font-size:9px}
+.ttRow{display:flex;align-items:center;gap:6px;margin-top:2px}
+.ttRow i{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.ttName{flex:1 1 auto}
+.ttVal{margin-left:10px;color:var(--fg)}
+.ttVal em{font-style:normal;color:var(--dim2)}
+
+/* ---- what the reader has to be told about this curve ----
+   A summary line that is always up, and the detail behind a toggle. The whole
+   block yields space before the plot does (flex-shrink 1 against the plot's
+   min-height) and the detail scrolls inside its own bound, so however many
+   folders are joined the chart keeps its room. */
+.trendNote{
+  display:flex;flex-direction:column;min-height:0;flex:0 1 auto;overflow:hidden;
+  padding:4px 10px 6px;font-size:9.5px;line-height:1.5;
+}
+.tnHead{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 14px;flex:0 0 auto}
+.tnBody{
+  flex:1 1 auto;min-height:0;max-height:132px;overflow-y:auto;
+  display:flex;flex-direction:column;gap:3px;
+  margin-top:5px;padding-top:5px;border-top:1px solid var(--line);
+}
+.tnFact{color:var(--dim2)}
+.tnFact b{color:var(--warn);font-weight:600}
+.tnFact .dim{color:var(--dim2);opacity:.75}
+.tnWarn{color:var(--warn)}
+.tnHead .tnWarn{flex:0 0 auto}
+/* The disclosure carries the count, so the summary line says how much is
+   being held back rather than merely that something is. */
+.tnMore{
+  border:1px solid var(--line2);background:transparent;color:var(--dim);
+  border-radius:9px;padding:0 8px;font-size:9.5px;cursor:pointer;flex:0 0 auto;
+}
+.tnMore:hover{border-color:var(--acc2);color:var(--acc2)}
+.tnMore.warn{border-color:var(--warn);color:var(--warn)}
 
 /* ---------- narrow windows ---------- */
 @media (max-width:1180px){

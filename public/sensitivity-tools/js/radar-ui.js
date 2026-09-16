@@ -67,6 +67,12 @@ var RadarUI = (function () {
     sel: [],
     anchor: null,                   // the row Shift-click extends from
     gr: null,                       // active georeference session
+    /* What the last click in the pit turned up: {ids, sel} over the scans that
+       are actually loaded there, so "Only these" has something to isolate. */
+    cover: null,
+    /* True while the view is narrowed to one point's scans — the only reason
+       to offer "Show all", and the only way back once the panel is closed. */
+    isolated: false,
     booted: false
   };
 
@@ -308,6 +314,31 @@ var RadarUI = (function () {
     return false;
   }
 
+  /* ---------------------------------------------- narrowing the cards
+
+     The sheet edits the selection and nothing else, so once there IS one the
+     cards list only it: a card for a folder the colour scale is not about to
+     touch reads as if it were, which is exactly the misreading that makes an
+     operator adjust the wrong wall. With nothing selected the sheet edits the
+     defaults — every scan — so every card belongs. */
+
+  /** Does this wall folder survive the selection filter? */
+  function folderShown(key) {
+    if (!S.sel.length) return true;
+    for (var i = 0; i < S.sel.length; i++) if (S.sel[i].key === key) return true;
+    return false;
+  }
+
+  /** A scan row survives when its folder is selected whole, or it is itself. */
+  function scanShown(key, id) {
+    if (!S.sel.length) return true;
+    for (var i = 0; i < S.sel.length; i++) {
+      if (S.sel[i].key !== key) continue;
+      if (!S.sel[i].id || S.sel[i].id === id) return true;
+    }
+    return false;
+  }
+
   /* Reflect the selection into every control the sheet owns. */
   function syncScaleForm() {
     if (!S.booted) return;
@@ -365,6 +396,13 @@ var RadarUI = (function () {
         : 'Tie this wall folder to the mine grid';
 
     $('radarSelClear').disabled = !S.sel.length;
+
+    /* Checked here rather than once at bind time: the trend strip is a
+       separate file that may attach after this one, and a button hidden on a
+       race would stay hidden for the whole session. */
+    var tr = $('radarTrend');
+    if (tr) tr.classList.toggle('hidden', !window.RadarTrendUI);
+
     renderStyleNote();
   }
 
@@ -1103,12 +1141,18 @@ var RadarUI = (function () {
     if (!S.booted) return;
     sortFolders();
     var host = $('radarFolders'), out = [];
+    /* Folders that COULD be carded, before the selection narrows them — what
+       the "showing n of m" note counts, and what decides whether the "drop a
+       scan" introduction is still the right thing on screen. */
+    var total = 0;
 
     for (var i = 0; i < S.order.length; i++) {
       var f = S.folders[S.order[i]];
       /* Registry-only folders are held for the coverage panel, not shown here
          — see listFolders(). A card with no scan under it offers nothing. */
       if (!f.scans.length) continue;
+      total++;
+      if (!folderShown(f.key)) continue;
       var placed = !!f.transform;
       var cls = placed ? 'placed' : 'unplaced';
 
@@ -1121,6 +1165,7 @@ var RadarUI = (function () {
       var scans = [];
       for (var j = 0; j < f.scans.length; j++) {
         var s = f.scans[j], m = s.scan.meta;
+        if (!scanShown(f.key, s.id)) continue;
         var peak = Math.max(Math.abs(s.scan.defMin), Math.abs(s.scan.defMax));
         scans.push(
           '<div class="scanRow' + (isSelected(f.key, s.id) ? ' sel' : '') +
@@ -1151,12 +1196,63 @@ var RadarUI = (function () {
       );
     }
 
+    /* Say so when cards are missing, and carry the way back — otherwise the
+       narrowed list is indistinguishable from scans having been unloaded. */
+    if (out.length < total) {
+      out.unshift(
+        '<div class="folderFilter"><span>Showing ' + out.length + ' of ' + total +
+        ' wall folders — the selection.</span>' +
+        '<button class="miniBtn" data-showall="1" ' +
+        'title="Clear the selection and list every wall folder again.">Show all</button></div>'
+      );
+    }
+
     host.innerHTML = out.join('');
-    /* Keyed off the cards actually drawn, not off S.order: a registry listing
-       must not make the "drop a scan" introduction disappear. */
-    $('radarIntro').classList.toggle('hidden', out.length > 0);
+    /* Keyed off the folders that HAVE scans, not off the cards drawn: neither a
+       registry listing nor a narrowed selection may bring the "drop a scan"
+       introduction back. */
+    $('radarIntro').classList.toggle('hidden', total > 0);
     /* the folders are also rows in the layer tree */
     if (window.SensiMap && SensiMap.refreshTree) SensiMap.refreshTree();
+    announce();
+  }
+
+  /**
+   * Every scan that is loaded AND placed, for whoever wants to measure them.
+   *
+   * The opposite handout from listFolders(): the trend chart samples the
+   * pixels, so it needs the raster, the coverage index and the meshed
+   * positions themselves rather than labels. Unplaced folders are left out
+   * because a scan with no transform has no mine-grid position, so there is no
+   * point on the ground it could be asked about.
+   */
+  function placedScans() {
+    var out = [];
+    for (var i = 0; i < S.order.length; i++) {
+      var f = S.folders[S.order[i]];
+      if (!f.transform) continue;
+      for (var j = 0; j < f.scans.length; j++) {
+        var s = f.scans[j];
+        if (!s.scan) continue;
+        out.push({
+          id: s.id, key: f.key, scan: s.scan, cidx: s.cidx, mesh: s.mesh,
+          visible: !!s.visible
+        });
+      }
+    }
+    return out;
+  }
+
+  /* Anything built ON the scans — currently the trend strip — has to be told
+     when one lands, is placed, or is hidden, or it goes on describing a set
+     the operator has already changed. render() is the one call every such
+     change already ends in, so it is the honest place to announce it. */
+  var WATCHERS = [];
+  function onChange(fn) { if (typeof fn === 'function') WATCHERS.push(fn); }
+  function announce() {
+    for (var i = 0; i < WATCHERS.length; i++) {
+      try { WATCHERS[i](); } catch (e) { /* a broken watcher must not stop the redraw */ }
+    }
   }
 
   /**
@@ -1256,6 +1352,22 @@ var RadarUI = (function () {
     var body = $('coverBody'), panel = $('coverPanel');
     $('coverTitle').textContent = 'Wall folders here';
 
+    /* What "Only these" would isolate: the scans that are actually loaded at
+       this point. A folder known from the registry alone is listed — that is
+       the point of the registry — but it has no pixels to draw, so it cannot
+       be part of an answer about what is on screen. */
+    var ids = [], sel = [];
+    for (var a = 0; a < found.length; a++) {
+      for (var b = 0; b < found[a].scans.length; b++) {
+        var sc = found[a].scans[b];
+        if (!sc.id) continue;
+        ids.push(sc.id);
+        sel.push({ key: found[a].folder.key, id: sc.id });
+      }
+    }
+    S.cover = { ids: ids, sel: sel };
+    syncCoverActs();
+
     if (!found.length) {
       body.innerHTML = '<div class="coverEmpty">No registered wall folder covers ' +
         num(hit.x, 0) + ', ' + num(hit.y, 0) + '.<br>' +
@@ -1293,6 +1405,68 @@ var RadarUI = (function () {
     panel.classList.remove('hidden');
   }
 
+  /** Offer "Only these" when there is something to isolate, and "Show all" for
+   *  as long as anything is hidden — including after a click that found nothing. */
+  function syncCoverActs() {
+    var acts = $('coverActs');
+    if (!acts) return;
+    var only = $('coverOnly'), all = $('coverAll'), tr = $('coverTrend');
+    var n = S.cover ? S.cover.ids.length : 0;
+    only.disabled = !n;
+    only.classList.toggle('hidden', !n);
+    only.textContent = n === 1 ? 'Only this scan' : 'Only these ' + n;
+    all.classList.toggle('hidden', !S.isolated);
+    /* A trend is a line THROUGH scans, so one is not enough to draw and the
+       offer is withdrawn rather than left to disappoint. The strip itself is
+       an optional file; without it there is nothing to open. */
+    if (tr) tr.classList.toggle('hidden', n < 2 || !window.RadarTrendUI);
+    acts.classList.toggle('hidden', !n && !S.isolated);
+  }
+
+  /**
+   * Narrow the tool to one spot: draw only the scans that cover the clicked
+   * point, hide every other one, and point Properties at them.
+   *
+   * Both halves matter. Hiding the rest is what makes a wall watched by four
+   * overlapping folders readable at all; selecting them is what makes the next
+   * colour-scale edit land on the scans being looked at rather than on all of
+   * them. `S.isolated` is the only record that anything is hidden, so "Show
+   * all" survives the panel being closed and re-opened somewhere else.
+   */
+  function isolateCover() {
+    if (!S.cover || !S.cover.ids.length) return;
+    var want = Object.create(null);
+    for (var i = 0; i < S.cover.ids.length; i++) want[S.cover.ids[i]] = 1;
+
+    var V = viewer(), shown = 0, hid = 0;
+    for (var j = 0; j < S.order.length; j++) {
+      var f = S.folders[S.order[j]];
+      if (!f.transform) continue;
+      for (var k = 0; k < f.scans.length; k++) {
+        var rec = f.scans[k], on = !!want[rec.id];
+        if (on) shown++;
+        else if (rec.visible) hid++;
+        rec.visible = on;
+        if (V && rec.mesh) V.setScanOpts(rec.id, { visible: on });
+      }
+    }
+    S.isolated = true;
+    if (V) V.draw();
+    /* Re-renders the cards, which the new selection now narrows as well. */
+    setSelection(S.cover.sel);
+    syncCoverActs();
+    status('Showing the ' + (shown === 1 ? 'one scan' : shown + ' scans') +
+      ' covering that point' + (hid ? ' — ' + hid + ' hidden' : '') + '.');
+  }
+
+  /** Undo an isolate: every scan back on, and back to editing the defaults. */
+  function showAllScans() {
+    S.isolated = false;
+    setSelection([]);
+    setVisible(null, true);
+    syncCoverActs();
+  }
+
   /* ---------------------------------------------- wiring */
 
   /* The shell decides where the deformation panel lives; all this module
@@ -1325,6 +1499,7 @@ var RadarUI = (function () {
       if (geo) { startGeoref(geo); return; }
       var vis = t.getAttribute && t.getAttribute('data-vis');
       if (vis) { toggleScan(vis); return; }
+      if (t.getAttribute && t.getAttribute('data-showall')) { showAllScans(); return; }
       /* The cards are the same rows as the tree's, so clicking one selects it
          there too — two lists of the same thing must not disagree about which
          of them is being edited. */
@@ -1336,6 +1511,20 @@ var RadarUI = (function () {
     });
 
     $('coverClose').onclick = function () { $('coverPanel').classList.add('hidden'); };
+    $('coverOnly').onclick = isolateCover;
+    $('coverAll').onclick = showAllScans;
+    /* The trend strip is a separate file, so both of its buttons are wired
+       only if it is there — a build without it must not carry a dead control. */
+    if ($('coverTrend')) {
+      $('coverTrend').onclick = function () {
+        if (window.RadarTrendUI) RadarTrendUI.openHere();
+      };
+    }
+    if ($('radarTrend')) {
+      $('radarTrend').onclick = function () {
+        if (window.RadarTrendUI) RadarTrendUI.open();
+      };
+    }
 
     /* ---- selection ---- */
     $('radarGeoref').onclick = function () {
@@ -1559,6 +1748,9 @@ var RadarUI = (function () {
         n++;
       }
     }
+    /* The tree's group tick undoes an isolate just as well as the panel's own
+       button does, so stop offering a way back that has already been taken. */
+    if (key == null && on) { S.isolated = false; syncCoverActs(); }
     if (!n) return;
     if (V) V.draw();
     render();
@@ -1573,6 +1765,8 @@ var RadarUI = (function () {
 
   return {
     acceptFile: acceptFile, folders: listFolders,
+    /* what the trend chart measures, and how it hears that the set changed */
+    scans: placedScans, onChange: onChange,
     toggleScan: toggleScan, setVisible: setVisible, georeference: startGeoref,
     /* the layer tree drives the same selection this sheet is written against */
     pick: pickRow, setSelection: setSelection, selection: selection,
