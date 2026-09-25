@@ -31,7 +31,7 @@ export function DataAgeBadge({
       className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
         stale
           ? 'border-[var(--status-serious)]/35 bg-[var(--status-serious)]/12 text-[var(--status-serious)]'
-          : 'border-border bg-muted text-muted-foreground'
+          : 'border-border bg-muted text-[var(--dtg-text-muted)]'
       } ${className}`}
       title={
         age.observedAt

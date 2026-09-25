@@ -94,7 +94,7 @@ export function StationBinding({
     <Card>
       <CardHeader className="border-b">
         <CardTitle className="text-base font-semibold">Bind a weather station</CardTitle>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
           Public Ambient Weather stations near this site. Binding starts the
           five-minute poll; the index needs about 40 minutes of history before it
           will score.
@@ -104,7 +104,7 @@ export function StationBinding({
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs">
-            <span className="mb-1 block text-muted-foreground">Radius (km)</span>
+            <span className="mb-1 block text-[var(--dtg-text-muted)]">Radius (km)</span>
             <Input
               type="number"
               min={1}
@@ -135,7 +135,7 @@ export function StationBinding({
         )}
 
         {result && result.candidates.length === 0 && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-[var(--dtg-text-muted)]">
             No public stations within {result.radiusKm} km. Try a wider radius —
             public coverage in remote mining areas is thin.
           </p>
@@ -148,7 +148,7 @@ export function StationBinding({
                 Candidate stations with distance and available sensors
               </caption>
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <tr className="border-b border-border text-left text-xs text-[var(--dtg-text-muted)]">
                   <th className="px-3 py-2 font-medium">Station</th>
                   <th className="px-3 py-2 font-medium">Distance</th>
                   <th className="px-3 py-2 font-medium">Sensors</th>
@@ -167,7 +167,7 @@ export function StationBinding({
                     <tr key={c.macAddress} className="border-b border-border/60 last:border-0">
                       <td className="px-3 py-2">
                         <div className="font-medium">{c.name}</div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs text-[var(--dtg-text-muted)]">
                           {c.macAddress}
                           {c.timezone && ` · ${c.timezone}`}
                         </div>
@@ -185,7 +185,7 @@ export function StationBinding({
                                 className={`rounded px-1.5 py-0.5 text-[10px] ${
                                   has
                                     ? 'bg-muted text-foreground'
-                                    : 'text-muted-foreground line-through'
+                                    : 'text-[var(--dtg-text-muted)] line-through'
                                 }`}
                               >
                                 {s.label}
@@ -200,7 +200,7 @@ export function StationBinding({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                      <td className="px-3 py-2 text-xs text-[var(--dtg-text-muted)]">
                         {describeAge(age)}
                       </td>
                       <td className="px-3 py-2 text-right">

@@ -1567,6 +1567,16 @@ html {
 /*   light  #d2691e / #3498db  CVD dE 25.0, normal 28.9, >=3:1    */
 /*   dark   #d95926 / #3987e5  CVD dE 26.8, normal 31.8, >=3:1    */
 /*                                                               */
+/* The rainfall pair (--fog-rain-daily teal / --fog-rain blue) is   */
+/* the one place two ADJACENT hues share a plot, because the      */
+/* panel mirrors the station vendor's chart. Teal is darkened in  */
+/* light mode to clear 3:1 (#0f9b93 = 3.43:1 on white; dark mode  */
+/* keeps the vendor's #4ecdc4 at 7.42:1). The two are close under */
+/* deuteranopia, so colour is never the only cue: each series is  */
+/* named in the legend and again in the tooltip, they carry       */
+/* different units on separate axes, and a step accumulation and  */
+/* a spiking rate do not share a shape.                           */
+/*                                                               */
 /* Status steps are the reserved good/warning/serious/critical    */
 /* scale and are mode-invariant by design. On the light surface   */
 /* warning and serious sit below 3:1 — every use pairs them with  */
@@ -1575,7 +1585,8 @@ html {
 :root {
   --fog-temp: #d2691e;      /* temperature line */
   --fog-dew: #3498db;       /* dew point line */
-  --fog-rain: #3498db;      /* rainfall bars, single series */
+  --fog-rain: #3498db;      /* instantaneous rain rate */
+  --fog-rain-daily: #0f9b93;  /* calendar-day rain accumulator */
   --fog-sat-band: #3498db;  /* saturation window shading */
   --fog-missing: #898781;   /* hours nobody watched */
   --fog-grid: #e1e0d9;
@@ -1592,6 +1603,7 @@ html.dark {
   --fog-temp: #d95926;
   --fog-dew: #3987e5;
   --fog-rain: #3987e5;
+  --fog-rain-daily: #4ecdc4;
   --fog-sat-band: #3987e5;
   --fog-missing: #898781;
   --fog-grid: #2c2c2a;

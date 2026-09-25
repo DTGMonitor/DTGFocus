@@ -10,6 +10,7 @@ import {
   fetchDailyRain,
   fetchHourlyRain,
   fetchLatestReading,
+  fetchReadings,
 } from '@/lib/weather/repository';
 import { localHourStart, MIN_COVERED_MINUTES } from '@/lib/weather/rainfall';
 import {
@@ -23,6 +24,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const RangeSchema = z.enum(['24h', '7d']).catch('24h');
+
+/** The window's closing instant. Absent, unparseable or future all mean "now". */
+const EndSchema = z
+  .string()
+  .datetime({ offset: true })
+  .transform((s) => new Date(s))
+  .nullable()
+  .catch(null);
 
 const HOURS_IN_RANGE = { '24h': 24, '7d': 24 * 7 } as const;
 
@@ -90,35 +99,84 @@ export async function GET(
   const site = await resolveSite(id);
   if (site instanceof NextResponse) return site;
 
-  const range = RangeSchema.parse(
-    new URL(request.url).searchParams.get('range')
-  );
+  const params = new URL(request.url).searchParams;
+  const range = RangeSchema.parse(params.get('range'));
 
   const now = new Date();
-  const hourlyFrom = new Date(now.getTime() - HOURS_IN_RANGE[range] * 3_600_000);
-  const dailyFrom = new Date(now.getTime() - DAILY_DAYS * 24 * 3_600_000);
+
+  // `end` ANCHORS the window to an instant other than now, which is what lets a
+  // report print the same weather every time it is regenerated. The live fog
+  // monitor omits it and gets "now"; the daily report passes the end of the
+  // report day, so reissuing last Tuesday's report reproduces last Tuesday's
+  // rainfall instead of today's under last Tuesday's masthead.
+  //
+  // A future or unparseable value falls back to now rather than erroring: a
+  // clock-skewed caller should get the live window, not a failed panel.
+  const requestedEnd = EndSchema.parse(params.get('end'));
+  const anchored = requestedEnd !== null && requestedEnd.getTime() < now.getTime();
+  const end = anchored ? (requestedEnd as Date) : now;
+
+  const hourlyFrom = new Date(end.getTime() - HOURS_IN_RANGE[range] * 3_600_000);
+  const dailyFrom = new Date(end.getTime() - DAILY_DAYS * 24 * 3_600_000);
   const tz = site.station.timezone;
 
   try {
-    const [hourly, daily, latest] = await Promise.all([
+    const [hourly, daily, liveLatest, readings] = await Promise.all([
       fetchHourlyRain(
         site.supabase,
         site.station.mac_address,
-        localHourStart(hourlyFrom, tz).toISOString()
+        localHourStart(hourlyFrom, tz).toISOString(),
+        end.toISOString()
       ),
       fetchDailyRain(
         site.supabase,
         site.station.mac_address,
-        dailyFrom.toISOString()
+        dailyFrom.toISOString(),
+        end.toISOString()
       ),
-      fetchLatestReading(site.supabase, site.station.mac_address),
+      // Skipped entirely when anchored — "the newest reading that exists" is
+      // the wrong answer for a window that closed days ago.
+      anchored ? null : fetchLatestReading(site.supabase, site.station.mac_address),
+      fetchReadings(
+        site.supabase,
+        site.station.mac_address,
+        hourlyFrom.toISOString(),
+        end.toISOString()
+      ),
     ]);
+
+    // Anchored, the window's own last reading IS the latest: it is what the
+    // station knew when the window closed.
+    const latest = anchored
+      ? (readings.length ? readings[readings.length - 1] : null)
+      : liveLatest;
+
+    // Both columns exactly as the station reports them, with no derivation in
+    // between. `rain_daily_mm` IS the station's calendar-day accumulator: it
+    // climbs through the day and drops to zero at local midnight, and that
+    // reset is part of the reading, not an artefact to smooth away.
+    //
+    // Verified against the vendor's own export (public/Ambient_Exported.csv)
+    // across 2213 readings: these two columns reproduce its "Daily Rain" and
+    // "Rain Rate" series, so the chart and the vendor's agree by construction
+    // rather than by coincidence.
+    const series = readings.map((r) => ({
+      observedAt: r.observed_at,
+      rainDailyMm: r.rain_daily_mm,
+      rainRateMmh: r.rain_rate_mmh,
+    }));
 
     return NextResponse.json({
       station: stationSummary(site.station),
       range,
 
       hourly: fillHourGrid(hourly, hourlyFrom, now, tz),
+
+      // The chart's two lines, at reading cadence. Kept at full resolution
+      // for the same reason the convergence chart is: a rain rate spike is
+      // often a single five-minute sample, and downsampling would delete the
+      // one reading that mattered.
+      series,
 
       daily: daily.map((d) => ({
         dayStart: d.day_start,

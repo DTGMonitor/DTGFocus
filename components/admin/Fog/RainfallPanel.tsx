@@ -2,92 +2,89 @@
 
 // components/admin/Fog/RainfallPanel.tsx
 //
-// Hourly rainfall bars and seven days of daily totals.
+// Rainfall as two lines, laid out the way the station vendor's own chart lays
+// them out: the daily accumulator and the instantaneous rate, on one plot, one
+// axis, and a legend in the top right.
 //
-// The rule this whole panel exists to honour: A MISSING HOUR AND A DRY HOUR
-// MUST NOT LOOK THE SAME. A dry hour is a real measurement of zero and draws a
-// flat bar at the baseline. An hour nobody polled has no bar at all and gets a
-// muted band across the plot, because "no rain fell" and "we were not watching"
-// are opposite operational facts and only one of them is reassuring.
+// BOTH SERIES ARE THE STATION'S OWN COLUMNS, UNDERIVED. "Daily Rain" is
+// `rain_daily_mm` exactly as reported — a CALENDAR-DAY accumulator that climbs
+// through the local day and drops to zero at local midnight. The drop is a
+// real feature of the instrument and is drawn, not smoothed: an operator
+// comparing this panel against the vendor's app must see the same shape, and a
+// cleverer series here would be a second opinion nobody asked for. Checked
+// against the vendor's export in public/Ambient_Exported.csv over 2213
+// readings.
 //
-// Both series are magnitude with no identity to encode, so each is a SINGLE
-// colour for every bar. Colouring bars darker-where-bigger would spend the
-// identity channel re-encoding what bar height already shows.
+// The consequence to know when reading it: at 00:05 the line says 0 mm even if
+// 40 mm fell six hours earlier. That is what the vendor's chart says too. Use
+// the hourly totals, which are reset-aware, for "how much rain has this slope
+// taken lately".
+//
+// WHY ONE AXIS FOR TWO UNITS. mm and mm/h are not the same quantity, and on a
+// chart of our own design they would get two scales or two plots. This panel
+// deliberately mirrors the vendor chart the site team already reads, so the
+// shared axis is kept: the two quantities are related (a rate integrates to a
+// depth) and similarly scaled in practice, and the cost is that the crossing
+// of the two lines means nothing. Nothing in the panel invites reading it.
+//
+// THE RULE THIS PANEL HAS ALWAYS EXISTED TO HONOUR still holds, and the line
+// form makes it sharper rather than softer: A MISSING HOUR AND A DRY HOUR MUST
+// NOT LOOK THE SAME. A dry hour is a measurement and draws a line along the
+// baseline. An hour nobody polled breaks the line and gets a muted band.
 
 import { useMemo, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  LabelList,
-  ReferenceArea,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import { CloudRain, Table2, BarChart3 } from 'lucide-react';
+import { CloudRain, Table2, LineChart as LineChartIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataAgeBadge } from './DataAgeBadge';
 import { inZone, num } from './fogPresentation';
+import {
+  prepareRain,
+  RainfallChart,
+  SCREEN_PALETTE,
+  type RainPoint,
+} from './RainfallChart';
 import type { RainfallResponse } from './types';
 
-interface HourPoint {
-  key: string;
-  t: number;
-  rainMm: number | null;
-  missing: boolean;
-  coveredMinutes: number;
+const RAIN_DAILY = SCREEN_PALETTE.daily;
+const RAIN_RATE = SCREEN_PALETTE.rate;
+
+/** Trailing zeros are noise: 14 mm is 14 mm, not 14.00 mm. */
+function trim(v: number): string {
+  return String(Math.round(v * 100) / 100);
 }
 
-/** Merge consecutive unobserved hours into spans, for a single muted band. */
-function missingSpans(points: HourPoint[]): { from: string; to: string }[] {
-  const spans: { from: string; to: string }[] = [];
-  let start: string | null = null;
-  let previous: string | null = null;
-
-  for (const p of points) {
-    if (p.missing && start === null) start = p.key;
-    if (!p.missing && start !== null && previous !== null) {
-      spans.push({ from: start, to: previous });
-      start = null;
-    }
-    previous = p.key;
-  }
-  if (start !== null && previous !== null) spans.push({ from: start, to: previous });
-  return spans;
-}
-
-function HourTooltip({
+function RainTooltip({
   active,
   payload,
   timezone,
-  minCovered,
 }: {
   active?: boolean;
-  payload?: { payload: HourPoint }[];
+  payload?: { payload: RainPoint }[];
   timezone: string;
-  minCovered: number;
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
+  if (p.rainDailyMm === null && p.rainRateMmh === null) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
-      <div className="font-medium">{inZone(p.t, timezone, 'd MMM HH:mm')}</div>
-      {p.rainMm === null ? (
-        <div className="mt-1 text-muted-foreground">
-          Not measured — only {Math.round(p.coveredMinutes)} of the 60 minutes
-          were observed ({minCovered} needed).
+    <div className="rounded-lg border border-border bg-[var(--dtg-bg-card)] px-3 py-2 text-xs shadow-md">
+      {/* The offset is part of the timestamp. The station is not necessarily
+          on the reader's clock, and a bare "23:30" would not say so. */}
+      <div className="mb-1 text-[var(--dtg-text-muted)]">
+        {inZone(p.t, timezone, 'MMM d HH:mm X')}
+      </div>
+      <div className="space-y-0.5 tabular-nums">
+        <div style={{ color: RAIN_DAILY }}>
+          Daily Rain :{' '}
+          {p.rainDailyMm === null ? 'not measured' : `${trim(p.rainDailyMm)} mm`}
         </div>
-      ) : (
-        <div className="mt-1 tabular-nums">
-          <span className="font-medium">{p.rainMm.toFixed(2)} mm</span>
-          {p.rainMm === 0 && (
-            <span className="text-muted-foreground"> — dry, and measured as dry</span>
-          )}
+        <div style={{ color: RAIN_RATE }}>
+          Rain Rate :{' '}
+          {p.rainRateMmh === null
+            ? 'not measured'
+            : `${trim(p.rainRateMmh)} mm/hr`}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -106,27 +103,16 @@ export function RainfallPanel({
 }) {
   const [showTable, setShowTable] = useState(false);
 
-  const { hours, gaps, ticks, observedTotal, missingCount } = useMemo(() => {
-    const tz = data?.station.timezone ?? 'UTC';
-    const points: HourPoint[] = (data?.hourly ?? []).map((h) => ({
-      key: h.hourStart,
-      t: new Date(h.hourStart).getTime(),
-      rainMm: h.rainMm,
-      missing: h.missing || h.rainMm === null,
-      coveredMinutes: h.coveredMinutes,
-    }));
-
-    const every = range === '24h' ? 3 : 24;
-    return {
-      hours: points,
-      gaps: missingSpans(points),
-      ticks: points
-        .filter((p) => Number(inZone(p.t, tz, 'H')) % every === 0)
-        .map((p) => p.key),
-      observedTotal: points.reduce((s, p) => s + (p.rainMm ?? 0), 0),
-      missingCount: points.filter((p) => p.missing).length,
-    };
-  }, [data, range]);
+  const { points, latest, missingCount } = useMemo(
+    () =>
+      prepareRain(
+        data?.series ?? [],
+        data?.hourly ?? [],
+        data?.station.timezone ?? 'UTC',
+        range
+      ),
+    [data, range]
+  );
 
   if (!data) return null;
   const tz = data.station.timezone;
@@ -136,10 +122,10 @@ export function RainfallPanel({
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-semibold">Rainfall</CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Hourly totals from the station&apos;s daily accumulator, not from its
-              instantaneous rate.
+            <CardTitle className="text-base text-[var(--dtg-text-muted)] font-semibold">Rainfall</CardTitle>
+            <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
+              The station&apos;s own two series, unmodified. Daily rain is its
+              calendar-day accumulator, so it drops to zero at local midnight.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -153,11 +139,11 @@ export function RainfallPanel({
             <button
               type="button"
               onClick={() => setShowTable((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-[var(--dtg-text-muted)] font-medium hover:bg-accent"
               aria-pressed={showTable}
             >
               {showTable ? (
-                <BarChart3 className="size-3.5" aria-hidden />
+                <LineChartIcon className="size-3.5" aria-hidden />
               ) : (
                 <Table2 className="size-3.5" aria-hidden />
               )}
@@ -167,189 +153,116 @@ export function RainfallPanel({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        <div>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Hourly · last {range === '24h' ? '24 hours' : '7 days'}
+      <CardContent>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--dtg-text-muted)]">
+            <h4 className="font-semibold uppercase tracking-wider">
+              Last {range === '24h' ? '24 hours' : '7 days'}
             </h4>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="h-3 w-3 rounded-sm"
-                  style={{ background: 'var(--fog-rain)' }}
-                />
-                Measured
-              </span>
+            <span className="tabular-nums">
+              {latest?.rainDailyMm !== null && latest !== null
+                ? `${trim(latest.rainDailyMm as number)} mm so far today`
+                : 'no current daily total'}
+            </span>
+            {missingCount > 0 && (
               <span className="inline-flex items-center gap-1.5">
                 <span
                   className="h-3 w-3 rounded-sm"
                   style={{ background: 'var(--fog-missing)', opacity: 0.35 }}
                 />
-                Not observed
+                {missingCount} h unwatched
               </span>
-              <span className="tabular-nums">
-                {observedTotal.toFixed(1)} mm observed
-                {missingCount > 0 && ` · ${missingCount} h unwatched`}
-              </span>
-            </div>
+            )}
           </div>
 
-          {showTable ? (
-            <div className="max-h-[280px] overflow-auto rounded-lg border border-border">
-              <table className="w-full text-xs tabular-nums">
-                <caption className="sr-only">
-                  Hourly rainfall totals with observation coverage
-                </caption>
-                <thead className="sticky top-0 bg-card">
-                  <tr className="border-b border-border text-left">
-                    <th className="px-3 py-2 font-medium">Hour ({tz})</th>
-                    <th className="px-3 py-2 text-right font-medium">Rain mm</th>
-                    <th className="px-3 py-2 text-right font-medium">Covered min</th>
+          {/* Legend where the vendor chart puts it, and the only place the
+              two series are named outside the tooltip — so the pair is never
+              distinguished by hue alone. */}
+          <div className="flex items-center gap-4 text-xs">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="size-2.5 rounded-full"
+                style={{ background: RAIN_DAILY }}
+              />
+              <span style={{ color: RAIN_DAILY }}>Daily Rain</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="size-2.5 rounded-full"
+                style={{ background: RAIN_RATE }}
+              />
+              <span style={{ color: RAIN_RATE }}>Rain Rate</span>
+            </span>
+          </div>
+        </div>
+
+        {showTable ? (
+          <div className="max-h-[320px] overflow-auto rounded-lg border border-border">
+            <table className="w-full text-xs tabular-nums">
+              <caption className="sr-only">
+                Every reading in the window, with the station&apos;s daily
+                accumulator and its instantaneous rate
+              </caption>
+              <thead className="sticky top-0 bg-card">
+                <tr className="border-b border-border text-left">
+                  <th className="px-3 py-2 font-medium">Time ({tz})</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Daily rain mm
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">Rate mm/hr</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.series.map((s) => (
+                  <tr
+                    key={s.observedAt}
+                    className="border-b border-border/50 last:border-0"
+                  >
+                    <td className="px-3 py-1.5">
+                      {inZone(s.observedAt, tz, 'd MMM HH:mm')}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {s.rainDailyMm === null ? (
+                        <span className="text-[var(--dtg-text-muted)]">not measured</span>
+                      ) : (
+                        s.rainDailyMm.toFixed(2)
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {s.rainRateMmh === null ? (
+                        <span className="text-[var(--dtg-text-muted)]">not measured</span>
+                      ) : (
+                        s.rainRateMmh.toFixed(2)
+                      )}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {hours.map((h) => (
-                    <tr key={h.key} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-1.5">{inZone(h.t, tz, 'd MMM HH:mm')}</td>
-                      <td className="px-3 py-1.5 text-right">
-                        {h.rainMm === null ? (
-                          <span className="text-muted-foreground">not measured</span>
-                        ) : (
-                          h.rainMm.toFixed(2)
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-right text-muted-foreground">
-                        {Math.round(h.coveredMinutes)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="h-[200px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={hours} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
-                  {gaps.map((g) => (
-                    <ReferenceArea
-                      key={g.from}
-                      x1={g.from}
-                      x2={g.to}
-                      fill="var(--fog-missing)"
-                      fillOpacity={0.14}
-                      strokeOpacity={0}
-                    />
-                  ))}
-                  <CartesianGrid stroke="var(--fog-grid)" strokeWidth={1} vertical={false} />
-                  <XAxis
-                    dataKey="key"
-                    ticks={ticks}
-                    tickFormatter={(k: string) => inZone(k, tz, range === '24h' ? 'HH:mm' : 'd MMM')}
-                    tick={{ fontSize: 11, fill: 'var(--fog-ink-muted)' }}
-                    stroke="var(--fog-axis)"
-                    tickLine={false}
-                    interval={0}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: 'var(--fog-ink-muted)' }}
-                    stroke="var(--fog-axis)"
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                    label={{
-                      value: 'mm',
-                      position: 'insideTopLeft',
-                      fontSize: 10,
-                      fill: 'var(--fog-ink-muted)',
-                    }}
-                  />
-                  <Tooltip
-                    content={
-                      <HourTooltip
-                        timezone={tz}
-                        minCovered={data.coverageRule.minCoveredMinutes}
-                      />
-                    }
-                    cursor={{ fill: 'var(--fog-axis)', fillOpacity: 0.12 }}
-                  />
-                  {/* A null value renders no bar at all — which is the point.
-                      minPointSize forces a MEASURED zero to draw a 2px mark at
-                      the baseline: without it recharts drops zero-height bars
-                      entirely, and a dry hour becomes pixel-identical to an
-                      hour nobody watched. That is the one confusion this whole
-                      panel exists to prevent. */}
-                  <Bar
-                    dataKey="rainMm"
-                    fill="var(--fog-rain)"
-                    radius={[3, 3, 0, 0]}
-                    minPointSize={2}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Daily totals · 7 days
-          </h4>
-          <div className="h-[160px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.daily.map((d) => ({
-                  ...d,
-                  label: inZone(d.dayStart, tz, 'd MMM'),
-                }))}
-                margin={{ top: 16, right: 8, bottom: 4, left: 0 }}
-                barCategoryGap="22%"
-              >
-                <CartesianGrid stroke="var(--fog-grid)" strokeWidth={1} vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 11, fill: 'var(--fog-ink-muted)' }}
-                  stroke="var(--fog-axis)"
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: 'var(--fog-ink-muted)' }}
-                  stroke="var(--fog-axis)"
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Bar
-                  dataKey="rainMm"
-                  fill="var(--fog-rain)"
-                  radius={[3, 3, 0, 0]}
-                  minPointSize={2}
-                  isAnimationActive={false}
-                >
-                  {/* Only seven bars, so every one is directly labelled and the
-                      tooltip is an enhancement rather than the only way in. */}
-                  <LabelList
-                    dataKey="rainMm"
-                    position="top"
-                    fontSize={10}
-                    fill="var(--fog-ink-muted)"
-                    formatter={(v: unknown) =>
-                      typeof v === 'number' ? v.toFixed(1) : ''
-                    }
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {data.daily.some((d) => !d.complete) && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Days with fewer than 24 observed hours are a floor, not a total —
-              the station&apos;s counter resets at local midnight, so we can only
-              report the highest value we saw before it did.
-            </p>
-          )}
-        </div>
+        ) : points.length === 0 ? (
+          <p className="py-12 text-center text-sm text-[var(--dtg-text-muted)]">
+            No readings in the last {range === '24h' ? '24 hours' : '7 days'}.
+          </p>
+        ) : (
+          <div className="h-[280px] w-full">
+            <RainfallChart
+              series={data.series}
+              hourly={data.hourly}
+              timezone={tz}
+              range={range}
+              tooltip={<RainTooltip timezone={tz} />}
+            />
+          </div>
+        )}
+
+        {missingCount > 0 && (
+          <p className="mt-2 text-xs text-[var(--dtg-text-muted)]">
+            Banded stretches are hours nobody polled. The lines break across
+            them rather than running through — rain may have fallen unseen, and
+            the accumulator only tells us where it ended up, not when.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

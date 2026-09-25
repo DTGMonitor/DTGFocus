@@ -396,6 +396,19 @@ function rainResponse(): RainfallResponse {
       { dayStart: '2026-08-07T16:00:00Z', rainMm: 12.4, sampleCount: 288, hoursObserved: 24, complete: true },
       { dayStart: '2026-08-08T16:00:00Z', rainMm: 3.1, sampleCount: 90, hoursObserved: 9, complete: false },
     ],
+    // Reading cadence, which is what the two lines are drawn from. Five
+    // minutes apart until the hole, which is two hours wide — past
+    // MAX_CONNECT_MINUTES, so the lines must break across it.
+    //
+    // Values are the station's own columns: rainDailyMm is the calendar-day
+    // accumulator, so it climbs and would drop to zero at local midnight.
+    series: [
+      { observedAt: '2026-08-08T01:00:00Z', rainDailyMm: 0, rainRateMmh: 0 },
+      { observedAt: '2026-08-08T01:05:00Z', rainDailyMm: 2.4, rainRateMmh: 23.4 },
+      { observedAt: '2026-08-08T01:10:00Z', rainDailyMm: 2.4, rainRateMmh: 0 },
+      { observedAt: '2026-08-08T03:10:00Z', rainDailyMm: 2.4, rainRateMmh: 0 },
+      { observedAt: '2026-08-08T03:15:00Z', rainDailyMm: null, rainRateMmh: null },
+    ],
     currentRate: { rainRateMmh: 0, raining: false },
     coverageRule: { minCoveredMinutes: 45, note: 'Hours below the coverage threshold report null, not zero.' },
     dataAge: { observedAt: '2026-08-08T21:00:00Z', ageMinutes: 3, stale: false },
@@ -403,41 +416,94 @@ function rainResponse(): RainfallResponse {
 }
 
 describe('rainfall', () => {
-  test('an unwatched hour and a dry hour are not the same in the table', async () => {
-    // The rule the whole panel exists for. A dry hour is a measurement; an
-    // unwatched hour is an absence, and they must never read alike.
+  test('a dry reading and an unmeasured one are not the same in the table', async () => {
+    // The rule the whole panel exists for. A dry reading is a measurement; an
+    // unmeasured one is an absence, and they must never read alike.
     render(<RainfallPanel data={rainResponse()} loading={false} range="24h" />);
 
     await userEvent.click(screen.getByRole('button', { name: /table/i }));
 
-    expect(screen.getByText('0.00')).toBeInTheDocument();
+    expect(screen.getAllByText('0.00').length).toBeGreaterThan(0);
+    // One reading has neither a window total nor a rate: two absences.
     expect(screen.getAllByText(/not measured/i).length).toBe(2);
   });
 
-  test('an unwatched hour draws no bar; a dry hour draws one at the baseline', () => {
-    // The rule expressed in the chart itself. Four hours in the fixture: 2.4 mm,
-    // 0 mm, and two with no usable total. Recharts emits a rectangle per
-    // non-null datum, so a null hour must contribute nothing at all — an
-    // invisible zero-height bar and an absent bar are the same pixels, but only
-    // one of them is a claim about the weather.
+  test('the lines break across an unwatched stretch instead of running through it', () => {
+    // The rule expressed in the chart itself, which is where the line form
+    // makes it sharper than the bars did: a continuous segment drawn over a
+    // two-hour hole asserts we know what fell during it. Recharts emits one
+    // path per line and starts a fresh subpath (a second "M" command) wherever
+    // connectNulls is off and the data goes null — so a broken line is
+    // literally a `d` attribute with more than one move-to.
     const { container } = render(
       <RainfallPanel data={rainResponse()} loading={false} range="24h" />
     );
 
-    // Bar group 0 is the hourly chart, group 1 the daily totals.
-    const groups = container.querySelectorAll('.recharts-bar');
-    const hourlyBars = groups[0].querySelectorAll('.recharts-bar-rectangle');
+    const curves = container.querySelectorAll('.recharts-line-curve');
+    expect(curves.length).toBe(2); // Daily Rain and Rain Rate
 
-    // Exactly two of the four hours produced a measurement: 2.4 mm and 0 mm.
-    // The 0 mm bar MUST be present — recharts drops zero-height bars unless
-    // minPointSize forces a baseline mark, and without it a dry hour would be
-    // pixel-identical to an unwatched one.
-    expect(hourlyBars.length).toBe(2);
+    for (const curve of Array.from(curves)) {
+      const moves = (curve.getAttribute('d') ?? '').match(/M/g) ?? [];
+      expect(moves.length).toBeGreaterThan(1);
+    }
 
-    // And the unwatched stretch is marked rather than silently skipped.
+    // And the unwatched stretch is banded rather than silently skipped.
     expect(
       container.querySelectorAll('.recharts-reference-area').length
     ).toBeGreaterThan(0);
+  });
+
+  test('neither series is distinguished by colour alone', () => {
+    // The two rainfall hues are adjacent and close under deuteranopia, so the
+    // legend naming both is the mitigation, not a decoration.
+    render(<RainfallPanel data={rainResponse()} loading={false} range="24h" />);
+    expect(screen.getByText('Daily Rain')).toBeInTheDocument();
+    expect(screen.getByText('Rain Rate')).toBeInTheDocument();
+  });
+
+  test('the top axis tick is the real peak, not a rounded ceiling', () => {
+    // The vendor chart's readable detail: "how hard did it rain" is answered
+    // by the axis alone. The fixture peaks at 23.4 mm/hr, so the ladder must
+    // be round steps up to the exact peak — a generic nice-number axis would
+    // round the top to 25 and lose the answer.
+    //
+    // Recharts renders tick labels in their own layer rather than inside the
+    // axis group, so the y labels are picked out by their one-decimal shape.
+    const { container } = render(
+      <RainfallPanel data={rainResponse()} loading={false} range="24h" />
+    );
+
+    const labels = Array.from(
+      container.querySelectorAll('.recharts-cartesian-axis-tick-value')
+    )
+      .map((n) => n.textContent ?? '')
+      .filter((t) => /^\d+\.\d$/.test(t));
+
+    expect(labels).toEqual(['0.0', '6.0', '12.0', '18.0', '23.4']);
+  });
+
+  test('the peak is drawn inside the plot, not along its top edge', () => {
+    // The exact-max tick is only worth having if the reading it labels is
+    // actually visible. A domain that ENDS at the peak puts the peak vertex on
+    // the frame, where half the 2px stroke and half the 4px hover dot fall
+    // outside the drawing area — so the one value the axis went out of its way
+    // to label is the one that gets clipped. The domain carries past the peak.
+    const { container } = render(
+      <RainfallPanel data={rainResponse()} loading={false} range="24h" />
+    );
+
+    // `margin.top` on the LineChart, and the activeDot radius. The vertex has
+    // to clear the plot's top edge by at least the dot that lands on it.
+    const CHART_TOP = 8;
+    const DOT_RADIUS = 4;
+
+    const rate = container.querySelectorAll('.recharts-line-curve')[1];
+    const ys = Array.from(
+      (rate.getAttribute('d') ?? '').matchAll(/[ML]-?[\d.]+,(-?[\d.]+)/g)
+    ).map((m) => Number(m[1]));
+
+    expect(ys.length).toBeGreaterThan(0);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(CHART_TOP + DOT_RADIUS);
   });
 
   test('counts the unwatched hours in the summary', () => {
@@ -445,8 +511,20 @@ describe('rainfall', () => {
     expect(screen.getByText(/2 h unwatched/)).toBeInTheDocument();
   });
 
-  test('warns that an incomplete day is a floor, not a total', () => {
+  test('says the banded stretches are unwatched, not dry', () => {
     render(<RainfallPanel data={rainResponse()} loading={false} range="24h" />);
-    expect(screen.getByText(/a floor, not a total/i)).toBeInTheDocument();
+    expect(screen.getByText(/hours nobody polled/i)).toBeInTheDocument();
+  });
+
+  test('daily rain is the station accumulator, passed through untouched', async () => {
+    // The whole point of this panel is agreeing with the vendor's app. The
+    // value must be the column the station reported, with no window, no
+    // smoothing and no reset-absorbing in between — the three readings sitting
+    // at 2.4 mm report 2.40, not a derived total.
+    render(<RainfallPanel data={rainResponse()} loading={false} range="24h" />);
+
+    await userEvent.click(screen.getByRole('button', { name: /table/i }));
+
+    expect(screen.getAllByText('2.40').length).toBe(3);
   });
 });

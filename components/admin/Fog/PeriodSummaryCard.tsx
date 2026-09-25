@@ -72,11 +72,11 @@ export function PeriodSummaryCard({
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <CloudSun className="size-4 text-muted-foreground" aria-hidden />
+            <CardTitle className="flex items-center gap-2 text-base text-[var(--dtg-text-muted)] font-semibold">
+              <CloudSun className="size-4 text-[var(--dtg-text-muted)]" aria-hidden />
               {t.heading}
             </CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
               {t.range}: {rangeLabel} ·{' '}
               {inZone(data.window.start, tz, 'd MMM HH:mm')} —{' '}
               {inZone(data.window.end, tz, 'd MMM HH:mm')} ({tz})
@@ -90,15 +90,15 @@ export function PeriodSummaryCard({
         <dl className="divide-y divide-border">
           {rows.map(([label, value]) => (
             <div key={label} className="flex flex-wrap gap-x-4 gap-y-0.5 py-2">
-              <dt className="w-44 shrink-0 text-xs font-medium text-muted-foreground">
+              <dt className="w-44 shrink-0 text-xs font-medium text-[var(--dtg-text-muted)]">
                 {label}
               </dt>
-              <dd className="flex-1 text-sm">{value}</dd>
+              <dd className="flex-1 text-sm text-[var(--dtg-text-muted)]">{value}</dd>
             </div>
           ))}
         </dl>
 
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-[var(--dtg-text-muted)]">
           {/* The provenance an analyst needs before signing this into a client
               document: how much the sky reading rests on, and that the bands
               behind it have never been checked against an observer here. */}

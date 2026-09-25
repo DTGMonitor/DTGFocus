@@ -86,7 +86,7 @@ export const VERDICT_STYLE: Record<Verdict, VerdictStyle> = {
     gloss: 'The endpoint returns no past data — history fills by polling',
     icon: Hourglass,
     token: 'var(--fog-ink-muted)',
-    badge: 'bg-muted text-muted-foreground border-border',
+    badge: 'bg-muted text-[var(--dtg-text-muted)] border-border',
   },
 };
 

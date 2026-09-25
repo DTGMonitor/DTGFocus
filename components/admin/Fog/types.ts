@@ -120,9 +120,23 @@ export interface DailyBucket {
   complete: boolean;
 }
 
+export interface RainSeriesPoint {
+  observedAt: string;
+  /**
+   * The station's CALENDAR-DAY accumulator, exactly as reported: it climbs
+   * through the local day and drops to zero at local midnight. This is the
+   * vendor's "Daily Rain" series, unmodified. Null means not measured, never
+   * dry.
+   */
+  rainDailyMm: number | null;
+  /** The instantaneous rate — the vendor's "Rain Rate". */
+  rainRateMmh: number | null;
+}
+
 export interface RainfallResponse {
   station: StationSummary;
   range: '24h' | '7d';
+  series: RainSeriesPoint[];
   hourly: HourlyBucket[];
   daily: DailyBucket[];
   currentRate: { rainRateMmh: number | null; raining: boolean };

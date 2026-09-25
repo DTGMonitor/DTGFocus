@@ -35,11 +35,11 @@ function Section({
 }) {
   return (
     <section className="border-t border-border pt-5">
-      <h3 className="mb-2 text-sm font-semibold">
-        {n && <span className="mr-2 text-muted-foreground">{n}</span>}
+      <h3 className="mb-2 text-sm text-[var(--dtg-text-muted)] font-semibold">
+        {n && <span className="mr-2 text-[var(--dtg-text-muted)]">{n}</span>}
         {title}
       </h3>
-      <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+      <div className="space-y-3 text-sm leading-relaxed text-[var(--dtg-text-muted)]">
         {children}
       </div>
     </section>
@@ -189,7 +189,7 @@ export function FogGuidance({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        className="fixed inset-0 bg-[var(--dtg-bg-primary)]/60 backdrop-blur-sm"
         aria-hidden
       />
 
@@ -201,10 +201,10 @@ export function FogGuidance({
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div>
-            <h2 id="fog-guidance-title" className="text-base font-semibold">
+            <h2 id="fog-guidance-title" className="text-base text-[var(--dtg-text-muted)] font-semibold">
               Indikator Kabut — Dasar Teknis
             </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
               Ringkasan metode di balik indikator kabut pada platform.
             </p>
           </div>
@@ -212,7 +212,7 @@ export function FogGuidance({
             type="button"
             onClick={onClose}
             aria-label="Tutup"
-            className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="rounded-md p-1 text-[var(--dtg-text-muted)] hover:bg-accent hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -226,7 +226,7 @@ export function FogGuidance({
               className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]"
               aria-hidden
             />
-            <p className="text-muted-foreground">
+            <p className="text-[var(--dtg-text-muted)]">
               <span className="font-medium text-foreground">Ruang lingkup.</span>{' '}
               Kabut didefinisikan secara optik: jarak pandang &lt; 1 km. Stasiun
               tidak punya sensor jarak pandang, jadi sistem ini{' '}
@@ -518,7 +518,7 @@ export function FogGuidanceButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent"
+      className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-[var(--dtg-text-muted)] font-medium hover:bg-accent"
     >
       <BookOpen className="size-4" aria-hidden />
       Panduan

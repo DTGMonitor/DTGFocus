@@ -29,6 +29,7 @@ import { buildQualityNote, findOverallStatus } from '@/utils/reportDqp';
 import { DQP_IMAGE_COLUMNS, attachDqpImages } from '@/utils/dqpImages';
 import { urlToDataUrl } from '@/components/admin/Radar/report/pdfExport';
 import { RADAR_TYPE } from '@/components/admin/Radar/ReportReminder/reportTypes';
+import { windowForFrequency } from '@/utils/reportAvailability';
 
 /**
  * The columns the movement table and the risk card read.
@@ -59,6 +60,52 @@ const AREA_SELECT = 'id, name, sort_order';
  * left to a `new Date()` somewhere that would re-project it through the
  * browser's zone.
  */
+/**
+ * The two rainfall windows the report's charts plot.
+ *
+ * Anchored to the REPORT DAY, not to now, through the same windowForFrequency
+ * the rest of the report uses — so the charts, the availability figures and
+ * the station-filled summary lines all describe one window, and reissuing an
+ * old report reprints that day's rainfall rather than today's.
+ *
+ * Goes through the API route rather than Supabase directly, unlike everything
+ * else in this hook: the rainfall series is derived (gap grid, station-local
+ * hour buckets) and that derivation lives server-side. Reaching for the tables
+ * here would mean a second implementation of the rule.
+ *
+ * Returns null for a site with NO BOUND STATION, which is how the section
+ * drops out of the report entirely rather than printing empty axes.
+ */
+const readRainWindow = async (siteId, endIso, range) => {
+  const res = await fetch(
+    `/api/sites/${siteId}/rainfall?range=${range}&end=${encodeURIComponent(endIso)}`
+  );
+  // 404 is a site with no station bound — an absence, not a failure.
+  if (!res.ok) return null;
+  const body = await res.json();
+  return { series: body.series ?? [], hourly: body.hourly ?? [], station: body.station };
+};
+
+const fetchRainfall = async (siteId, reportDay, timeZone) => {
+  const { windowEnd } = windowForFrequency('daily', reportDay, timeZone);
+  const endIso = windowEnd.toISOString();
+
+  const [day, week] = await Promise.all([
+    readRainWindow(siteId, endIso, '24h'),
+    readRainWindow(siteId, endIso, '7d'),
+  ]);
+
+  if (!day && !week) return null;
+  return {
+    day,
+    week,
+    windowEnd,
+    // The STATION's zone, which is the clock its readings are on — not the
+    // site's and not the reader's.
+    timezone: day?.station?.timezone ?? week?.station?.timezone ?? timeZone,
+  };
+};
+
 const siteLocalInput = (utc, timeZone) => {
   if (!utc) return '';
   try {
@@ -123,7 +170,7 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
     };
 
     (async () => {
-      const [defRes, dqpRes, scheduleRes, areaRes, checkRes] = await Promise.all([
+      const [defRes, dqpRes, scheduleRes, areaRes, checkRes, rainRes] = await Promise.all([
         // The CURRENT wall folder only. The comprehensive report spans archived
         // folders so its timeline keeps its history; a daily status board is a
         // statement about the wall being scanned right now, and a record still
@@ -219,6 +266,13 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
             return r.data;
           })
           .catch(warn('latest checklist')),
+
+        // Rainfall from the site's bound weather station, for the two charts.
+        // Null on a site with no station, which drops the section rather than
+        // printing an empty pair of axes that would read as a dry week.
+        sensor.site_id
+          ? fetchRainfall(sensor.site_id, day, timeZone).catch(warn('rainfall'))
+          : Promise.resolve(null),
       ]);
 
       if (cancelled) return;
@@ -283,6 +337,10 @@ export function useDailyReportData(sensor, reportDay, enabled = true) {
           // has never been checked, which leaves the card blank and the report
           // ungeneratable until someone fills it in — the existing behaviour.
           lastCheck: siteLocalInput(checkRes?.created_time, timeZone),
+          // { day, week, windowEnd, timezone } or null. The charts read it;
+          // the summary panel's rainfall LINE does not — that stays the
+          // analyst's observation from site, which a gauge does not replace.
+          rainfall: rainRes,
           deformationImage,
         },
       });

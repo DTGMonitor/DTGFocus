@@ -41,6 +41,11 @@ export interface DefaultSectionDef {
 export const TABULATION_SECTIONS: DefaultSectionDef[] = [
     { key: 'header', label: 'Header & status cards', hint: 'Masthead, date, data update, quality and risk cards' },
     { key: 'summary', label: 'Daily summary', hint: 'Deformation and quality verdict, weather, fog, rainfall' },
+    // Sits after the summary because it EVIDENCES the summary's rainfall line
+    // rather than replacing it: that line stays the analyst's observation from
+    // site, and this is what the bound station recorded over the same window.
+    // Contributes nothing at all on a site with no station bound.
+    { key: 'rainCharts', label: 'Rainfall charts', hint: 'Station rainfall and rate, last 24 hours and last 7 days' },
     { key: 'scan', label: 'Scan area figure', hint: 'The annotated radar view' },
     { key: 'movement', label: 'Movement table', hint: 'One row per active chain, or per monitoring point' },
     { key: 'legend', label: 'Legend', hint: 'Quality and risk explanation tables' },

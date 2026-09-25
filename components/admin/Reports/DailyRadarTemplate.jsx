@@ -61,6 +61,7 @@ import {
 } from '@/components/admin/Radar/report/blocks/DailyGlossary';
 import { DailyAppendixItem } from '@/components/admin/Radar/report/blocks/DailyAppendix';
 import { composeLayoutBlocks } from '@/components/admin/Radar/report/layoutBlocks';
+import { RainfallCharts } from '@/components/admin/Radar/report/blocks/RainfallCharts';
 import { TABULATION_SECTIONS } from '@/config/reportSections';
 import { defaultLayout, layoutSignature } from '@/utils/reportLayout';
 
@@ -346,6 +347,21 @@ export function DailyRadarTemplate({
         generator={generator}
       />,
     ];
+
+    // Station rainfall. An empty array on a site with no bound station, which
+    // is how the section prints no heading over nothing — the same rule every
+    // other optional section follows.
+    groups.rainCharts = data?.rainfall
+      ? [
+          <RainfallCharts
+            key="rainCharts"
+            strings={strings}
+            day={data.rainfall.day}
+            week={data.rainfall.week}
+            timezone={data.rainfall.timezone}
+          />,
+        ]
+      : [];
 
     groups.scan = hasScanImage
       ? [

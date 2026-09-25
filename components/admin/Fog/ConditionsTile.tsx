@@ -31,14 +31,14 @@ function Tile({
 }) {
   return (
     <div className="rounded-lg border border-border p-3">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-[var(--dtg-text-muted)]">
         <Icon className="size-3.5" aria-hidden />
         {label}
       </div>
       {/* Stat-tile values use proportional figures — tabular-nums makes a
           large standalone number read loose. */}
-      <div className="mt-1 text-xl font-semibold leading-none">{value}</div>
-      {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+      <div className="mt-1 text-xl text-[var(--dtg-text-muted)] font-semibold leading-none">{value}</div>
+      {sub && <div className="mt-1 text-xs text-[var(--dtg-text-muted)]">{sub}</div>}
     </div>
   );
 }
@@ -59,10 +59,10 @@ export function ConditionsTile({
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-semibold">
+            <CardTitle className="text-base text-[var(--dtg-text-muted)] font-semibold">
               Current conditions
             </CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
               {data.station.name ?? data.station.macAddress} ·{' '}
               {data.station.macAddress}
               {data.station.distanceKm !== null &&
@@ -75,7 +75,7 @@ export function ConditionsTile({
 
       <CardContent>
         {!c ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-[var(--dtg-text-muted)]">
             {data.note ?? 'No reading stored for this station yet.'}
           </p>
         ) : (
@@ -133,7 +133,7 @@ export function ConditionsTile({
                 icon={Compass}
               />
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
+            <p className="mt-3 text-xs text-[var(--dtg-text-muted)]">
               Rain today {num(c.rainDailyMm, 1, 'mm')} · current rate{' '}
               {num(c.rainRateMmh, 1, 'mm/h')} (a rate, never summed into a total)
             </p>

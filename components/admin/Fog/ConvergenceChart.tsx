@@ -81,16 +81,16 @@ function ChartTooltip({
       <dl className="space-y-0.5 tabular-nums">
         <div className="flex items-center gap-2">
           <span className="size-2 rounded-full" style={{ background: 'var(--fog-temp)' }} />
-          <dt className="text-muted-foreground">Temperature</dt>
+          <dt className="text-[var(--dtg-text-muted)]">Temperature</dt>
           <dd className="ml-auto font-medium">{num(p.tempC, 1, '°C')}</dd>
         </div>
         <div className="flex items-center gap-2">
           <span className="size-2 rounded-full" style={{ background: 'var(--fog-dew)' }} />
-          <dt className="text-muted-foreground">Dew point</dt>
+          <dt className="text-[var(--dtg-text-muted)]">Dew point</dt>
           <dd className="ml-auto font-medium">{num(p.dewPointC, 1, '°C')}</dd>
         </div>
         <div className="flex items-center gap-2 border-t border-border pt-0.5">
-          <dt className="text-muted-foreground">Depression</dt>
+          <dt className="text-[var(--dtg-text-muted)]">Depression</dt>
           <dd className="ml-auto font-medium">{num(p.dpdC, 2, '°C')}</dd>
         </div>
       </dl>
@@ -152,10 +152,10 @@ export function ConvergenceChart({
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-semibold">
+            <CardTitle className="text-base text-[var(--dtg-text-muted)] font-semibold">
               Temperature and dew point · 24 hours
             </CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-[var(--dtg-text-muted)]">
               Fog forms where the lines meet. Shaded bands mark air within{' '}
               {data.thresholds.dpdSatC} °C of saturation.
             </p>
@@ -165,7 +165,7 @@ export function ConvergenceChart({
             <button
               type="button"
               onClick={() => setShowTable((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-[var(--dtg-text-muted)] font-medium hover:bg-accent"
               aria-pressed={showTable}
             >
               {showTable ? (
@@ -184,21 +184,21 @@ export function ConvergenceChart({
             current value so identity is never colour-alone and the endpoint is
             directly labelled without crowding the plot. */}
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center text-[var(--dtg-text-muted)] gap-2">
             <span className="h-0.5 w-4 rounded-full" style={{ background: 'var(--fog-temp)' }} />
             Temperature
             <span className="font-medium tabular-nums">
               {num(latest?.tempC, 1, '°C')}
             </span>
           </span>
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center text-[var(--dtg-text-muted)] gap-2">
             <span className="h-0.5 w-4 rounded-full" style={{ background: 'var(--fog-dew)' }} />
             Dew point
             <span className="font-medium tabular-nums">
               {num(latest?.dewPointC, 1, '°C')}
             </span>
           </span>
-          <span className="inline-flex items-center gap-2 text-muted-foreground">
+          <span className="inline-flex items-center gap-2 text-[var(--dtg-text-muted)]">
             <span
               className="h-3 w-4 rounded-sm"
               style={{ background: 'var(--fog-sat-band)', opacity: 0.16 }}
@@ -237,7 +237,7 @@ export function ConvergenceChart({
             </table>
           </div>
         ) : points.length === 0 ? (
-          <p className="py-12 text-center text-sm text-muted-foreground">
+          <p className="py-12 text-center text-sm text-[var(--dtg-text-muted)]">
             No readings in the last 24 hours.
           </p>
         ) : (

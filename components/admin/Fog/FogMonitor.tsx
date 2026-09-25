@@ -213,8 +213,8 @@ export default function FogMonitor() {
     <div className="mx-auto w-full max-w-7xl space-y-4 p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">Fog monitor</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-lg text-[var(--dtg-text-muted)] font-semibold">Fog monitor</h1>
+          <p className="text-sm text-[var(--dtg-text-muted)]">
             Highland radiation and valley fog, scored from a bound public weather
             station. Thresholds are uncalibrated literature defaults — compare
             against observation before trusting them operationally.
@@ -231,21 +231,21 @@ export default function FogMonitor() {
       {/* One filter row, above everything it scopes. */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card p-3">
         <label className="text-xs">
-          <span className="mb-1 block text-muted-foreground">Site</span>
+          <span className="mb-1 block text-[var(--dtg-text-muted)]">Site</span>
           {/* Mounted only once a site id exists. Rendering it earlier hands
               Radix `value={undefined}` and then a string, which is a switch
               from uncontrolled to controlled — React warns, and the component
               is entitled to drop the first selection. */}
           {siteId === null ? (
-            <div className="flex h-9 w-56 items-center rounded-md border border-border px-3 text-sm text-muted-foreground">
+            <div className="flex h-9 w-56 items-center rounded-md border border-border px-3 text-sm text-[var(--dtg-text-muted)]">
               {sites.length === 0 ? 'Loading sites…' : 'No sites'}
             </div>
           ) : (
             <Select value={String(siteId)} onValueChange={(v) => setSiteId(Number(v))}>
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="w-56 text-[var(--dtg-text-muted)]">
                 <SelectValue placeholder="Select a site" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-[var(--dtg-bg-primary)]">
                 {sites.map((s) => (
                   <SelectItem key={s.id} value={String(s.id)}>
                     {s.site_name}
@@ -253,7 +253,7 @@ export default function FogMonitor() {
                         setup gap the operator may want to close, not a site
                         that does not exist. */}
                     {!boundSites.has(s.id) && (
-                      <span className="ml-2 text-xs text-muted-foreground">
+                      <span className="ml-2 text-xs text-[var(--dtg-text-muted)]">
                         (no station)
                       </span>
                     )}
@@ -265,12 +265,12 @@ export default function FogMonitor() {
         </label>
 
         <label className="text-xs">
-          <span className="mb-1 block text-muted-foreground">Rainfall window</span>
+          <span className="mb-1 block text-[var(--dtg-text-muted)]">Rainfall window</span>
           <Select value={range} onValueChange={(v) => setRange(v as '24h' | '7d')}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="w-36 text-[var(--dtg-text-muted)]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-[var(--dtg-bg-primary)]">
               <SelectItem value="24h">Last 24 hours</SelectItem>
               <SelectItem value="7d">Last 7 days</SelectItem>
             </SelectContent>

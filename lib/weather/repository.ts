@@ -120,6 +120,54 @@ export class RepositoryError extends Error {
   }
 }
 
+/**
+ * PostgREST's `max-rows` cap, which this project's instance sets to 1000.
+ *
+ * THE CAP DOES NOT ERROR. It truncates and returns 200 OK, so a query for a
+ * window wider than the cap comes back looking like a complete answer. Ordered
+ * ascending at the five-minute poll cadence, 1000 rows is about 3.5 days —
+ * so a seven-day read returns its OLDEST 3.5 days and simply stops, and the
+ * caller sees a series that ends days before "now" with nothing to say it was
+ * cut. That is a wrong chart, not an empty one, which is the worse failure.
+ */
+const PAGE_ROWS = 1000;
+
+/** ~200k readings. A runaway loop is a worse outcome than a missing tail. */
+const MAX_PAGES = 200;
+
+/**
+ * Read every row of a query, a page at a time.
+ *
+ * Paging stops on an EMPTY page rather than a short one: a short page looks
+ * like the end only while `PAGE_ROWS` matches the server's cap, and the day
+ * someone lowers `max-rows` a short-page check would silently truncate again —
+ * which is the exact bug this helper exists to close.
+ */
+async function fetchAllPages<T>(
+  operation: string,
+  page: (
+    from: number,
+    to: number
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>
+): Promise<T[]> {
+  const out: T[] = [];
+
+  for (let i = 0; i < MAX_PAGES; i += 1) {
+    // `out.length` IS the offset: every row already held is a row to skip.
+    const { data, error } = await page(out.length, out.length + PAGE_ROWS - 1);
+    if (error) throw new RepositoryError(operation, error.message);
+
+    const batch = rows<T[]>(data ?? []);
+    if (batch.length === 0) return out;
+    out.push(...batch);
+  }
+
+  throw new RepositoryError(
+    operation,
+    `more than ${MAX_PAGES * PAGE_ROWS} rows; narrow the window`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Stations
 // ---------------------------------------------------------------------------
@@ -229,18 +277,19 @@ export async function fetchReadings(
   sinceIso: string,
   untilIso?: string
 ): Promise<ReadingRecord[]> {
-  let query = db
-    .from('weather_readings')
-    .select(READING_COLUMNS)
-    .eq('mac_address', macAddress)
-    .gte('observed_at', sinceIso);
+  // Paged: a week of five-minute readings is twice the server's row cap, and
+  // an unpaged read would return the oldest 1000 and call it the week.
+  return fetchAllPages<ReadingRecord>('fetchReadings', (from, to) => {
+    let query = db
+      .from('weather_readings')
+      .select(READING_COLUMNS)
+      .eq('mac_address', macAddress)
+      .gte('observed_at', sinceIso);
 
-  if (untilIso) query = query.lte('observed_at', untilIso);
+    if (untilIso) query = query.lte('observed_at', untilIso);
 
-  const { data, error } = await query.order('observed_at', { ascending: true });
-
-  if (error) throw new RepositoryError('fetchReadings', error.message);
-  return rows<ReadingRecord[]>(data ?? []);
+    return query.order('observed_at', { ascending: true }).range(from, to);
+  });
 }
 
 /** Assessments across a window, oldest first. */
@@ -250,18 +299,20 @@ export async function fetchAssessments(
   sinceIso: string,
   untilIso?: string
 ): Promise<AssessmentRow[]> {
-  let query = db
-    .from('fog_assessments')
-    .select(ASSESSMENT_COLUMNS)
-    .eq('mac_address', macAddress)
-    .gte('assessed_at', sinceIso);
+  // Paged for the same reason as the readings: one assessment per poll means
+  // the same ~3.5-day ceiling, and the summary route accepts windows of up to
+  // a year.
+  return fetchAllPages<AssessmentRow>('fetchAssessments', (from, to) => {
+    let query = db
+      .from('fog_assessments')
+      .select(ASSESSMENT_COLUMNS)
+      .eq('mac_address', macAddress)
+      .gte('assessed_at', sinceIso);
 
-  if (untilIso) query = query.lte('assessed_at', untilIso);
+    if (untilIso) query = query.lte('assessed_at', untilIso);
 
-  const { data, error } = await query.order('assessed_at', { ascending: true });
-
-  if (error) throw new RepositoryError('fetchAssessments', error.message);
-  return rows<AssessmentRow[]>(data ?? []);
+    return query.order('assessed_at', { ascending: true }).range(from, to);
+  });
 }
 
 export async function fetchLatestReading(
@@ -400,17 +451,29 @@ export async function upsertAssessment(
 // Rainfall (the views from migration 002)
 // ---------------------------------------------------------------------------
 
+/**
+ * `untilIso` bounds the window's far end.
+ *
+ * Optional because the live panels want everything up to now, and required by
+ * the report, which anchors its window to the report day: without an upper
+ * bound a reissued report would pull hours that fell after the day it claims
+ * to describe.
+ */
 export async function fetchHourlyRain(
   db: SupabaseClient,
   macAddress: string,
-  sinceIso: string
+  sinceIso: string,
+  untilIso?: string
 ): Promise<HourlyRainRow[]> {
-  const { data, error } = await db
+  let query = db
     .from('weather_rain_hourly')
     .select('hour_start, rain_mm, covered_minutes, sample_count, had_reset')
     .eq('mac_address', macAddress)
-    .gte('hour_start', sinceIso)
-    .order('hour_start', { ascending: true });
+    .gte('hour_start', sinceIso);
+
+  if (untilIso) query = query.lte('hour_start', untilIso);
+
+  const { data, error } = await query.order('hour_start', { ascending: true });
 
   if (error) throw new RepositoryError('fetchHourlyRain', error.message);
   return rows<HourlyRainRow[]>(data ?? []);
@@ -419,14 +482,18 @@ export async function fetchHourlyRain(
 export async function fetchDailyRain(
   db: SupabaseClient,
   macAddress: string,
-  sinceIso: string
+  sinceIso: string,
+  untilIso?: string
 ): Promise<DailyRainRow[]> {
-  const { data, error } = await db
+  let query = db
     .from('weather_rain_daily')
     .select('day_start, rain_mm, sample_count, hours_observed')
     .eq('mac_address', macAddress)
-    .gte('day_start', sinceIso)
-    .order('day_start', { ascending: true });
+    .gte('day_start', sinceIso);
+
+  if (untilIso) query = query.lte('day_start', untilIso);
+
+  const { data, error } = await query.order('day_start', { ascending: true });
 
   if (error) throw new RepositoryError('fetchDailyRain', error.message);
   return rows<DailyRainRow[]>(data ?? []);

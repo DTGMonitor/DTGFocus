@@ -48,6 +48,20 @@ export interface DailyStrings {
     summaryWeather: string;
     summaryFog: string;
     summaryRainfall: string;
+
+    // Rainfall charts. The station's own two series, plotted for the report
+    // window; the summary's rainfall line above stays the analyst's site
+    // observation, which is a different claim from a gauge reading.
+    rainChartHeading: string;
+    rainChart24h: string;
+    rainChart7d: string;
+    /** Legend labels. Left in English — they name the vendor's own series. */
+    rainChartDaily: string;
+    rainChartRate: string;
+    /** Shown in place of a plot when the station reported nothing. */
+    rainChartNoData: string;
+    /** Footnote, printed only when the window contains unpolled hours. */
+    rainChartGaps: string;
     /**
      * The generator strip's heading. Carries the UNIT, because the cells are
      * bare numbers — a column of "612" against a date means nothing without it.
@@ -157,6 +171,13 @@ const EN: DailyStrings = {
     summaryWeather: 'Weather Condition',
     summaryFog: 'Fog Condition',
     summaryRainfall: 'Rainfall Record',
+    rainChartHeading: 'Rainfall — Weather Station',
+    rainChart24h: 'Last 24 hours',
+    rainChart7d: 'Last 7 days',
+    rainChartDaily: 'Daily Rain',
+    rainChartRate: 'Rain Rate',
+    rainChartNoData: 'No station readings in this window.',
+    rainChartGaps: 'Shaded bands are hours the station was not polled. The lines break across them rather than running through.',
     summaryGenerator: 'Generator Running Time (minutes)',
 
     scanAreaHeading: 'SCAN AREA',
@@ -220,6 +241,16 @@ const ID: DailyStrings = {
     summaryWeather: 'Kondisi Cuaca',
     summaryFog: 'Kondisi Kabut',
     summaryRainfall: 'Rekaman Curah Hujan',
+    rainChartHeading: 'Curah Hujan — Stasiun Cuaca',
+    rainChart24h: '24 jam terakhir',
+    rainChart7d: '7 hari terakhir',
+    // The two series keep the vendor's English names: they are what the
+    // station's own app prints, and a client cross-checking against it must
+    // find the same words.
+    rainChartDaily: 'Daily Rain',
+    rainChartRate: 'Rain Rate',
+    rainChartNoData: 'Tidak ada data stasiun pada rentang ini.',
+    rainChartGaps: 'Area berarsir adalah jam-jam tanpa pembacaan stasiun. Garis terputus di sana, bukan disambung.',
     summaryGenerator: 'Waktu Operasi Genset (menit)',
 
     scanAreaHeading: 'AREA PEMINDAIAN',
