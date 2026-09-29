@@ -58,12 +58,8 @@
 -- are exactly as before. Callers need no change: the page already sends ISO
 -- calendar dates.
 --
--- STILL OUTSTANDING
--- -----------------
--- get_longest_downtime is NOT in this file — its definition was not available
--- when this was written. It takes the same (start_date, end_date, radar_ids)
--- and so carries the same UTC-window and reversed-record bugs. Capture it here
--- as migration 003 before changing it.
+-- get_longest_downtime, the third RPC this page calls, gets the same treatment
+-- in migration 003.
 
 -- ---------------------------------------------------------------------------
 -- 0) Drop the old definitions.

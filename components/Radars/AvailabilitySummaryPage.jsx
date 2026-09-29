@@ -16,7 +16,10 @@ import Gauge from "@/components/Reusable/gauge";
 function AvailabilitySummaryPage() {
   const [downtimeSummary, setDowntimeSummary] = useState([]);
   const [downtimePerDay, setDowntimePerDay] = useState([]);
-  const [longestRecord, setLongestRecord] = useState([])
+  // null, not []: the card treats a falsy value as "no downtime records", and
+  // an empty array is truthy — so before the first load it rendered "0.00 hours"
+  // with two blank timestamps rather than saying it had nothing.
+  const [longestRecord, setLongestRecord] = useState(null)
   const [selectedRadar, setSelectedRadar] = useState(["All Radars"]);
   const [showCumulative, setShowCumulative] = useState("Cumulative");
   const [user, setUser] = useState(null);

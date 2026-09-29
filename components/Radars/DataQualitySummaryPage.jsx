@@ -25,6 +25,15 @@ export default function DataQualitySummaryPage() {
   const [radarOptions, setRadarOptions] = useState(["All Radars"]);
   const [radarIdMap, setRadarIdMap] = useState({});
 
+  // dqp_records.record_date is a stored CALENDAR DAY, written on the clock of
+  // whoever filed the check (see utils/checklistDay.ts — "the grid is the
+  // operator's own clock"), and the RPCs compare it as a date, inclusive at both
+  // ends. There is no instant to convert, so passing the picked day through a
+  // timezone can only move it: the hardcoded Australia/Perth this replaced
+  // pushed the filter a day earlier for anyone at UTC+9 or later — Port Moresby,
+  // Brisbane, Sydney — and was Telfer's timezone applied to every other site.
+  const toCalendarDate = (value) => DateTime.fromJSDate(value).toISODate();
+
   // -------------------- AUTH --------------------
   useEffect(() => {
     const getSession = async () => {
@@ -72,12 +81,8 @@ export default function DataQualitySummaryPage() {
 
   const loadData = async () => {
 
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("Australia/Perth")
-      .toISODate();
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("Australia/Perth")
-      .toISODate();
+    const startISODate = toCalendarDate(startDate);
+    const endISODate = toCalendarDate(endDate);
 
     const picked = Array.isArray(selectedRadar)
       ? selectedRadar.filter(r => r && r !== "All Radars")
@@ -101,12 +106,8 @@ export default function DataQualitySummaryPage() {
   const loadFrequentIssues = async () => {
 
 
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("Australia/Perth")
-      .toISODate();
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("Australia/Perth")
-      .toISODate();
+    const startISODate = toCalendarDate(startDate);
+    const endISODate = toCalendarDate(endDate);
 
     const picked = Array.isArray(selectedRadar)
       ? selectedRadar.filter(r => r && r !== "All Radars")
@@ -133,8 +134,8 @@ export default function DataQualitySummaryPage() {
   };
 
   const loadOverallData = async () => {
-    const startISO = DateTime.fromJSDate(startDate).setZone("Australia/Perth").toISODate();
-    const endISO = DateTime.fromJSDate(endDate).setZone("Australia/Perth").toISODate();
+    const startISO = toCalendarDate(startDate);
+    const endISO = toCalendarDate(endDate);
 
     const picked = Array.isArray(selectedRadar)
       ? selectedRadar.filter(r => r && r !== "All Radars")

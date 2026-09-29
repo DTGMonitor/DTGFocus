@@ -9,6 +9,7 @@ import { IoMdMenu } from "react-icons/io";
 import GaugeLive from "@/components/Radars/Live/gaugelive";
 import DqpAppendixPreview from "@/components/Reusable/DqpAppendixPreview";
 import { defTypeColour, labelColour, recordColour, tarpPriority, COLOUR_RANK } from "@/config/riskDisplay";
+import { formatFromUTC } from "@/utils/timezoneUtils";
 
 function splitRadarName(radar) {
   if (!radar) return { prefix: "", model: "" };
@@ -1095,8 +1096,11 @@ function RadarDetail({ radar, onBack }) {
           color: isOff ? "#777" : "#fff"
         }}>
           <FaSyncAlt color={isOff ? "#777" : "#009688"} />
+          {/* The site's clock, not the viewer's: toLocaleString() renders in the
+              browser's zone, which for a monitoring team watching another
+              country's site is a different hour with nothing to mark it. */}
           {radar.AssessmentDate
-            ? new Date(radar.AssessmentDate).toLocaleString()
+            ? (formatFromUTC(radar.AssessmentDate, radar.Timezone || "UTC") ?? "Unknown")
             : "Unknown"}
         </div>
         <button

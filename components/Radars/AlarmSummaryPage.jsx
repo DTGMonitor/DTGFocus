@@ -102,23 +102,20 @@ function AlarmSummaryPage() {
     ),
   ];
 
-  useEffect(() => {
-    if (user)
-      loadRadarAlarms();
-    loadReasonAlarms();
-    loadRegionAlarms();
-    loadRegionAlarmsPerDay();
-    loadRadarAlarmsPerDay();
-  }, [user, startDate, endDate, selectedRadar, radarIdMap, reasonFilter]);
+  // The filter holds calendar days as the picker shows them, and the RPCs now
+  // take a date and read it on the SITE's clock (see the alarm-summary spec).
+  //
+  // This sent an INSTANT: the picker's local midnight converted to UTC. That
+  // made the same filter answer differently depending on where the analyst sat
+  // — one 15 September at Hidden Valley came back as 330 alarms from a UTC
+  // browser, 186 from Jakarta and 126 from Port Moresby, which is the number
+  // the site itself would recognise.
+  const toCalendarDate = (value) => DateTime.fromJSDate(value).toISODate();
 
   const loadRadarAlarms = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISO(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISO();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -143,13 +140,9 @@ function AlarmSummaryPage() {
   };
 
   const loadReasonAlarms = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISO(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISO();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -175,13 +168,9 @@ function AlarmSummaryPage() {
   };
 
   const loadRegionAlarms = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISO(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISO();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -208,13 +197,9 @@ function AlarmSummaryPage() {
   };
 
   const loadRegionAlarmsPerDay = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISO(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISO();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -241,13 +226,9 @@ function AlarmSummaryPage() {
   };
 
   const loadRadarAlarmsPerDay = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISO(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISO();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -272,6 +253,19 @@ function AlarmSummaryPage() {
       console.log("Alarms Per Day by Radar:", data);
     }
   };
+
+  // -------------------- LOAD DATA --------------------
+  useEffect(() => {
+    // All five RPCs read alarm_records under the caller's own RLS, so all five
+    // need the session — not just the first. Unbraced, the other four fired
+    // before auth resolved and came back empty every time.
+    if (!user) return;
+    loadRadarAlarms();
+    loadReasonAlarms();
+    loadRegionAlarms();
+    loadRegionAlarmsPerDay();
+    loadRadarAlarmsPerDay();
+  }, [user, startDate, endDate, selectedRadar, radarIdMap, reasonFilter]);
 
   // This is used to check if there is data to display.
   const filteredReasonSource = alarmByRadars ?? [];

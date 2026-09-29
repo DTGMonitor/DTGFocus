@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { pivotParameterTree } from "@/utils/buildRadarRecord";
 import { DQP_IMAGE_COLUMNS, attachDqpImages } from "@/utils/dqpImages";
 import { resolveRiskPresentation, atLeastBand } from "@/config/riskDisplay";
+import { formatSiteDateTime } from "@/utils/siteTime";
 
 function countLevel2StatusesFromParamTree(paramTree) {
   const counts = { Acceptable: 0, "Sub-Optimal": 0, Critical: 0 };
@@ -423,19 +424,11 @@ const RadarCard = ({
   );
 };
 
-const formatDateDisplay = (dateStr) => {
-  if (!dateStr) return "N/A";
-  const dt = new Date(dateStr);
-  if (isNaN(dt)) return dateStr;
-
-  const hh = String(dt.getHours()).padStart(2, "0");
-  const mm = String(dt.getMinutes()).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  const month = dt.toLocaleString("en-US", { month: "short" }); // "Sep"
-  const yyyy = dt.getFullYear();
-
-  return `${hh}:${mm}, ${dd} ${month} ${yyyy}`;
-};
+// When a radar was last assessed, on the SITE's clock — see utils/siteTime.
+// This used getHours()/getDate(), which read the instant on the VIEWER's clock,
+// so a Jakarta analyst watching a Port Moresby site saw every assessment three
+// hours early, with no zone on the card to say it was not site time.
+const formatDateDisplay = formatSiteDateTime;
 
 const mapStatus = (status) => {
   if (!status) return "OFF SERVICE";
@@ -571,6 +564,9 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
             brand: a.brand,
             BrandColor: a.brand.color,
             AssessmentDate: a.created_time,
+            // The site's IANA zone, carried so every timestamp this record
+            // shows can be read on the site's clock rather than the viewer's.
+            Timezone: a.timezone,
             RiskRating: risk.label,
             RiskColour: risk.colour,
             TARP: risk.label,
@@ -661,7 +657,7 @@ const RadarGallery = ({ statusFilter, onExplore }) => {
           name={rec.radar}
           brand={rec.brand}
           BrandColor={rec.BrandColor}
-          updated={formatDateDisplay(rec.AssessmentDate)}
+          updated={formatDateDisplay(rec.AssessmentDate, rec.Timezone)}
           status={rec._mappedStatus}
           Overall={rec.Quality}
           Notes={rec.Notes}
