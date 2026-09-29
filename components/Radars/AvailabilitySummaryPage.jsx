@@ -91,22 +91,17 @@ function AvailabilitySummaryPage() {
   ];
 
 
-  // -------------------- LOAD DATA --------------------
-  useEffect(() => {
-    if (user)
-      loadDowntimeSummary();
-    loadDowntimePerDay();
-    loadLongestRecord();
-  }, [user, startDate, endDate, selectedRadar, radarIdMap]);
+  // The filter holds calendar days as the picker shows them. react-datepicker
+  // hands back LOCAL midnight, so converting to UTC first rolls the day back for
+  // anyone east of Greenwich — a Jakarta analyst picking 21 Jul sent 20 Jul. The
+  // RPCs read the date on the SITE's own clock (see migration 001), which is
+  // where the conversion belongs.
+  const toCalendarDate = (value) => DateTime.fromJSDate(value).toISODate();
 
   const loadDowntimeSummary = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISODate(); // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISODate();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -130,13 +125,9 @@ function AvailabilitySummaryPage() {
   };
 
   const loadDowntimePerDay = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISODate();       // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISODate();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -160,13 +151,9 @@ function AvailabilitySummaryPage() {
   };
 
   const loadLongestRecord = async () => {
-    const startISODate = DateTime.fromJSDate(startDate)
-      .setZone("utc") // send UTC to RPC
-      .toISODate();       // keep timestamp, not just date
+    const startISODate = toCalendarDate(startDate);
 
-    const endISODate = DateTime.fromJSDate(endDate)
-      .setZone("utc")
-      .toISODate();
+    const endISODate = toCalendarDate(endDate);
 
     // Pick selected radars (skip "All Radars")
     const picked = Array.isArray(selectedRadar)
@@ -190,6 +177,17 @@ function AvailabilitySummaryPage() {
     }
   };
 
+  // -------------------- LOAD DATA --------------------
+  useEffect(() => {
+    // All three RPCs are scoped by the caller's JWT (user_sites, via auth.uid()),
+    // so all three need the session — not just the first. Unbraced, the other two
+    // fired before auth resolved and came back empty every time.
+    if (!user) return;
+    loadDowntimeSummary();
+    loadDowntimePerDay();
+    loadLongestRecord();
+  }, [user, startDate, endDate, selectedRadar, radarIdMap]);
+
   // ---------------- FILTER BY RADAR ----------------
   const pickedRadars = useMemo(() => {
     return Array.isArray(selectedRadar)
@@ -204,21 +202,49 @@ function AvailabilitySummaryPage() {
 
 
   // -------------------- DATA PREPARATION --------------------
+  // The calendar span of the filter: the DURATION card and the x-axis length.
+  // It is NOT the denominator for a fleet — four radars watched over the same
+  // 30 days contribute four radars' worth of hours, not 30 days' worth.
   const totalTimeHours = DateTime.fromJSDate(endDate, { zone: "utc" }).endOf("day")
     .diff(DateTime.fromJSDate(startDate, { zone: "utc" }).startOf("day"), "hours")
     .hours;
 
-  const computeAvailabilitySummary = (downtimeSummary = []) => {
+  // What the KPI cards divide by: every selected radar's in-service hours inside
+  // the window, summed. effective_hours is per radar and already clipped to
+  // commenced_at / decommissioned_at by the RPC, so a radar that came online
+  // halfway through is not charged for the half it did not exist. The RPC emits
+  // a placeholder row (reason "No Downtime") for a radar with no downtime, so
+  // those count too. A radar with no effective_hours falls back to the span.
+  const totalEffectiveHours = useMemo(() => {
+    const perRadar = new Map();
+    (filteredDowntimeSummary || []).forEach(item => {
+      const key = item.radar_number || "Unknown";
+      const hours = Number(item.effective_hours) || 0;
+      perRadar.set(key, Math.max(perRadar.get(key) ?? 0, hours));
+    });
+    if (perRadar.size === 0) return totalTimeHours;
+    return [...perRadar.values()].reduce(
+      (sum, hours) => sum + (hours > 0 ? hours : totalTimeHours), 0
+    );
+  }, [filteredDowntimeSummary, totalTimeHours]);
+
+  const computeAvailabilitySummary = (downtimeSummary = [], denominatorHours = totalTimeHours) => {
+    const totalWindowHours = denominatorHours > 0 ? denominatorHours : totalTimeHours;
+
+    // No rows is NOT a perfect month. It is also what a failed RPC, an expired
+    // session and a site with no radars all look like from here, and rendering
+    // any of them as 100% has the page state, confidently, something nobody
+    // measured. Every figure becomes null and the cards show "—".
     if (!Array.isArray(downtimeSummary) || downtimeSummary.length === 0) {
       return {
-        physicalAvailability: "100",
-        monitoringAvailability: "100",
-        totalRadarUptime: totalTimeHours.toFixed(0),
-        totalRadarDowntime: "0",
-        totalMonitoringUptime: totalTimeHours.toFixed(0),
-        totalMonitoringDowntime: "0",
-        totalDowntime: "0",
-        downtimeFrequency: "0.00",
+        physicalAvailability: null,
+        monitoringAvailability: null,
+        totalRadarUptime: null,
+        totalRadarDowntime: null,
+        totalMonitoringUptime: null,
+        totalMonitoringDowntime: null,
+        totalDowntime: null,
+        downtimeFrequency: null,
         effective_hours: "0"
       };
     }
@@ -240,19 +266,23 @@ function AvailabilitySummaryPage() {
     const totalMonitoringDowntime = totals.monitoring;
 
     const physicalAvailability =
-      ((totalTimeHours - totalRadarDowntime) / totalTimeHours) * 100;
+      ((totalWindowHours - totalRadarDowntime) / totalWindowHours) * 100;
     const monitoringAvailability =
-      ((totalTimeHours - totalMonitoringDowntime) / totalTimeHours) * 100;
+      ((totalWindowHours - totalMonitoringDowntime) / totalWindowHours) * 100;
 
     const totalDowntime = totalRadarDowntime + totalMonitoringDowntime;
-    const downtimeFrequency = totalDowntime / totalTimeHours;
+    // Downtime hours per radar per day: the fleet's downtime spread over the
+    // radar-days actually monitored. Dividing by hours (as it did) produced a
+    // unitless ratio that the card then labelled "hours/day".
+    const radarDays = totalWindowHours / 24;
+    const downtimeFrequency = radarDays > 0 ? totalDowntime / radarDays : 0;
 
     return {
       physicalAvailability: physicalAvailability.toFixed(0),
       monitoringAvailability: monitoringAvailability.toFixed(0),
-      totalRadarUptime: (totalTimeHours - totalRadarDowntime).toFixed(0),
+      totalRadarUptime: (totalWindowHours - totalRadarDowntime).toFixed(0),
       totalRadarDowntime: totalRadarDowntime.toFixed(0),
-      totalMonitoringUptime: (totalTimeHours - totalMonitoringDowntime).toFixed(0),
+      totalMonitoringUptime: (totalWindowHours - totalMonitoringDowntime).toFixed(0),
       totalMonitoringDowntime: totalMonitoringDowntime.toFixed(0),
       totalDowntime: totalDowntime.toFixed(0),
       downtimeFrequency: downtimeFrequency.toFixed(2),
@@ -268,7 +298,11 @@ function AvailabilitySummaryPage() {
     totalMonitoringDowntime,
     totalDowntime,
     downtimeFrequency
-  } = computeAvailabilitySummary(filteredDowntimeSummary);
+  } = computeAvailabilitySummary(filteredDowntimeSummary, totalEffectiveHours);
+
+  // A figure the page has no basis for reads as an em dash, never as a number.
+  const showPct = (value) => (value === null ? "—" : `${value}%`);
+  const showHours = (value) => (value === null ? "—" : `${value}h`);
 
   // aggregate downtime by reason
   const reasonTotals = filteredDowntimeSummary.reduce((acc, item) => {
@@ -796,7 +830,7 @@ function AvailabilitySummaryPage() {
               <div>
                 <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#fff" }}>Top Issue</p>
                 <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#EC834E" }}>
-                  {topReason} ({topDuration.toFixed(2)} hrs)
+                  {topReason ? `${topReason} (${topDuration.toFixed(2)} hrs)` : "—"}
                 </p>
               </div>
               <div>
@@ -847,23 +881,23 @@ function AvailabilitySummaryPage() {
                 <p style={{ ...cardTitleStyle, fontWeight: "bold", marginBottom: 0 }}>Radar Operating Time</p>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {physicalAvailability}%</h2>
+                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {showPct(physicalAvailability)}</h2>
                 <div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowUp size="10px" color="#47D45A" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{totalRadarUptime}h</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalRadarUptime)}</p>
                     <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total radar uptime</p>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowDown size="10px" color="#F28B82" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{totalRadarDowntime}h</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalRadarDowntime)}</p>
                     <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total radar downtime</p>
                   </div>
                 </div>
               </div>
             </div>
             <Gauge
-              percentage={physicalAvailability}
+              percentage={physicalAvailability ?? 0}
               imageSrc={"/icons/Radaricon.png"}
             />
           </div>
@@ -882,23 +916,23 @@ function AvailabilitySummaryPage() {
                 <p style={{ ...cardTitleStyle, fontWeight: "bold", marginBottom: 0 }}>Monitoring Use of Availability</p>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {monitoringAvailability}%</h2>
+                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {showPct(monitoringAvailability)}</h2>
                 <div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowUp size="10px" color="#47D45A" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{totalMonitoringUptime}h</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalMonitoringUptime)}</p>
                     <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total available time</p>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowDown size="10px" color="#F28B82" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{totalMonitoringDowntime}h</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalMonitoringDowntime)}</p>
                     <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total unavailable time</p>
                   </div>
                 </div>
               </div>
             </div>
             <Gauge
-              percentage={physicalAvailability}
+              percentage={monitoringAvailability ?? 0}
               imageSrc={"/icons/Monitor.svg"}
             />
           </div>
@@ -917,12 +951,12 @@ function AvailabilitySummaryPage() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}>
-                {totalDowntime}
+                {totalDowntime ?? "—"}
                 <span style={{ fontSize: "12px" }}> hours</span>
               </h2>
               <div style={{ display: "block", textAlign: "right" }}>
                 <p style={{ fontSize: "14px", color: "#ccc", fontWeight: "bold", margin: 0 }}>Downtime Frequency</p>
-                <p style={{ fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>{downtimeFrequency} hours/day</p>
+                <p style={{ fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>{downtimeFrequency ?? "—"} hours/day</p>
               </div>
             </div>
           </div>

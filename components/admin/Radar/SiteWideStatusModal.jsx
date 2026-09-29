@@ -16,6 +16,7 @@ import {
     planDowntimeWrites,
     sensorSelectionLabel,
 } from '@/utils/siteWideStatus';
+import { isReversedWindow, reversedByClose } from '@/utils/downtimeWindow';
 import { Spinner } from '@/components/Reusable/Spinner';
 import toast from 'react-hot-toast';
 
@@ -244,6 +245,10 @@ export default function SiteWideStatusModal({
             toast.error('Set both the start and end of the maintenance window.');
             return;
         }
+        if (isReversedWindow(window_.from, window_.to)) {
+            toast.error('The maintenance window ends before it starts. Check the date on both.');
+            return;
+        }
         draft();
         onClose();
     };
@@ -268,7 +273,30 @@ export default function SiteWideStatusModal({
 
             if (openError) throw openError;
 
+            // The close-and-reopen path stamps this event's START onto records
+            // the analyst cannot see. If that time predates one of them, closing
+            // it would leave it reversed — and a reversed record is dropped by
+            // the availability RPCs, so the outage would vanish from the figures.
             const plan = planDowntimeWrites(selectedIds, openRecords || [], status);
+            const wouldReverse = reversedByClose(
+                (openRecords || []).filter((record) => plan.closeIds.includes(record.id)),
+                utcFrom
+            );
+            if (wouldReverse.length > 0) {
+                const byFolderId = new Map(siteSensors.map((item) => [String(item.wallfolder_id), item]));
+                const names = wouldReverse
+                    .map((record) => {
+                        const match = byFolderId.get(String(record.wallfolder));
+                        return match?.radar_number || match?.folder_name || `folder ${record.wallfolder}`;
+                    })
+                    .join(', ');
+                toast.error(
+                    `This start time is earlier than the failure already open on ${names}. ` +
+                    `Close that one first, or set a later start.`
+                );
+                setIsSaving(false);
+                return;
+            }
 
             const payloadFor = (wallfolderId) => ({
                 wallfolder: wallfolderId,

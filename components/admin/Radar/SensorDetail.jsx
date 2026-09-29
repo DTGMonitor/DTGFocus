@@ -21,6 +21,7 @@ import TarpTab from "./Tabs/TarpTab";
 import FailureHistoryTab from "./Tabs/FailureHistoryTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
+import { isReversedWindow, reversedWindowMessage } from "@/utils/downtimeWindow";
 import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
 import { canBeNotApplicable } from "@/config/parameterConfig";
 import { resolutionUpdates } from "@/utils/dqpImprovements";
@@ -170,6 +171,9 @@ const SensorDetail = ({
     const [loading, setLoading] = useState(false);
     // NEW: Track if we are editing an existing downtime record
     const [activeDowntimeId, setActiveDowntimeId] = useState(null);
+    // ...and that record's own start. Switching failure type closes it with the
+    // NEW record's start time, which is only valid if it is not earlier.
+    const [activeDowntimeFrom, setActiveDowntimeFrom] = useState(null);
 
     // [NEW] Refs for handling race conditions
     const lastEditTimeRef = useRef(0);
@@ -524,6 +528,7 @@ const SensorDetail = ({
 
         // Default: Assume new entry
         setActiveDowntimeId(null);
+        setActiveDowntimeFrom(null);
         // "Now", expressed as a datetime-local value in the site timezone.
         const nowSiteLocal = (fromUTC(new Date().toISOString(), timezone) || '').slice(0, 16);
         let initialForm = {
@@ -552,6 +557,7 @@ const SensorDetail = ({
 
                 if (activeRecord && !error) {
                     setActiveDowntimeId(activeRecord.id); // capture ID for update
+                    setActiveDowntimeFrom(activeRecord.from);
                     initialForm = {
                         Type: targetStatus,
                         reason: activeRecord.reason || 'Radar System Issue',
@@ -575,6 +581,40 @@ const SensorDetail = ({
     };
 
     const handleSubmit = async () => {
+        // The times are resolved up here, ahead of every write, because the DQP
+        // block below mutates dqp_values and nothing rolls that back if a later
+        // write is refused. A backwards window fails the whole submission now.
+        const utcFrom = formData.from ? toUTC(formData.from, timezone) : null;
+        const utcTo = formData.to ? toUTC(formData.to, timezone) : null;
+        const utcNotify = formData.notificationTime ? toUTC(formData.notificationTime, timezone) : null;
+        const submissionTime = new Date().toISOString();
+        const showTime = (value) => (formatForInput(value) || String(value || '')).replace('T', ' ');
+
+        if (isReversedWindow(utcFrom, utcTo)) {
+            toast.error(reversedWindowMessage(utcFrom, utcTo, showTime));
+            return;
+        }
+
+        // Two of the three scenarios below close the open record rather than
+        // edit it: switching failure type ends it at THIS record's start, and
+        // going Live ends it at this record's end. Either lands on a row the
+        // analyst is not looking at, so check it against that row's own start.
+        // A reversed record is dropped by the availability RPCs, so the outage
+        // it describes would disappear from the figures rather than read wrong.
+        //
+        // The third scenario UPDATES the open record in place; moving its start
+        // earlier is a correction, not an error, and is deliberately not checked
+        // here — the from/to check above already covers it.
+        const goingLive = targetStatus === 'Live';
+        const switchingFailureType = !goingLive && targetStatus !== localStatus;
+        const closesActiveRecord = Boolean(activeDowntimeId) && (goingLive || switchingFailureType);
+        const closingTime = goingLive ? (utcTo || submissionTime) : utcFrom;
+
+        if (closesActiveRecord && isReversedWindow(activeDowntimeFrom, closingTime)) {
+            toast.error(reversedWindowMessage(activeDowntimeFrom, closingTime, showTime));
+            return;
+        }
+
         setLoading(true);
         try {
             // --- A. Logic for DQP Values ---
@@ -665,13 +705,6 @@ const SensorDetail = ({
                     }
                 }
             }
-
-            // --- B. Submit or Update Downtime Record ---
-
-            const utcFrom = formData.from ? toUTC(formData.from, timezone) : null;
-            const utcTo = formData.to ? toUTC(formData.to, timezone) : null;
-            const utcNotify = formData.notificationTime ? toUTC(formData.notificationTime, timezone) : null;
-            const submissionTime = new Date().toISOString();
 
             // --- B. Submit Logic ---
 

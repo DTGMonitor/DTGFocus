@@ -12,6 +12,7 @@ import {
   sortDowntimeRecords,
   isoToDatetimeLocal,
 } from '@/utils/tabHelpers';
+import { isReversedWindow, reversedWindowMessage } from '@/utils/downtimeWindow';
 
 /**
  * DowntimeTab
@@ -99,6 +100,17 @@ export default function DowntimeTab({ sensor, timezone, crosscheckers, activeTab
 
   const handleEditSave = async (formValues) => {
     if (!editTarget) return;
+
+    // Refuse a backwards window before it reaches the table. A reversed record
+    // is not merely wrong in the availability figures — the RPCs drop it, so
+    // the outage disappears from them altogether.
+    const nextFrom = formValues.from ? toUTC(formValues.from, timezone) : null;
+    const nextTo = formValues.to ? toUTC(formValues.to, timezone) : null;
+    if (isReversedWindow(nextFrom, nextTo)) {
+      toast.error(reversedWindowMessage(formValues.from, formValues.to, (v) => String(v || '').replace('T', ' ')));
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = {
@@ -107,8 +119,8 @@ export default function DowntimeTab({ sensor, timezone, crosscheckers, activeTab
         action: formValues.action,
         notes: formValues.notes,
         site_engineer: formValues.site_engineer,
-        from: formValues.from ? toUTC(formValues.from, timezone) : null,
-        to: formValues.to ? toUTC(formValues.to, timezone) : null,
+        from: nextFrom,
+        to: nextTo,
         notification_time: formValues.notification_time
           ? toUTC(formValues.notification_time, timezone)
           : null,
