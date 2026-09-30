@@ -7,6 +7,7 @@ import Notifications from "@/components/admin/Radar/Notifications";
 import Reports from "@/components/admin/Radar/Reports";
 import FogMonitor from "@/components/admin/Fog/FogMonitor";
 import ReportReminderManager from "@/components/admin/Radar/ReportReminder/ReportReminderManager";
+import RainfallAlarmManager from "@/components/admin/Fog/RainfallAlarmManager";
 import '../adminpagestyle.css';
 
 
@@ -56,6 +57,12 @@ function Radar() {
 
             {/* Daily report-generation reminder — active across all tabs */}
             <ReportReminderManager />
+
+            {/* Rainfall TARP alarm. Mounted here rather than on the Fog Monitor
+                tab for the same reason as the reminder above: an alarm only one
+                tab can raise is an alarm nobody is sitting in front of. Renders
+                nothing until a bound station's rain passes its site TARP. */}
+            <RainfallAlarmManager />
 
         </div>
     );
