@@ -22,6 +22,7 @@ import FailureHistoryTab from "./Tabs/FailureHistoryTab";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toUTC, fromUTC } from "@/utils/timezoneUtils";
 import { isReversedWindow, reversedWindowMessage } from "@/utils/downtimeWindow";
+import { changeoverInstant, closeOpenDowntime, closureMessage } from "@/utils/wallFolderChangeover";
 import { DQP_IMAGE_COLUMNS, attachDqpImages, buildDqpImagePayload } from "@/utils/dqpImages";
 import { canBeNotApplicable } from "@/config/parameterConfig";
 import { resolutionUpdates } from "@/utils/dqpImprovements";
@@ -462,6 +463,25 @@ const SensorDetail = ({
             locationGroup = prev?.location_group || prev?.area || newAreaInput;
         }
 
+        // Rotating away from the current folder puts it out of reach of every
+        // screen, so an outage still open on it can never be closed by hand
+        // again — while the availability RPCs go on reading it as running. Close
+        // it FIRST, and abandon the changeover if that fails: the folder can be
+        // created again in ten seconds, an orphaned open record cannot be found.
+        // See utils/wallFolderChangeover.ts.
+        let closedDowntime = 0;
+        try {
+            closedDowntime = await closeOpenDowntime(
+                supabase, sensor.wallfolder_id, changeoverInstant(timezone)
+            );
+        } catch (closeError) {
+            console.error(closeError);
+            toast.error(
+                "Could not close the downtime still open on this folder, so the new folder was not created. Try again."
+            );
+            return;
+        }
+
         const { data, error } = await supabase
             .rpc('create_wall_folder_with_defaults', {
                 _radar_id: sensor.id,
@@ -472,6 +492,7 @@ const SensorDetail = ({
 
         if (!error) {
             toast.success(`Folder "${newFolderInput}" created successfully!`);
+            if (closedDowntime > 0) toast.success(closureMessage(closedDowntime));
 
             // A radar that reports per monitoring point takes its board with it.
             // Rotating the folder is nearly always the same wall re-scanned, and

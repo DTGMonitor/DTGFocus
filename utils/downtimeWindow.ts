@@ -92,3 +92,36 @@ export const reversedByClose = <T extends OpenRecordRef>(
         return fromMs !== null && closingMs < fromMs;
     });
 };
+
+export interface OpenDowntime {
+    id: number | string;
+    wallfolder: number | string;
+    /** downtime_records.from of the record about to be closed. */
+    from?: string | null;
+}
+
+/**
+ * The other answer to `reversedByClose`: close them anyway, but never backwards.
+ *
+ * Where a close is driven by an instant the analyst TYPED, refusing is right —
+ * they mis-keyed a date and can fix it. Where the instant is simply NOW (a
+ * decommission, a wall-folder changeover), refusing would block a real
+ * operational action over an unrelated bad record, and the open record would go
+ * on accruing outage forever, which is the worse outcome of the two.
+ *
+ * So a record whose `from` is later than the closing instant is closed at its
+ * own start instead — zero minutes, which is the honest reading of "service
+ * ended before this outage could accrue", and a row the availability RPCs still
+ * count rather than drop.
+ */
+export const planDowntimeClosures = (
+    openRecords: OpenDowntime[],
+    instantUTC: string
+): Array<{ id: number | string; to: string }> => {
+    const at = Date.parse(instantUTC);
+    return (openRecords || []).map((record) => {
+        const from = Date.parse(record?.from || '');
+        const tooEarly = Number.isFinite(from) && Number.isFinite(at) && at < from;
+        return { id: record.id, to: tooEarly ? (record.from as string) : instantUTC };
+    });
+};

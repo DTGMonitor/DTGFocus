@@ -91,32 +91,11 @@ export const nowOnSiteClock = (
   instant: Date = new Date()
 ): string => (fromUTC(instant.toISOString(), siteTimeZone || 'UTC') || '').slice(0, 16);
 
-export interface OpenDowntime {
-  id: number | string;
-  wallfolder: number | string;
-  from?: string | null;
-}
-
-/**
- * How each open downtime record is closed off.
- *
- * Clamped to its own start: an operator backdating a decommission to before an
- * outage began would otherwise write `to` earlier than `from`, and the
- * availability sum reads that as negative downtime. Such a record is closed at
- * the moment it opened instead — zero minutes, which is the honest reading of
- * "the radar left service before this outage could accrue".
- */
-export const planDowntimeClosures = (
-  openRecords: OpenDowntime[],
-  instantUTC: string
-): Array<{ id: number | string; to: string }> => {
-  const at = Date.parse(instantUTC);
-  return (openRecords || []).map((record) => {
-    const from = Date.parse(record?.from || '');
-    const tooEarly = Number.isFinite(from) && Number.isFinite(at) && at < from;
-    return { id: record.id, to: tooEarly ? (record.from as string) : instantUTC };
-  });
-};
+// Closing an open downtime record is not this module's rule — it is the rule in
+// utils/downtimeWindow.ts, and the wall-folder changeover needs the same one.
+// Re-exported here so the decommission flow keeps reading as one piece.
+export type { OpenDowntime } from './downtimeWindow';
+export { planDowntimeClosures } from './downtimeWindow';
 
 export interface DecommissionImpact {
   /** Wall folders that will be archived — normally the one live folder. */
