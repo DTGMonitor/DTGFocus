@@ -185,6 +185,7 @@ const FINDINGS_ID: Record<string, string> = {
     'Linear': 'Pola Deformasi Linear',
     'Regressive': 'Pola Deformasi Regresif',
     'Failure': 'Indikasi Pola Longsoran',
+    'Slumping Type Failure': 'Indikasi Longsoran Tipe Slumping',
     'Forecast': 'Prakiraan Longsoran',
     'Material Detachment': 'Indikasi Material Terlepas',
     'Rock Fall': 'Jatuhan Batuan',

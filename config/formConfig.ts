@@ -89,6 +89,17 @@ export const TYPE_MATRIX: Record<string, TypeConfig> = {
             "TypeOfFailure", "Materials"
         ]
     },
+    // The same finding as a failure pattern — same metrics, same absent TARP
+    // trigger — kept as its own type because what the site registers is the
+    // slump, not a general failure. See DEF_TYPE_COLOUR in riskDisplay.ts.
+    "Slumping Type Failure": {
+        tarp: "",
+        fields: [
+            "MaximumDeformation", "Coherence", "Vmax1", "Vmax2",
+            "VCP1", "VCP2", "Unit1", "Unit2", "InverseVelocity1", "InverseVelocity2",
+            "TypeOfFailure", "Materials"
+        ]
+    },
     "Forecast": {
         tarp: "",
         fields: ["VCP1", "VCP2", "InverseVelocity1", "InverseVelocity2", "ForecastResult1", "ForecastResult2"
@@ -188,7 +199,7 @@ const getCleanFindingsEn = (type: string) => {
     switch (type) {
         case "Progressive": case "Linear": case "Linear Accelerating": return `${type} Deformation Trend`
         case "Failure": return `${type} Pattern Indication`
-        case "Material Detachment": return `${type} Indication`
+        case "Material Detachment": case "Slumping Type Failure": return `${type} Indication`
         case "Forecast": return `Failure ${type}`
         default: return type
     }
@@ -355,7 +366,7 @@ export const generateEmailBody = (
     let metricsBlock = "";
 
     // Case A: Double Failure (Has two sets of velocities)
-    if (formData.Type === "Failure") {
+    if (formData.Type === "Failure" || formData.Type === "Slumping Type Failure") {
         metricsBlock = `
 
 > ${t.shortVcp}
@@ -409,7 +420,8 @@ export const generateEmailBody = (
     // 3. ACTION / NOTIFICATION BLOCK
     // Change tone based on whether it was a "CRITICAL" subject or just "NOTIFICATION"
     const isCritical = subjectPrefix.includes("CRITICAL") || subjectPrefix.includes("RISK");
-    const isFallofGround = formData.Type === "Failure" || formData.Type === "Rock Fall" || formData.Type === "Material Detachment";
+    const isFallofGround = formData.Type === "Failure" || formData.Type === "Slumping Type Failure"
+        || formData.Type === "Rock Fall" || formData.Type === "Material Detachment";
     const isBlast = formData.Type === "Blast Event";
 
     let actionBlock = "";
@@ -632,6 +644,7 @@ export const CAUSE_OPTIONS = {
     ],
     Valid: [
         "Failure Pattern Indication", "Slip Pattern Indication",
+        "Slumping Type Failure Indication",
         "Material Detachment Indication", "Rock Fall", "Rapid Movement",
         "Progressive Deformation Trend", "Linear Accelerating Trend", "Linear Deformation Trend",
         "Regressive Deformation Trend"
@@ -649,6 +662,7 @@ export const CAUSE_OPTIONS = {
  */
 export const DEF_TYPE_ALARM_CAUSE: Record<string, string> = {
     "Failure": "Failure Pattern Indication",
+    "Slumping Type Failure": "Slumping Type Failure Indication",
     "Progressive": "Progressive Deformation Trend",
     "Linear Accelerating": "Linear Accelerating Trend",
     "Linear": "Linear Deformation Trend",

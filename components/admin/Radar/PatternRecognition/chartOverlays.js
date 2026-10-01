@@ -16,6 +16,7 @@ export const EVENT_ICON = {
   'Material Detachment': '⛏️',
   'Rainfall Event': '🌧️',
   Failure: '⚠️',
+  'Slumping Type Failure': '⚠️',
 };
 
 export const EVENT_SHORT = {
@@ -24,6 +25,7 @@ export const EVENT_SHORT = {
   'Material Detachment': 'Material Detachment',
   'Rainfall Event': 'Rainfall',
   Failure: 'Failure',
+  'Slumping Type Failure': 'Slumping',
 };
 
 export const EVENT_COLOR = '#FF1744';

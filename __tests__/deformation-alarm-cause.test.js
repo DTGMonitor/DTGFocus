@@ -7,6 +7,7 @@ describe('alarmCauseForDefType', () => {
         expect(alarmCauseForDefType('Linear')).toEqual({ reason: 'Valid', cause: 'Linear Deformation Trend' });
         expect(alarmCauseForDefType('Regressive')).toEqual({ reason: 'Valid', cause: 'Regressive Deformation Trend' });
         expect(alarmCauseForDefType('Failure')).toEqual({ reason: 'Valid', cause: 'Failure Pattern Indication' });
+        expect(alarmCauseForDefType('Slumping Type Failure')).toEqual({ reason: 'Valid', cause: 'Slumping Type Failure Indication' });
         expect(alarmCauseForDefType('Material Detachment')).toEqual({ reason: 'Valid', cause: 'Material Detachment Indication' });
     });
 

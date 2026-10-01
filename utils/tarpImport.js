@@ -146,6 +146,9 @@ const DEF_TYPE_PATTERNS = [
   ['Progressive', /\bprogress\w*|\bprogres\w*|akselerat\w*/i],
   ['Regressive', /\bregress\w*|\bregres\w*|deseleras\w*/i],
   ['Linear', /\blinear\b|kecepatan konstan|velocity konstan/i],
+  // Before 'Failure': a slumping row usually names the failure too, and the
+  // plain-failure pattern would swallow it.
+  ['Slumping Type Failure', /\bslump\w*|nendatan/i],
   ['Failure', /\bfailure\b|fall of ground|\bfog\b|rockfall|longsoran|jatuhan material|keruntuhan/i],
   ['Forecast', /\bforecast\w*|prakiraan|prediksi/i],
   ['Blast Event', /\bblast\w*|peledakan|\bblasting\b/i],

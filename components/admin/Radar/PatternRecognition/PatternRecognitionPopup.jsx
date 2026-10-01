@@ -40,6 +40,7 @@ const EVENT_DEF_TYPES = [
   'Blast Event',
   'Rainfall Event',
   'Failure',
+  'Slumping Type Failure',
 ];
 
 /** Parse a tz-naive timestamp (window edge / event time) to epoch-ms locally. */

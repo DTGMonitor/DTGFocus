@@ -79,6 +79,8 @@ export const DEF_TYPE_COLOUR: Record<string, RiskColour> = {
     // Fall of Ground.
     'Rock Fall': 'grey',
     Failure: 'grey',
+    // A slumping-type failure is a failure: same band, same rank.
+    'Slumping Type Failure': 'grey',
     'Material Detachment': 'grey',
     // Not in the client wording, but it is a TYPE_MATRIX type and has to land
     // somewhere: a forecast is a prediction about a failure, not a live trend.
@@ -102,6 +104,7 @@ const COLOUR_KEYWORD_RULES: Array<[string, RiskColour]> = [
     ['rainfall', 'yellow'],
     ['rock fall', 'grey'],
     ['material detachment', 'grey'],
+    ['slumping', 'grey'],
     ['failure', 'grey'],
     ['forecast', 'grey'],
     // Last, and it has to be: contamination is the calmest band, so a free-typed

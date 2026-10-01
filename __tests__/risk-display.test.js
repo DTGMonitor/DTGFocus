@@ -58,6 +58,7 @@ describe('band colour follows the deformation type', () => {
         ['Rainfall Event', 'yellow'],
         ['Rock Fall', 'grey'],
         ['Failure', 'grey'],
+        ['Slumping Type Failure', 'grey'],
         ['Material Detachment', 'grey'],
     ])('%s is %s', (type, colour) => {
         expect(defTypeColour(type)).toBe(colour);
@@ -110,7 +111,7 @@ describe('the ranking', () => {
     });
 
     it('puts fall of ground above nothing, and below every live trend', () => {
-        const fallOfGround = ['Rock Fall', 'Failure', 'Material Detachment'];
+        const fallOfGround = ['Rock Fall', 'Failure', 'Slumping Type Failure', 'Material Detachment'];
         for (const type of fallOfGround) {
             expect(COLOUR_RANK[defTypeColour(type)]).toBeGreaterThan(COLOUR_RANK.green);
             expect(COLOUR_RANK[defTypeColour(type)]).toBeLessThan(COLOUR_RANK[defTypeColour('Regressive')]);
