@@ -89,16 +89,13 @@ export const TYPE_MATRIX: Record<string, TypeConfig> = {
             "TypeOfFailure", "Materials"
         ]
     },
-    // The same finding as a failure pattern — same metrics, same absent TARP
-    // trigger — kept as its own type because what the site registers is the
-    // slump, not a general failure. See DEF_TYPE_COLOUR in riskDisplay.ts.
+    // Ranks with a failure pattern — grey band, no TARP trigger (see
+    // DEF_TYPE_COLOUR in riskDisplay.ts) — but reported the way Slip Pattern
+    // and Material Detachment are: the indication itself is the finding, so
+    // there are no velocities behind it to collect.
     "Slumping Type Failure": {
         tarp: "",
-        fields: [
-            "MaximumDeformation", "Coherence", "Vmax1", "Vmax2",
-            "VCP1", "VCP2", "Unit1", "Unit2", "InverseVelocity1", "InverseVelocity2",
-            "TypeOfFailure", "Materials"
-        ]
+        fields: []
     },
     "Forecast": {
         tarp: "",
@@ -366,7 +363,7 @@ export const generateEmailBody = (
     let metricsBlock = "";
 
     // Case A: Double Failure (Has two sets of velocities)
-    if (formData.Type === "Failure" || formData.Type === "Slumping Type Failure") {
+    if (formData.Type === "Failure") {
         metricsBlock = `
 
 > ${t.shortVcp}

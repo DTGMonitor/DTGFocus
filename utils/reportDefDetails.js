@@ -84,8 +84,8 @@ export function buildEventDetails(node) {
       push('Velocity', `${lo} – ${hi} ${velocityUnit(p.VCP)}`);
     }
     push('VCP', vcpRow(p.VCP));
-  } else if (type === 'Failure' || type === 'Slumping Type Failure') {
-    // Both failure types carry the two-VCP set rather than a single velocity.
+  } else if (type === 'Failure') {
+    // Failure carries the two-VCP set rather than a single velocity.
     push('Vmax (short VCP)', velocity(p.Vmax1, p.VCP1));
     push('Vmax (long VCP)', velocity(p.Vmax2, p.VCP2));
   } else if (type === 'Forecast') {

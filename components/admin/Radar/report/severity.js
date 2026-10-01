@@ -163,7 +163,7 @@ export const ALARM_CAUSE_COLORS = {
   // Valid — Fall of Ground.
   'Failure Pattern Indication': '#3F3F46',
   'Slip Pattern Indication': '#57534E',
-  'Slumping Type Failure Indication': '#737373',
+  'Slumping Type Failure Indication': '#57534E',
   'Material Detachment Indication': '#8A8A93',
   'Rock Fall': '#A8A29E',
   // False — cool family.
@@ -205,8 +205,8 @@ const CAUSE_KEYWORD_RULES = [
   ['rock fall', '#A8A29E'],
   ['material detachment', '#8A8A93'],
   // Before 'failure', or "Slumping Type Failure" would be caught by the
-  // plain-failure rule and printed as a failure pattern.
-  ['slumping', '#737373'],
+  // plain-failure rule and printed as a failure pattern rather than a slump.
+  ['slumping', '#57534E'],
   ['failure', '#3F3F46'],
   // A forecast is a prediction about a failure — same family, its own grey.
   ['forecast', '#4B5563'],
