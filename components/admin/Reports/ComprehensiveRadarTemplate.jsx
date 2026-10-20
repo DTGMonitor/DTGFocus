@@ -286,6 +286,9 @@ export function ComprehensiveRadarTemplate({
           recentMs={data?.timelineWindowMs}
           // Whether a card's badge quotes a TARP level or names the band.
           riskMode={data?.riskPresentation?.mode}
+          // Detected / Event time are stored UTC: print them on the site's
+          // clock, not on whichever clock this render happens to run on.
+          timeZone={data?.timeZone}
         />
       );
     });

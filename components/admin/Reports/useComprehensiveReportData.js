@@ -564,6 +564,10 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
             summary: summarizeImprovements(improvements),
           },
           wallFolders,
+          // The site's IANA zone. Blocks that print a stored instant need it to
+          // render on the site's clock rather than the runtime's — see
+          // DeformationTimeline.
+          timeZone,
           radarRecord,
           dqpRows,
           timelines,

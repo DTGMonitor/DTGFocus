@@ -25,6 +25,7 @@ import { resolveDetectedBy } from '@/utils/tabHelpers';
 import { DAY_MS } from '@/utils/reportTimeline';
 import { buildEventDetails } from '@/utils/reportDefDetails';
 import { groupTimelinesByFolder, folderDisplayLabel } from '@/utils/reportWallFolders';
+import { formatSiteDay, formatSiteDayTime } from '@/utils/siteTime';
 
 /** Text tone for a node that is neither current nor from within the window. */
 const FAINT = '#9ca3af';
@@ -46,12 +47,18 @@ const detectedByName = (uuid, crosscheckers) => {
   return UUID_RE.test(resolved) ? 'Unknown' : resolved;
 };
 
-const fmtDetected = (iso) => {
+/**
+ * 'DD/MM/YYYY, HH:MM' on the SITE's clock.
+ *
+ * created_at is a real UTC instant. Reading it back with getHours() rendered it
+ * on whichever clock the render ran on — UTC on the server, the analyst's own
+ * zone in the browser — so the same report disagreed with itself about when an
+ * event was detected. The site's clock is the only one the reader of a printed
+ * report is on.
+ */
+const fmtDetected = (iso, timeZone) => {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return formatSiteDayTime(iso, timeZone) ?? String(iso);
 };
 
 /**
@@ -100,7 +107,7 @@ const Badge = ({ text, color, bg, border }) => (
  * `muted` greys a node that is neither the current state nor from the last 24h
  * — historical context the reader should not weigh as live.
  */
-function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, riskMode }) {
+function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, riskMode, timeZone }) {
   // The more severe of the deformation type's band and the record's own TARP
   // level. Neither alone is enough: a record whose site assigns no level (a rock
   // fall, a Leonora blast) still has a band from its type, and a linear trend
@@ -111,7 +118,7 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, r
   const badge = recordBadgeLabel(node ?? {}, riskMode);
   const dotColor = isCurrent ? sev.color : muted ? LINE : MUTED;
   const subColor = muted ? FAINT : MUTED;
-  const details = buildEventDetails(node);
+  const details = buildEventDetails(node, timeZone);
 
   return (
     <div style={{ display: 'flex', gap: 8 }}>
@@ -157,7 +164,7 @@ function TimelineNode({ node, isCurrent, isRoot, isLast, muted, crosscheckers, r
           ) : null}
         </div>
         <div style={{ fontSize: 9, color: subColor, marginTop: 2 }}>Location: {node?.location ?? '—'}</div>
-        <div style={{ fontSize: 9, color: subColor }}>Detected: {fmtDetected(node?.created_at)}</div>
+        <div style={{ fontSize: 9, color: subColor }}>Detected: {fmtDetected(node?.created_at, timeZone)}</div>
         <div style={{ fontSize: 9, color: subColor }}>
           By: {detectedByName(node?.detected_by, crosscheckers)}
         </div>
@@ -235,14 +242,8 @@ function ChainCaption({ index, count, location, subjectType }) {
   );
 }
 
-/** 'DD/MM/YYYY' from an ISO timestamp, by parts so no timezone can shift the day. */
-const fmtDay = (iso) => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
-};
+/** 'DD/MM/YYYY' from a stored UTC instant, on the site's clock. */
+const fmtDay = (iso, timeZone) => formatSiteDay(iso, timeZone);
 
 /**
  * The label that introduces one wall folder's chains.
@@ -255,9 +256,9 @@ const fmtDay = (iso) => {
  *
  * Like the chain caption, it rides on the FIRST chunk of the folder's run.
  */
-function FolderHeader({ group }) {
+function FolderHeader({ group, timeZone }) {
   const { folder, isArchived } = group;
-  const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at) : null;
+  const archivedDay = isArchived ? fmtDay(folder?.decommissioned_at, timeZone) : null;
 
   return (
     <div
@@ -380,13 +381,13 @@ export function buildTimelineChunks(timelines = [], { nodesPerBlock = NODES_PER_
  * One chunk: its folder header and chain caption if it opens a run, then the
  * slice of cards it carries.
  */
-function TimelineChunkView({ chunk, gap = 0, crosscheckers, now, recentMs, riskMode }) {
+function TimelineChunkView({ chunk, gap = 0, crosscheckers, now, recentMs, riskMode, timeZone }) {
   const { folder, caption, index, count, timeline, nodes, offset, chainLength, tail } = chunk;
   const current = (timeline?.trimmed ?? [])[chainLength - 1];
 
   return (
     <div style={{ marginBottom: gap }}>
-      {folder ? <FolderHeader group={folder} /> : null}
+      {folder ? <FolderHeader group={folder} timeZone={timeZone} /> : null}
       {caption && count > 1 ? (
         <ChainCaption
           index={index}
@@ -414,6 +415,7 @@ function TimelineChunkView({ chunk, gap = 0, crosscheckers, now, recentMs, riskM
             muted={!isTail && !isRecent(node, now, recentMs)}
             crosscheckers={crosscheckers}
             riskMode={riskMode}
+            timeZone={timeZone}
           />
         );
       })}
@@ -519,6 +521,12 @@ export function DeformationImage({
  * @param {string} riskMode     The site's risk wording (config/riskDisplay.ts),
  *   which decides whether a card's badge quotes a TARP level or names the band.
  *   Omitted defaults to the DTG standard, the TARP level.
+ * @param {string|null} timeZone  The site's IANA zone. Every instant on a card
+ *   — Detected, and the Event time a Fall of Ground carries — is stored in UTC
+ *   and must print on THIS clock, not the one the render happens to run on.
+ *   Omitted falls back to UTC rather than to the viewer's zone, matching
+ *   timezoneUtils. (The forecast rows are NOT instants and are not converted —
+ *   see utils/reportDefDetails.js.)
  */
 export function DeformationTimeline({
   timelines = [],
@@ -531,6 +539,7 @@ export function DeformationTimeline({
   now = null,
   recentMs = DAY_MS,
   riskMode = 'tarp',
+  timeZone = null,
 }) {
   const chunks = chunk ? [chunk] : buildTimelineChunks(timelines);
 
@@ -575,6 +584,7 @@ export function DeformationTimeline({
               now={now}
               recentMs={recentMs}
               riskMode={riskMode}
+              timeZone={timeZone}
             />
           ))
         )}

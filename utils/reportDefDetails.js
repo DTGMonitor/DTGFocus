@@ -13,8 +13,21 @@
  * that the printed report and the notification email never state the same event
  * in different units.
  *
+ * TWO KINDS OF TIMESTAMP LIVE ON A RECORD, AND THEY ARE NOT FORMATTED ALIKE.
+ *
+ *   `start`            — a real instant. AddDeformationForm writes it through
+ *                        toUTC(), so it is stored in UTC and must be rendered
+ *                        on the SITE's clock.
+ *   ForecastResult1/2  — tz-naive wall clock. The same form writes the
+ *                        datetime-local value into `properties` verbatim, so it
+ *                        is already site time and converting it would shift it
+ *                        by the offset (the -8h bug patternRecognitionMapper
+ *                        documents).
+ *
  * Pure: no React, no clock, no I/O.
  */
+
+import { formatSiteDayTime } from './siteTime';
 
 /**
  * def_types describing a discrete occurrence rather than an ongoing trend.
@@ -43,13 +56,36 @@ const fmtNumber = (v) => {
   return Number.isFinite(n) ? String(n) : String(v);
 };
 
-/** `DD/MM/YYYY, HH:MM`, matching the timeline's Detected line. */
-export function fmtDateTime(iso) {
+/**
+ * A stored UTC instant as `DD/MM/YYYY, HH:MM` on the SITE's clock, matching the
+ * timeline's Detected line.
+ *
+ * This is the one a Fall of Ground goes through: `start` is the moment the
+ * ground actually came away, and the reader is on site. Formatting it with
+ * `getHours()` rendered it on whichever clock the render happened to run on —
+ * UTC on the server, the analyst's own zone in the browser — and never the
+ * site's.
+ *
+ * An unparseable value is handed back untouched rather than dropped, as before.
+ */
+export function fmtDateTime(iso, timeZone) {
   if (!hasValue(iso)) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return formatSiteDayTime(iso, timeZone) ?? String(iso);
+}
+
+/**
+ * A tz-naive wall-clock string as `DD/MM/YYYY, HH:MM`, with no conversion.
+ *
+ * Read by parts rather than through `new Date`, which resolves a naive string
+ * against the runtime's zone and would make the printed forecast depend on
+ * where the report was generated.
+ */
+export function fmtNaiveDateTime(value) {
+  if (!hasValue(value)) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(value).trim());
+  if (!m) return String(value);
+  const [, year, month, day, hour, minute] = m;
+  return `${day}/${month}/${year}, ${hour}:${minute}`;
 }
 
 /**
@@ -60,9 +96,12 @@ export function fmtDateTime(iso) {
  * scan past. An empty array is normal (e.g. Regressive defines no fields).
  *
  * @param {{def_type?: string, start?: string, properties?: object}} node
+ * @param {string|null} timeZone  The site's IANA zone, for `start` only. Omitted
+ *   falls back to UTC — timezoneUtils' own fallback, and better than silently
+ *   adopting whichever clock the render runs on.
  * @returns {{label: string, value: string}[]}
  */
-export function buildEventDetails(node) {
+export function buildEventDetails(node, timeZone = null) {
   const type = String(node?.def_type ?? '').trim();
   const p = node?.properties ?? {};
   const out = [];
@@ -89,12 +128,13 @@ export function buildEventDetails(node) {
     push('Vmax (short VCP)', velocity(p.Vmax1, p.VCP1));
     push('Vmax (long VCP)', velocity(p.Vmax2, p.VCP2));
   } else if (type === 'Forecast') {
-    push('Forecast (short VCP)', fmtDateTime(p.ForecastResult1));
-    push('Forecast (long VCP)', fmtDateTime(p.ForecastResult2));
+    // Naive, not site-converted — see the header note.
+    push('Forecast (short VCP)', fmtNaiveDateTime(p.ForecastResult1));
+    push('Forecast (long VCP)', fmtNaiveDateTime(p.ForecastResult2));
   }
 
   if (EVENT_DEF_TYPES.includes(type)) {
-    push('Event time', fmtDateTime(node?.start));
+    push('Event time', fmtDateTime(node?.start, timeZone));
   }
 
   return out;

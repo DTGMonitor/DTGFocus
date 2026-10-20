@@ -787,6 +787,110 @@ describe('DeformationTimeline', () => {
     expect(screen.getByText('Regressive')).toHaveStyle({ color: '#1f2937' });
   });
 
+  // The site's clock, not the runtime's ────────────────────────────────────
+  //
+  // Everything on a card that is a real instant (created_at, and the Event time
+  // a Fall of Ground carries) is stored in UTC. The reader of the printed
+  // report is on site, so that is the clock it must print on — and the answer
+  // must not change with where the export ran, which is what getHours() made it
+  // do.
+
+  it('prints Detected on the site clock, not UTC', () => {
+    // 2026-07-17 11:00Z is 19:00 the same day in Perth (UTC+8).
+    render(
+      <DeformationTimeline
+        timelines={[chain([node({ created_at: '2026-07-17T11:00:00Z' })])]}
+        now={NOW}
+        timeZone="Australia/Perth"
+      />
+    );
+    expect(screen.getByText('Detected: 17/07/2026, 19:00')).toBeInTheDocument();
+  });
+
+  it('rolls the Detected day over when the site clock is already on the next one', () => {
+    // 23:41Z on the 29th is 09:41 on the 30th at Hidden Valley (UTC+10) — the
+    // case where printing UTC gets the DAY wrong too, not just the hour.
+    render(
+      <DeformationTimeline
+        timelines={[chain([node({ created_at: '2026-09-29T23:41:00Z' })])]}
+        timeZone="Pacific/Port_Moresby"
+      />
+    );
+    expect(screen.getByText('Detected: 30/09/2026, 09:41')).toBeInTheDocument();
+  });
+
+  it("prints a Fall of Ground's Event time on the site clock", () => {
+    render(
+      <DeformationTimeline
+        timelines={[
+          chain([
+            node({
+              def_type: 'Rock Fall',
+              created_at: '2026-07-17T11:30:00Z',
+              start: '2026-07-17T11:00:00Z',
+            }),
+          ]),
+        ]}
+        now={NOW}
+        timeZone="Australia/Perth"
+      />
+    );
+    expect(screen.getByText(/Event time/)).toHaveTextContent('17/07/2026, 19:00');
+  });
+
+  it("falls back to UTC, never the viewer's zone, when the site has no timezone", () => {
+    render(
+      <DeformationTimeline
+        timelines={[chain([node({ created_at: '2026-07-17T11:00:00Z' })])]}
+        now={NOW}
+      />
+    );
+    expect(screen.getByText('Detected: 17/07/2026, 11:00')).toBeInTheDocument();
+  });
+
+  it('leaves a forecast unconverted — it is wall clock, not an instant', () => {
+    // ForecastResult1/2 are written into properties verbatim from a
+    // datetime-local input, so they are ALREADY site time. Converting them is
+    // the -8h bug patternRecognitionMapper documents.
+    render(
+      <DeformationTimeline
+        timelines={[
+          chain([
+            node({
+              def_type: 'Forecast',
+              properties: { ForecastResult1: '2026-07-18T06:30' },
+            }),
+          ]),
+        ]}
+        now={NOW}
+        timeZone="Australia/Perth"
+      />
+    );
+    expect(screen.getByText(/Forecast .short VCP./)).toHaveTextContent('18/07/2026, 06:30');
+  });
+
+  it('dates an archived folder on the site clock', () => {
+    const current = { id: 2, name: 'NEW WALL', area: 'North', type: 'Live' };
+    const archived = {
+      id: 1,
+      name: 'OLD WALL',
+      area: 'North',
+      type: 'Archive',
+      decommissioned_at: '2026-09-29T23:41:00Z',
+    };
+    render(
+      <DeformationTimeline
+        timelines={[
+          { ...chain([node()]), folder: current, isCurrent: true },
+          { ...chain([node({ location: 'EAST DOME' })]), folder: archived, isCurrent: false },
+        ]}
+        now={NOW}
+        timeZone="Pacific/Port_Moresby"
+      />
+    );
+    expect(screen.getByText('Archived 30/09/2026')).toBeInTheDocument();
+  });
+
   it('resolves detected_by to a display name', () => {
     render(
       <DeformationTimeline
