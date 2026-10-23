@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import ReportsList from "@/components/client/Reports/ReportList";
+import ReportsList from "@/components/Reusable/ReportList";
 
 const RadarReport = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);

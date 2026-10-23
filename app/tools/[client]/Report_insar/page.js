@@ -1,7 +1,7 @@
 "use client";
 import ClientHeader from "@/components/client/ClientHeader";
 import { insarMenuItems } from "@/config/menuConfig";
-import ReportsList from "@/components/client/Reports/ReportList";
+import ReportsList from "@/components/Reusable/ReportList";
 
 export default function Page() {
   return (
