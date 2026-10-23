@@ -11,7 +11,7 @@ import { DataQualityReportPreview } from '../../reports/DataQualityReportPreview
 import { AvailabilityReportPreview } from '../../reports/AvailabilityReportPreview';
 import { SafetyReportPreview } from '../../reports/SafetyReportPreview';
 import AdminUpload from "@/components/admin/Reports/AdminUpload";
-import ReportList from "@/components/admin/Reports/ReportList";
+import ReportList from "@/components/Reusable/ReportList";
 import ReportTemplateModal from "@/components/admin/Reports/ReportTemplateModal";
 import ScheduledReports from "@/components/admin/Radar/ReportReminder/ScheduledReports";
 
@@ -120,7 +120,7 @@ function Reports() {
             <FileText className="w-5 h-5 text-[#14b8a6]" />
           </div>
           <div className="text-3xl text-[var(--dtg-text-primary)]">{totalCount}</div>
-          <div className="text-sm text-[var(--dtg-gray-500)] mt-1">Last 90 days</div>
+          <div className="text-sm text-[var(--dtg-gray-500)] mt-1">All time</div>
         </div>
 
         <div className="bg-[var(--dtg-bg-card)] border border-[var(--dtg-border-medium)] rounded-lg p-5">
