@@ -10,7 +10,9 @@
 // BLOCKING, like the report reminder, and for a stronger reason: this is a TARP
 // trigger the site has to be called or messaged about. What it is NOT is a
 // dismiss button. The only way it closes is Acknowledge, which files a work-log
-// entry in the same transaction (see migration 007) — or Snooze, which is
+// entry AND the Rainfall Event records in one transaction (migrations 007 and
+// 010 — the work log is what the shift did, the records are what the site's
+// reports read, and an acknowledgement owes both) — or Snooze, which is
 // explicitly not an acknowledgement, holds for SNOOZE_MINUTES in this browser
 // only, and writes nothing. An operator who needs to read the rainfall chart
 // before signing needs a way out of a modal that covers it; an operator who
@@ -27,6 +29,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CloudRain, Check, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabaseClient';
+import { tarpLevelLabel } from '@/config/tarpDocument';
 import { inZone } from './fogPresentation';
 import { useRainfallTarpAlarm } from './useRainfallTarpAlarm';
 import {
@@ -119,7 +122,7 @@ export default function RainfallAlarmManager() {
           p_site_id: breach.siteId,
           p_kind: breach.kind,
           p_bucket_start: breach.bucketStart,
-          // mm/h for an hourly event, mm for a daily one — the unit follows the
+          // mm/h for a rate event, mm for a daily one — the unit follows the
           // kind, on the row as in the popup. See the fog spec's migration 008.
           p_threshold_mm: breach.thresholdValue,
           p_measured_mm: breach.measuredValue,
@@ -129,6 +132,14 @@ export default function RainfallAlarmManager() {
           p_location: draft.location,
           p_action: draft.action,
           p_notes: draft.notes,
+          // The level as `def_records.tarp_level` spells it — "TARP 2" — through
+          // the same helper a deformation record goes through, so the rainfall
+          // event appears on the boards at the level the site's own row carries
+          // rather than at whatever the deformation form can derive without an
+          // alarm. See migration 010, section 3.
+          p_tarp_label: tarpLevelLabel(breach.tarpLevel),
+          // Rainfall falls on the whole folder; there is no sub-area to name.
+          p_record_location: 'All Area',
         });
 
         if (error) throw error;
@@ -139,18 +150,30 @@ export default function RainfallAlarmManager() {
         const row = Array.isArray(data) ? data[0] : data;
         markAcknowledged(breach.key);
 
+        // The count is named in the toast because the operator has just been
+        // relieved of typing those records by hand, and needs to know whether to
+        // go and do it anyway. Zero is the case that matters: a site monitored
+        // through no eligible wall folder files no event record, and saying
+        // "acknowledged" without saying that would hide it.
+        const filed = Number(row?.def_record_count ?? 0);
+        const records =
+          filed === 0
+            ? ' — no wall folder to file the event record against'
+            : `, ${filed} Rainfall Event record${filed === 1 ? '' : 's'} filed`;
+
         if (row?.already_acknowledged) {
-          toast.success('Already acknowledged — work log entry exists');
+          toast.success(`Already acknowledged — work log entry exists${records}`);
         } else {
-          toast.success('Acknowledged and logged in the work log');
+          toast.success(`Acknowledged and logged in the work log${records}`);
         }
       } catch (err) {
         // The popup deliberately stays up. An acknowledgement whose work-log
-        // entry did not land is not an acknowledgement, and the migration makes
-        // the two inseparable — so a failure here means neither happened.
+        // entry and event records did not land is not an acknowledgement, and the
+        // migrations make all three inseparable — so a failure here means none of
+        // them happened.
         console.error('[RainfallAlarmManager] acknowledge failed', err);
         toast.error(
-          `Not acknowledged — the work log entry failed: ${(err as Error).message}`
+          `Not acknowledged — nothing was filed: ${(err as Error).message}`
         );
       } finally {
         setBusy(null);
@@ -162,6 +185,29 @@ export default function RainfallAlarmManager() {
 
   const showing = breaches.filter((b) => !isSnoozed(b.key, now));
   if (showing.length === 0) return null;
+
+  // THE HEADING NAMES THE LEVEL. "Rainfall TARP Trigger" told an operator that
+  // some rainfall threshold had gone, and left the level on a chip further down
+  // the card — so the first thing read was the weakest thing said. The level is
+  // what decides the response, and it belongs in the sentence the operator reads
+  // first.
+  //
+  // The site's own band wording is preferred over "TARP 2", for the reason the
+  // work-log notes prefer it: Sorowako prints "TARP Trigger 2 (Yellow)" and a
+  // site that names its bands by colour prints that instead, so the popup reads
+  // the way the chart the operator signed reads.
+  //
+  // ONE LEVEL ONLY. The popup stacks every unacknowledged breach, which may in
+  // principle span two sites at two levels; naming one of them in the heading
+  // would misdescribe the other. With more than one, the heading stays generic
+  // and each card's own chip answers for it.
+  const bands = new Set(
+    showing
+      .map((b) => b.bandLabel ?? tarpLevelLabel(b.tarpLevel))
+      .filter((label) => label !== '')
+  );
+  const title =
+    bands.size === 1 ? `${[...bands][0]} — Rainfall` : 'Rainfall TARP Trigger';
 
   return (
     // z-110 sits one layer above ReportReminderManager's z-100, deliberately: if
@@ -191,7 +237,7 @@ export default function RainfallAlarmManager() {
               id="rainfall-alarm-title"
               className="text-lg font-bold text-[var(--dtg-text-primary)]"
             >
-              Rainfall TARP Trigger
+              {title}
             </h3>
             <p className="text-sm text-[var(--dtg-gray-500)]">
               {showing.length} rainfall threshold
@@ -347,9 +393,10 @@ export default function RainfallAlarmManager() {
 
         <p className="text-xs text-[var(--dtg-gray-500)]">
           Acknowledging files a work log entry against the site under category
-          &ldquo;rainfall&rdquo;, recording the threshold, the measurement and the
-          window. Snooze records nothing and returns the alarm in{' '}
-          {SNOOZE_MINUTES} minutes.
+          &ldquo;rainfall&rdquo;, and a Rainfall Event record at this TARP level
+          on every monitored wall folder — both recording the threshold, the
+          measurement and the window. Snooze records nothing and returns the
+          alarm in {SNOOZE_MINUTES} minutes.
         </p>
       </div>
     </div>

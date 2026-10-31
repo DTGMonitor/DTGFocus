@@ -438,10 +438,40 @@ export interface ComposeInput {
 }
 
 /**
+ * The work-log subject for an acknowledged rainfall trigger.
+ *
+ * getWorkLogDetails names TARP 3 and TARP 4 — MODERATE RISK and CRITICAL — and
+ * sends everything else to NOTIFICATION ONLY. That default is right for a
+ * DEFORMATION record at TARP 2, where quoting the level to the client IS the
+ * whole response.
+ *
+ * A rainfall trigger is not that. Sorowako's row asks for WhatsApp AND an email
+ * to every contact, and this entry is the record that the shift made those
+ * calls. Filing it as NOTIFICATION ONLY would say the opposite of what was done,
+ * and the work log is where somebody looks weeks later to find out whether the
+ * site was actually told.
+ *
+ * ONLY THE FALLTHROUGH is redirected. TARP 3 and TARP 4 keep the subjects every
+ * other record at those levels gets: a site that rates rainfall that highly has
+ * not asked for less, and a second opinion here would be a place for the two
+ * mappings to drift.
+ */
+export function rainfallLogSubject(tarpLevel: number | null): {
+  id: number;
+  subject: string;
+} {
+  const mapped = getWorkLogDetails(tarpLevelLabel(tarpLevel), null);
+  // id 1 is getWorkLogDetails' DEFAULT — "nothing above matched" — not a
+  // judgement that this rainfall event needs no action. Tested by identity on the
+  // id rather than on the string so a reworded subject does not silently opt out.
+  return mapped.id === 1 ? { id: 2, subject: 'ACTION REQUIRED' } : mapped;
+}
+
+/**
  * What acknowledging this breach writes into the work log.
  *
- * The SUBJECT comes from getWorkLogDetails, keyed on the TARP level the site's
- * own row carries — the identical mapping a deformation record goes through. A
+ * The SUBJECT goes through rainfallLogSubject, which is getWorkLogDetails — the
+ * identical mapping a deformation record uses — with its default redirected. A
  * site that rates rainfall TARP 3 gets MODERATE RISK here without anything in
  * this file knowing that, because the level is the site's data and the mapping
  * is shared.
@@ -464,7 +494,7 @@ export function composeRainfallWorkLog({
   peakLabel,
   localHour,
 }: ComposeInput): WorkLogDraft {
-  const logSubject = getWorkLogDetails(tarpLevelLabel(breach.tarpLevel), null);
+  const logSubject = rainfallLogSubject(breach.tarpLevel);
 
   // The site's own name for the band, when it has one. Sorowako prints "TARP
   // Trigger 2 (Yellow)"; a site that names its bands by colour prints that

@@ -445,14 +445,26 @@ describe('the work log entry', () => {
     expect(draftFor(flat).notes).not.toContain('peaking at');
   });
 
-  // TARP 2 maps to NOTIFICATION ONLY (subject id 1) through the same
-  // getWorkLogDetails every deformation record goes through — not through a
-  // second mapping that could drift from it.
-  test('takes its subject from the shared work-log mapping', () => {
-    expect(draftFor().subjectId).toBe(1);
-    // A site that rated rainfall TARP 3 would log MODERATE RISK, with nothing in
-    // rainfallTarp.ts knowing that.
-    expect(draftFor({ ...breach, tarpLevel: 3 }).subjectId).toBe(5);
+  // The named levels come from the same getWorkLogDetails every deformation
+  // record goes through, so a site that rates rainfall TARP 3 or TARP 4 gets the
+  // subject every other record at that level gets — not a second mapping that
+  // could drift from it.
+  test('takes its named subjects from the shared work-log mapping', () => {
+    expect(draftFor({ ...breach, tarpLevel: 3 }).subjectId).toBe(5); // MODERATE RISK
+    expect(draftFor({ ...breach, tarpLevel: 4 }).subjectId).toBe(6); // CRITICAL
+  });
+
+  // ONLY the fallthrough is ours. getWorkLogDetails sends every unnamed level to
+  // NOTIFICATION ONLY, which is right for a deformation record at TARP 2 and
+  // wrong here: Sorowako's rainfall row demands WhatsApp AND an email to every
+  // contact, and this entry is the record those calls were made. Filing it as
+  // "notification only" would say the opposite of what was done.
+  test('a TARP 2 rainfall trigger is ACTION REQUIRED, not NOTIFICATION ONLY', () => {
+    expect(draftFor().subjectId).toBe(2);
+    // Keyed on getWorkLogDetails' default rather than on the level, so a site
+    // whose rainfall row carries no level at all still asks for an action — the
+    // threshold went either way.
+    expect(draftFor({ ...breach, tarpLevel: null }).subjectId).toBe(2);
   });
 
   test('carries the TARP response for the shift, flattened onto one line', () => {
