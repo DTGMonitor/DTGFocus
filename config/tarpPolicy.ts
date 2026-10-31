@@ -87,7 +87,7 @@ export interface TarpPolicy {
     documentVersion?: number;
     /**
      * When a rule is suppressed by `requiresAlarm`, should the risk bracket
-     * ([MODERATE RISK] / [CRITICAL]) still follow the underlying TARP level?
+     * ([MODERATE] / [CRITICAL]) still follow the underlying TARP level?
      * Default false -> the email falls back to [NOTIFICATION ONLY].
      */
     keepSeverityWhenSuppressed?: boolean;
@@ -268,7 +268,7 @@ export const resolveTarpLevel = (
 };
 
 /**
- * TARP level that drives the risk bracket ([CRITICAL] / [MODERATE RISK]).
+ * TARP level that drives the risk bracket ([CRITICAL] / [MODERATE]).
  * Identical to `resolveTarpLevel` unless the policy opts to keep the severity
  * bracket after suppressing the trigger label.
  */

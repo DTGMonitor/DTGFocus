@@ -244,6 +244,9 @@ export const getSeverityConfig = (severity: string) => {
   switch (severity) {
     case 'critical':
       return { color: 'text-red-400', bg: 'bg-red-500/20', border: 'border-red-500', borderLeft: 'border-l-red-500' };
+    // Both wordings: the `subject` lookup row read "MODERATE RISK" before the
+    // word was dropped, and this reads whatever that row currently says.
+    case 'moderate':
     case 'moderate risk':
       return { color: 'text-yellow-400', bg: 'bg-yellow-500/20', border: 'border-yellow-500', borderLeft: 'border-l-yellow-500' };
     case 'notification only':

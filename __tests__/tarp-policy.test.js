@@ -643,7 +643,7 @@ describe('end-to-end subject lines for Leonora', () => {
 
     it('quotes TARP Trigger 3 for a linear trend with an orange alarm', () => {
         expect(subjectFor('Linear', [{ type: 'Orange', name: 'AR1' }]))
-            .toBe('[MODERATE RISK] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Leonora');
+            .toBe('[MODERATE] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Leonora');
     });
 
     it('never quotes a trigger for a regressive trend', () => {

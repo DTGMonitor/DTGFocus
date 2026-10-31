@@ -273,8 +273,8 @@ export const NO_RISK_TARP = 'TARP 1';
 const COLOUR_SUBTITLE: Record<RiskColour, string> = {
     darkred: 'Critical',
     red: 'Critical',
-    orange: 'Moderate Risk',
-    yellow: 'Intermediate Risk',
+    orange: 'Moderate',
+    yellow: 'Intermediate',
     grey: 'Event Recorded',
     // Not a severity at all, which is the honest thing to print: the band says
     // the reading is interfered with, not that the slope is at some level.
@@ -430,7 +430,7 @@ export function resolveRiskPresentation(
  *
  * Records keep their `tarp_level` in the database at every site, including the
  * ones that quote no TARP numbers: the level is what derives the email's
- * [CRITICAL] / [MODERATE RISK] bracket, so emptying the column would cost the
+ * [CRITICAL] / [MODERATE] bracket, so emptying the column would cost the
  * severity as well as the wording. It must not be PRINTED at those sites
  * though — a Hidden Valley card reading "TARP 3" cites a number their chart
  * does not contain. There the badge names the band instead, exactly as their

@@ -169,12 +169,12 @@ describe('Telfer — quotes the TARP number, alarm or not', () => {
 
     it('quotes the trigger for a linear trend with no alarm', () => {
         expect(subject('Linear', []))
-            .toBe('[MODERATE RISK] TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
+            .toBe('[MODERATE] TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
     });
 
     it('keeps the alarm-colour prefix when an alarm fired', () => {
         expect(subject('Linear', ORANGE))
-            .toBe('[MODERATE RISK] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
+            .toBe('[MODERATE] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
     });
 
     it('drops to NOTIFICATION ONLY below TARP 3, still quoting the trigger', () => {
@@ -214,7 +214,7 @@ describe('Leonora — quotes the TARP number only when an alarm fired', () => {
 
     it('quotes TARP Trigger 3 once an orange alarm exists', () => {
         expect(subject('Linear', ORANGE))
-            .toBe('[MODERATE RISK] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Leonora');
+            .toBe('[MODERATE] Orange Alarms - TARP Trigger 3: Linear Deformation Trend on R01 - Leonora');
     });
 
     it('quotes nothing for a type its document does not list', () => {
@@ -247,7 +247,7 @@ describe('PTVI — the alarm that fired decides the level, not the trend', () =>
         // progressive; here the orange alarm says the slope has only crossed the
         // LEVEL 3 threshold, and the threshold is what the band means.
         expect(subject('Progressive', ORANGE))
-            .toBe('[MODERATE RISK] Orange Alarms - TARP Trigger 3: Progressive Deformation Trend on R01 - PTVI');
+            .toBe('[MODERATE] Orange Alarms - TARP Trigger 3: Progressive Deformation Trend on R01 - PTVI');
     });
 
     it('reports the same trend on a RED alarm as TARP 4', () => {
@@ -306,7 +306,7 @@ describe('Hidden Valley — names the band, and the token says whether an alarm 
         expect(subject('Progressive', []))
             .toBe('[CRITICAL] Red Notification: Progressive Deformation Trend on R01 - Hidden Valley');
         expect(subject('Linear', []))
-            .toBe('[MODERATE RISK] Orange Notification: Linear Deformation Trend on R01 - Hidden Valley');
+            .toBe('[MODERATE] Orange Notification: Linear Deformation Trend on R01 - Hidden Valley');
         expect(subject('Regressive', []))
             .toBe('[NOTIFICATION ONLY] Yellow Notification: Regressive on R01 - Hidden Valley');
     });
@@ -320,13 +320,13 @@ describe('Hidden Valley — names the band, and the token says whether an alarm 
             '[CRITICAL] Orange Alarms - Red Notification: '
             + 'Progressive Deformation Trend on R01 - Hidden Valley');
         expect(subject('Linear', RED)).toBe(
-            '[MODERATE RISK] Red Alarms - Orange Notification: '
+            '[MODERATE] Red Alarms - Orange Notification: '
             + 'Linear Deformation Trend on R01 - Hidden Valley');
     });
 
     it('lists two regions at once, as every other site does', () => {
         expect(subject('Linear', [...RED, ...ORANGE])).toBe(
-            '[MODERATE RISK] Red and Orange Alarms - Orange Notification: '
+            '[MODERATE] Red and Orange Alarms - Orange Notification: '
             + 'Linear Deformation Trend on R01 - Hidden Valley');
     });
 
@@ -377,7 +377,7 @@ describe('alarm_prefix_style: if-different', () => {
 
     it('keeps it when only one of two regions is already named', () => {
         expect(subject('Linear', [...RED, ...ORANGE])).toBe(
-            '[MODERATE RISK] Red and Orange Alarms - Orange Notification: '
+            '[MODERATE] Red and Orange Alarms - Orange Notification: '
             + 'Linear Deformation Trend on R01 - Hidden Valley');
     });
 

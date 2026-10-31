@@ -378,7 +378,7 @@ describe('the Key Findings sentence', () => {
         expect(riskSentence(resolveRiskPresentation([rec('Progressive', 'TARP 4')], hiddenValley)))
             .toBe('Overall risk is on Red – Critical condition.');
         expect(riskSentence(resolveRiskPresentation([rec('Regressive', '')], leonora)))
-            .toBe('Overall risk is on Regressive – Intermediate Risk condition.');
+            .toBe('Overall risk is on Regressive – Intermediate condition.');
         expect(riskSentence(resolveRiskPresentation([], leonora)))
             .toBe('No significant deformation risk recorded for this period.');
     });

@@ -514,7 +514,7 @@ describe('the two verdict sentences', () => {
   });
 
   test('every band subtitle has an Indonesian form', () => {
-    for (const sub of ['Critical', 'Moderate Risk', 'Intermediate Risk', 'Event Recorded', 'No Significant']) {
+    for (const sub of ['Critical', 'Moderate', 'Intermediate', 'Event Recorded', 'No Significant']) {
       expect(dailySubtitle(sub, 'id')).not.toBe(sub);
     }
     // A label outside the scale passes through rather than vanishing.

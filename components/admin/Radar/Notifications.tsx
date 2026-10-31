@@ -57,7 +57,11 @@ export default function Notifications() {
       (n.notes || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'all' || n.type === filterType;
     const matchesCategory = filterCategory === 'all' || n.category === filterCategory;
-    const matchesSubject = filterSubject === 'all' || n.subject?.subject.toLowerCase() === filterSubject;
+    // startsWith, not equality: the `subject` lookup row read "MODERATE RISK"
+    // before the word was dropped from it, and the filter has to match the row
+    // whichever wording it currently carries.
+    const matchesSubject = filterSubject === 'all'
+      || (n.subject?.subject || '').toLowerCase().startsWith(filterSubject);
     //const matchesRead = !showOnlyUnread;
     return matchesSearch && matchesType && matchesCategory && matchesSubject;
   });
@@ -276,7 +280,7 @@ export default function Notifications() {
             <SelectContent className="bg-[var(--dtg-bg-card)] border-[var(--dtg-border-medium)] text-[var(--dtg-text-primary)]">
               <SelectItem value="all">All Subjects</SelectItem>
               <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="moderate risk">Moderate Risk</SelectItem>
+              <SelectItem value="moderate">Moderate</SelectItem>
               <SelectItem value="service offline">Service Offline</SelectItem>
               <SelectItem value="notification only">Notification Only</SelectItem>
             </SelectContent>

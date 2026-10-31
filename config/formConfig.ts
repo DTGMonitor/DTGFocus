@@ -181,7 +181,7 @@ export const getWorkLogDetails = (tarp: string, notificationTime: string | null)
     }
 
     if (tarp === "TARP 3" && !hasNotification) {
-        return { id: 5, subject: "MODERATE RISK" };
+        return { id: 5, subject: "MODERATE" };
     }
 
     if (tarp === "TARP 4" && !hasNotification) {
@@ -416,7 +416,7 @@ export const generateEmailBody = (
 
     // 3. ACTION / NOTIFICATION BLOCK
     // Change tone based on whether it was a "CRITICAL" subject or just "NOTIFICATION"
-    const isCritical = subjectPrefix.includes("CRITICAL") || subjectPrefix.includes("RISK");
+    const isCritical = subjectPrefix.includes("CRITICAL") || subjectPrefix.includes("MODERATE");
     const isFallofGround = formData.Type === "Failure" || formData.Type === "Slumping Type Failure"
         || formData.Type === "Rock Fall" || formData.Type === "Material Detachment";
     const isBlast = formData.Type === "Blast Event";

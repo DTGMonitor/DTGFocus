@@ -137,7 +137,7 @@ describe('Indonesian subject lines', () => {
 
     it('writes a TARP 3 linear trend', () => {
         expect(composeDeformationSubject({ type: 'Linear', sensor: 'PS2000 - IBP', locale: 'id' }).subject)
-            .toBe('[RISIKO MENENGAH] TARP Trigger 3: Pola Deformasi Linear pada PS2000 - IBP');
+            .toBe('[MENENGAH] TARP Trigger 3: Pola Deformasi Linear pada PS2000 - IBP');
     });
 
     it('writes a failure indication as a notification', () => {
@@ -205,7 +205,7 @@ describe('Indonesian deformation body', () => {
             Location: 'IPD LW Timur 2',
             AverageVelocity: '3',
             VCP: 360,
-        }, 'MODERATE RISK');
+        }, 'MODERATE');
 
         expect(text).toContain('TEMUAN:    Pola Deformasi Linear');
         expect(text).toContain('LOKASI:    IPD LW Timur 2');
@@ -347,7 +347,7 @@ describe('English bodies are unchanged', () => {
     it('keeps the deformation body byte-for-byte', () => {
         const text = generateEmailBody(
             { Type: 'Linear', Location: 'Wall 5', AverageVelocity: '3', VCP: 360, SurfaceArea: '120' },
-            'R01 - Telfer', 'MODERATE RISK', 'Lintang', ''
+            'R01 - Telfer', 'MODERATE', 'Lintang', ''
         );
 
         expect(text).toContain('SENSOR:       R01 - Telfer');

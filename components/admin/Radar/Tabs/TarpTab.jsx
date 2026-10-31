@@ -344,7 +344,7 @@ export const TRIGGER_FIELDS = [
     derive: (values) => levelFromBand(values.bandLabel),
     help: (values) => (levelMatchesBand(values)
       ? 'Read from the band label. Drives the number in the subject and the [CRITICAL] bracket.'
-      : 'Drives the number in the subject and the [CRITICAL] / [MODERATE RISK] bracket.'),
+      : 'Drives the number in the subject and the [CRITICAL] / [MODERATE] bracket.'),
   },
   {
     key: 'requiresAlarm',

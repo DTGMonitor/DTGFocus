@@ -49,7 +49,7 @@ export interface DeformationSubject {
     /** The finished subject line. */
     subject: string;
     /**
-     * CRITICAL / MODERATE RISK / … as derived from the TARP level, which is the
+     * CRITICAL / MODERATE / … as derived from the TARP level, which is the
      * tone the body is written in.
      *
      * Always the ENGLISH wording, in every locale: it is a key, read by the body

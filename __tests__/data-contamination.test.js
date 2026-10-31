@@ -82,7 +82,7 @@ describe('the subject line', () => {
     it('quotes no TARP trigger — the numbers behind the trend are what is in doubt', () => {
         // Without the caveat this same trend is a TARP 3.
         expect(subject({ type: 'Linear' }).subject)
-            .toBe('[MODERATE RISK] TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
+            .toBe('[MODERATE] TARP Trigger 3: Linear Deformation Trend on R01 - Telfer');
 
         expect(subject(ticked).subject)
             .toBe('[NOTIFICATION ONLY] Linear Deformation Trend with Data Contamination on R01 - Telfer');

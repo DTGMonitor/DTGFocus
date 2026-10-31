@@ -21,7 +21,7 @@ export const AddWorkLog = ({ isOpen, onClose, userID, onSuccess }) => {
         { id: 1, label: "NOTIFICATION ONLY" },
         { id: 2, label: "ACTION REQUIRED" },
         { id: 3, label: "SERVICE OFFLINE" },
-        { id: 5, label: "MODERATE RISK" },
+        { id: 5, label: "MODERATE" },
         { id: 6, label: "CRITICAL" },
         { id: 7, label: "UPDATE" }];
 

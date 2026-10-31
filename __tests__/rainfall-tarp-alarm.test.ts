@@ -450,7 +450,7 @@ describe('the work log entry', () => {
   // subject every other record at that level gets — not a second mapping that
   // could drift from it.
   test('takes its named subjects from the shared work-log mapping', () => {
-    expect(draftFor({ ...breach, tarpLevel: 3 }).subjectId).toBe(5); // MODERATE RISK
+    expect(draftFor({ ...breach, tarpLevel: 3 }).subjectId).toBe(5); // MODERATE
     expect(draftFor({ ...breach, tarpLevel: 4 }).subjectId).toBe(6); // CRITICAL
   });
 

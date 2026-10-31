@@ -440,7 +440,7 @@ export interface ComposeInput {
 /**
  * The work-log subject for an acknowledged rainfall trigger.
  *
- * getWorkLogDetails names TARP 3 and TARP 4 — MODERATE RISK and CRITICAL — and
+ * getWorkLogDetails names TARP 3 and TARP 4 — MODERATE and CRITICAL — and
  * sends everything else to NOTIFICATION ONLY. That default is right for a
  * DEFORMATION record at TARP 2, where quoting the level to the client IS the
  * whole response.
@@ -472,7 +472,7 @@ export function rainfallLogSubject(tarpLevel: number | null): {
  *
  * The SUBJECT goes through rainfallLogSubject, which is getWorkLogDetails — the
  * identical mapping a deformation record uses — with its default redirected. A
- * site that rates rainfall TARP 3 gets MODERATE RISK here without anything in
+ * site that rates rainfall TARP 3 gets MODERATE here without anything in
  * this file knowing that, because the level is the site's data and the mapping
  * is shared.
  *

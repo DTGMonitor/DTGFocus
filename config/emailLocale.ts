@@ -170,6 +170,10 @@ export const formatEmailTimestamp = (
 /** Subject brackets. Note SERVICE OFFLINE is left as-is — the sites use it. */
 const BRACKETS_ID: Record<string, string> = {
     'CRITICAL': 'BAHAYA',
+    'MODERATE': 'MENENGAH',
+    // The wording the bracket carried before the word "RISK" was dropped from
+    // it. Kept so an older stored bracket still translates rather than falling
+    // through to English.
     'MODERATE RISK': 'RISIKO MENENGAH',
     'NOTIFICATION ONLY': 'NOTIFIKASI',
     'ACTION REQUIRED': 'PERLU TINDAKAN',

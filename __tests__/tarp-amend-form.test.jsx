@@ -322,10 +322,10 @@ describe('subject preview', () => {
   it('shows the finished subject, with and without an alarm', () => {
     openForm(previewRow());
     expect(screen.getByText(
-      '[MODERATE RISK] Orange Notification: Linear Deformation Trend on R01 - Hidden Valley'
+      '[MODERATE] Orange Notification: Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
     expect(screen.getByText(
-      '[MODERATE RISK] Red Alarms - Orange Notification: '
+      '[MODERATE] Red Alarms - Orange Notification: '
       + 'Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
   });
@@ -336,7 +336,7 @@ describe('subject preview', () => {
       target: { value: 'Yellow Notification' },
     });
     expect(screen.getByText(
-      '[MODERATE RISK] Yellow Notification: Linear Deformation Trend on R01 - Hidden Valley'
+      '[MODERATE] Yellow Notification: Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
   });
 
@@ -346,7 +346,7 @@ describe('subject preview', () => {
     openForm(previewRow());
     fireEvent.change(screen.getByLabelText('TARP band'), { target: { value: '' } });
     expect(screen.getByText(
-      '[MODERATE RISK] Linear Deformation Trend on R01 - Hidden Valley'
+      '[MODERATE] Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
   });
 
@@ -357,7 +357,7 @@ describe('subject preview', () => {
       '[NOTIFICATION ONLY] Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
     expect(screen.getByText(
-      '[MODERATE RISK] Red Alarms - Orange Notification: '
+      '[MODERATE] Red Alarms - Orange Notification: '
       + 'Linear Deformation Trend on R01 - Hidden Valley'
     )).toBeInTheDocument();
   });

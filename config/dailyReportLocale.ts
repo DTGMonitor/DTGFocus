@@ -438,14 +438,14 @@ export function dailyRemark(
 /**
  * Plain-language severity, as the risk card's sub-line prints it.
  *
- * Keyed by `COLOUR_SUBTITLE`'s output in riskDisplay. 'Moderate Risk' takes the
+ * Keyed by `COLOUR_SUBTITLE`'s output in riskDisplay. 'Moderate' takes the
  * wording emailLocale already uses for the same band, so a client reads the
  * same phrase in the notification email and on the report it accompanies.
  */
 const SUBTITLES_ID: Record<string, string> = {
     Critical: 'Kritis',
-    'Moderate Risk': 'Risiko Menengah',
-    'Intermediate Risk': 'Risiko Sedang',
+    Moderate: 'Menengah',
+    Intermediate: 'Sedang',
     'Event Recorded': 'Kejadian Tercatat',
     'Data Contamination': 'Kontaminasi Data',
     'No Significant': 'Tidak Signifikan',
