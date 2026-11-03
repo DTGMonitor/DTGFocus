@@ -86,12 +86,18 @@ const ptviRow = {
     id: 4, site_id: 4, heading: 'PTVI', version: 1, status: 'active',
     tarp_level_source: 'alarm',
     triggers: [
-        trigger({ id: 1, sort_order: 1, trigger_label: 'Pola Deformasi Progresif', colour: 'red', def_type: 'Progressive', tarp_level: 4 }),
+        // requires_alarm mirrors the LIVE document: PTVI gates its deformation
+        // rows on an alarm and its event rows (Rainfall, Failure) on nothing.
+        // governingRule reads that flag to decide which rows the alarm speaks for.
+        trigger({ id: 1, sort_order: 1, trigger_label: 'Pola Deformasi Progresif', colour: 'red', def_type: 'Progressive', tarp_level: 4, requires_alarm: true }),
         trigger({ id: 2, sort_order: 2, trigger_label: 'LEVEL 4', colour: 'red', tarp_level: 4, requires_alarm: true }),
-        trigger({ id: 3, sort_order: 3, trigger_label: 'Pola Deformasi Linear', colour: 'orange', def_type: 'Linear', tarp_level: 3 }),
+        trigger({ id: 3, sort_order: 3, trigger_label: 'Pola Deformasi Linear', colour: 'orange', def_type: 'Linear', tarp_level: 3, requires_alarm: true }),
         trigger({ id: 4, sort_order: 4, trigger_label: 'LEVEL 3', colour: 'orange', tarp_level: 3, requires_alarm: true }),
         trigger({ id: 5, sort_order: 5, trigger_label: 'LEVEL 2', colour: 'yellow', tarp_level: 2, requires_alarm: true }),
-        trigger({ id: 6, sort_order: 6, trigger_label: 'LEVEL 1', colour: 'green', tarp_level: 1, requires_alarm: true })
+        trigger({ id: 6, sort_order: 6, trigger_label: 'LEVEL 1', colour: 'green', tarp_level: 1, requires_alarm: true }),
+        // Measured by a rain gauge, so no radar alarm colour can decide it.
+        trigger({ id: 7, sort_order: 7, trigger_label: 'Hujan', colour: 'yellow', def_type: 'Rainfall Event', tarp_level: 2, requires_alarm: false }),
+        trigger({ id: 8, sort_order: 8, trigger_label: 'Failure', colour: 'green', def_type: 'Failure', tarp_level: 1, requires_alarm: false })
     ],
     contacts: [], revisions: []
 };
@@ -267,6 +273,34 @@ describe('PTVI — the alarm that fired decides the level, not the trend', () =>
         expect(subject('Progressive', []))
             .toBe('[NOTIFICATION ONLY] Progressive Deformation Trend on R01 - PTVI');
         expect(level('Progressive', [])).toBe('');
+    });
+
+    it('keeps the level on a row the chart does NOT gate on an alarm', () => {
+        // Rain is measured by a gauge. Asking the alarm row what level a
+        // rainfall event is returned null, which surfaced as '' and was then
+        // displayed as NO_RISK_TARP ('TARP 1') for an event the client's own
+        // chart rates TARP 2. requires_alarm = false is the chart saying so.
+        expect(level('Rainfall Event', [])).toBe('TARP 2');
+        // And an unrelated alarm does not move it either way.
+        expect(level('Rainfall Event', RED)).toBe('TARP 2');
+
+        // The Failure row is the same shape at level 1, and this IS a change
+        // to client mail: the subject gains a token where it carried none.
+        // Kept deliberately — the level is what PTVI's own chart assigns, and
+        // special-casing rainfall in code would put the mapping somewhere
+        // other than the client's document. Pinned so it cannot drift back
+        // unnoticed.
+        expect(level('Failure', [])).toBe('TARP 1');
+        expect(subject('Failure', []))
+            .toBe('[NOTIFICATION ONLY] TARP Trigger 1: Failure Pattern Indication on R01 - PTVI');
+    });
+
+    it('still defers every alarm-gated row to the alarm that fired', () => {
+        // The guard above must not leak into the deformation rows, which is
+        // the whole point of this document.
+        expect(level('Progressive', ORANGE)).toBe('TARP 3');
+        expect(level('Progressive', [])).toBe('');
+        expect(level('Linear', [])).toBe('');
     });
 
     it('answers two alarms at once with the more severe of them', () => {

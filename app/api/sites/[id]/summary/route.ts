@@ -105,6 +105,15 @@ export async function GET(
         start: new Date(d.day_start),
         rainMm: d.rain_mm,
       })),
+
+      // The raw gauge pair, so the printed line can quote the SAME two series
+      // RainfallCharts.jsx plots underneath it. Reuses the readings already
+      // fetched above for the clearness index — no extra round trip.
+      rain: readings.map((r) => ({
+        observedAt: new Date(r.observed_at),
+        rainRateMmh: r.rain_rate_mmh,
+        rainDailyMm: r.rain_daily_mm,
+      })),
     });
 
     const newest = readings.length ? readings[readings.length - 1] : null;

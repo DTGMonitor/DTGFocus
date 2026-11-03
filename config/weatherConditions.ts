@@ -61,10 +61,11 @@ export interface WeatherConstants {
    * Range length at or below which rainfall is summarised per HOUR rather than
    * per DAY, in hours.
    *
-   * A one-day report says "rata-rata 5 mm/jam, maksimum 10 mm pada pukul
-   * 17:00"; a seven-day report says "rata-rata 6 mm/hari, maksimum 10 mm pada
-   * tanggal 10 Agustus 2026". 48 hours rather than 24 so a report whose window
-   * runs slightly over a day does not flip basis unexpectedly.
+   * A one-day report says "Total 37.2 mm (20:00–22:00), laju puncak 37.2
+   * mm/jam pada pukul 21:05, akumulasi 1 jam tertinggi 16 mm"; a seven-day
+   * report says "Total 120 mm, akumulasi harian tertinggi 37.2 mm pada tanggal
+   * 31 Oktober 2026". 48 hours rather than 24 so a report whose window runs
+   * slightly over a day does not flip basis unexpectedly.
    */
   readonly hourlyBasisMaxHours: number;
 
@@ -134,12 +135,17 @@ export const SKY_LABEL: Record<ReportLocale, Record<SkyCode, string>> = {
  * without touching the maths.
  */
 export interface SummaryStrings {
-  average: string;
-  maximum: string;
+  /** Leads the rainfall line: the height the accumulator climbed. */
+  total: string;
+  /** The gauge's instantaneous rate — the chart's blue line. */
+  peakRate: string;
+  /** Worst single clock hour. Spelled out so it cannot read as a rate. */
+  topHourAccum: string;
+  /** Worst single day, on the multi-day basis. */
+  topDayAccum: string;
   atHour: (hhmm: string) => string;
   onDate: (date: string) => string;
   mmPerHour: string;
-  mmPerDay: string;
   noRain: string;
   noData: string;
   insufficient: string;
@@ -158,12 +164,13 @@ export interface SummaryStrings {
 
 export const SUMMARY_STRINGS: Record<ReportLocale, SummaryStrings> = {
   id: {
-    average: 'rata-rata',
-    maximum: 'maksimum',
+    total: 'Total',
+    peakRate: 'laju puncak',
+    topHourAccum: 'akumulasi 1 jam tertinggi',
+    topDayAccum: 'akumulasi harian tertinggi',
     atHour: (hhmm) => `pada pukul ${hhmm}`,
     onDate: (date) => `pada tanggal ${date}`,
     mmPerHour: 'mm/jam',
-    mmPerDay: 'mm/hari',
     noRain: 'Tidak ada hujan tercatat',
     noData: 'Data stasiun tidak tersedia',
     insufficient: 'Riwayat belum cukup untuk menilai',
@@ -179,12 +186,13 @@ export const SUMMARY_STRINGS: Record<ReportLocale, SummaryStrings> = {
     },
   },
   en: {
-    average: 'average',
-    maximum: 'maximum',
+    total: 'Total',
+    peakRate: 'peak rate',
+    topHourAccum: 'highest 1-hour accumulation',
+    topDayAccum: 'highest daily accumulation',
     atHour: (hhmm) => `at ${hhmm}`,
     onDate: (date) => `on ${date}`,
     mmPerHour: 'mm/h',
-    mmPerDay: 'mm/d',
     noRain: 'No rainfall recorded',
     noData: 'No station data available',
     insufficient: 'Not enough history to assess',

@@ -32,6 +32,19 @@ function hours(startUtc: string, values: (number | null)[]) {
   }));
 }
 
+/** Raw gauge samples: [minutesFromStart, accumulatorMm, rateMmh]. */
+function samples(
+  startUtc: string,
+  rows: [number, number | null, number | null][]
+) {
+  const t0 = new Date(startUtc).getTime();
+  return rows.map(([mins, rainDailyMm, rainRateMmh]) => ({
+    observedAt: new Date(t0 + mins * 60_000),
+    rainDailyMm,
+    rainRateMmh,
+  }));
+}
+
 function days(startUtc: string, values: (number | null)[]) {
   const t0 = new Date(startUtc).getTime();
   return values.map((rainMm, i) => ({
@@ -53,10 +66,14 @@ describe('rainfall wording', () => {
     const s = summarisePeriod(input({ hourly }));
 
     expect(s.rainfall.basis).toBe('hourly');
-    expect(s.rainfall.averageMm).toBeCloseTo(6.7, 1); // (4+10+6)/3, wet hours only
     expect(s.rainfall.maxMm).toBe(10);
+    // Still computed, deliberately absent from the line — see summary.ts header.
+    expect(s.rainfall.averageMm).toBeCloseTo(6.7, 1); // (4+10+6)/3, wet hours only
+    expect(s.rainfall.text).not.toContain('rata-rata');
+    // No raw samples here, so no rate clause and the total falls back to the
+    // bucket sum. The wet span runs first wet hour to end of last wet hour.
     expect(s.rainfall.text).toBe(
-      'rata-rata 6.7 mm/jam, maksimum 10 mm pada pukul 17:00'
+      'Total 20 mm (15:00–21:00), akumulasi 1 jam tertinggi 10 mm pada pukul 17:00'
     );
   });
 
@@ -72,8 +89,10 @@ describe('rainfall wording', () => {
 
     expect(s.rainfall.basis).toBe('daily');
     expect(s.rainfall.averageMm).toBe(6); // (2+8+10+4)/4
+    // The multi-day basis carries no clock span: a range of dates would just
+    // restate the peak-day clause.
     expect(s.rainfall.text).toBe(
-      'rata-rata 6 mm/hari, maksimum 10 mm pada tanggal 8 Agustus 2026'
+      'Total 24 mm, akumulasi harian tertinggi 10 mm pada tanggal 8 Agustus 2026'
     );
   });
 
@@ -114,7 +133,96 @@ describe('rainfall wording', () => {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ]);
     const s = summarisePeriod(input({ hourly, locale: 'en' }));
-    expect(s.rainfall.text).toBe('average 10 mm/h, maximum 10 mm at 17:00');
+    expect(s.rainfall.text).toBe(
+      'Total 10 mm (17:00–18:00), highest 1-hour accumulation 10 mm at 17:00'
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // The line has to describe the chart printed beneath it. These pin the two
+  // numbers a reader can point at: the accumulator's climb and the rate peak.
+  // -------------------------------------------------------------------------
+
+  test('the line quotes the rate peak and the accumulator climb, not the bucket sum', () => {
+    // The report that prompted this: a chart whose teal line plateaus at
+    // 37.2 mm and whose blue rate spikes to 37.2 mm/h at 21:05, beside a
+    // summary that said "maksimum 16 mm" and nothing else. Both numbers were
+    // right; neither was findable on the plot.
+    const hourly = hours('2026-08-10T00:00:00Z', [
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    // 08:00Z is 16:00 local. Climb: 10 + 16 + 11.2 = 37.2.
+    const rain = samples('2026-08-10T08:00:00Z', [
+      [0, 0, 0],
+      [240, 10, 5], // 12:00Z = 20:00 local
+      [305, 26, 37.2], // 13:05Z = 21:05 local — the spike
+      [360, 37.2, 2], // 14:00Z = 22:00 local
+    ]);
+
+    const s = summarisePeriod(input({ hourly, rain }));
+
+    expect(s.rainfall.peakRateMmh).toBe(37.2);
+    expect(s.rainfall.maxMm).toBe(16);
+    // 37.2, not the 26 mm the buckets add up to.
+    expect(s.rainfall.totalMm).toBe(37.2);
+    expect(s.rainfall.text).toBe(
+      'Total 37.2 mm (20:00–22:00), laju puncak 37.2 mm/jam pada pukul 21:05, ' +
+        'akumulasi 1 jam tertinggi 16 mm'
+    );
+  });
+
+  test('the peak hour keeps its clock only when the rate spike fell elsewhere', () => {
+    const hourly = hours('2026-08-10T00:00:00Z', [
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    // Spike at 09:30Z = 17:30 local, hours before the 21:00 peak bucket.
+    const rain = samples('2026-08-10T08:00:00Z', [
+      [0, 0, 0],
+      [90, 4, 30], // 09:30Z = 17:30 local
+      [360, 20, 1],
+    ]);
+
+    const s = summarisePeriod(input({ hourly, rain }));
+
+    expect(s.rainfall.text).toBe(
+      'Total 20 mm (21:00–22:00), laju puncak 30 mm/jam pada pukul 17:30, ' +
+        'akumulasi 1 jam tertinggi 16 mm pada pukul 21:00'
+    );
+  });
+
+  test('rain the accumulator counted still reports, even with no usable bucket', () => {
+    // Every hour too thinly polled for weather_rain_hourly to attribute, so
+    // the buckets are empty. Printing "Tidak ada hujan tercatat" over a chart
+    // whose teal line visibly climbed is the worst thing this line can do.
+    // Also pins the midnight reset: 10 then 2 is a reset, not a -8 mm hour.
+    const rain = samples('2026-08-10T14:00:00Z', [
+      [0, 0, 0], // 22:00 local
+      [110, 10, 6], // 23:50 local
+      [130, 2, 3], // 00:10 local, next station day — counter reset
+    ]);
+
+    const s = summarisePeriod(
+      input({
+        windowStart: iso('2026-08-10T12:00:00Z'),
+        windowEnd: iso('2026-08-10T18:00:00Z'),
+        hourly: [],
+        rain,
+      })
+    );
+
+    expect(s.rainfall.totalMm).toBe(12); // 10 + 2, reset stitched
+    expect(s.rainfall.text).toBe('Total 12 mm, laju puncak 6 mm/jam pada pukul 23:50');
+  });
+
+  test('a dry window with samples says so rather than printing a zero total', () => {
+    const rain = samples('2026-08-10T08:00:00Z', [
+      [0, 0, 0],
+      [240, 0, 0],
+    ]);
+    const s = summarisePeriod(
+      input({ hourly: hours('2026-08-10T00:00:00Z', [0, 0, 0, 0]), rain })
+    );
+    expect(s.rainfall.text).toBe('Tidak ada hujan tercatat');
   });
 });
 

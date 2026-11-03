@@ -248,6 +248,18 @@ const governingRule = (
     const typeRule = getRule(policy, type);
     if (!typeRule) return null;
     if (policy.tarpLevelSource !== 'alarm') return typeRule;
+    // The alarm row speaks only for the types the CHART ITSELF gates on an
+    // alarm. A row marked requires_alarm = false carries its own level because
+    // nothing a radar alarm says can decide it: Sorowako rates rainfall TARP 2
+    // off a rain gauge, and its Failure row is a standing classification.
+    // Asking the alarm row for those returned null, which resolveTarpLevel
+    // renders '' and riskDisplay then shows as NO_RISK_TARP — so a rainfall
+    // event the client's own chart rates TARP 2 was reported as TARP 1.
+    //
+    // Deformation rows are unaffected: Progressive and Linear carry
+    // requires_alarm = true at every alarm-sourced site, so they still defer
+    // to the alarm that fired.
+    if (!typeRule.requiresAlarm) return typeRule;
     // No alarm means no threshold was breached, so there is nothing to quote.
     if (!hasAlarm) return null;
     return matchAlarmRule(policy, alarmColours);

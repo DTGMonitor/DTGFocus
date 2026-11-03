@@ -8,15 +8,32 @@
 // and the weekly one (7 days) run the same code over a different range — which
 // is exactly the difference between them.
 //
-// A note on what "average" means here, because it is the one number a reader
-// could reasonably interpret two ways: the average is taken over the periods
-// that RECORDED RAIN, not over every hour in the window. "rata-rata 5 mm/jam"
-// is meant to read as the typical intensity while it was raining. Averaging
-// across a mostly-dry day instead would report 0.4 mm/jam for a day that
-// dropped 10 mm in one violent hour, which tells a slope engineer nothing.
+// THE RAINFALL LINE DESCRIBES THE CHART PRINTED BESIDE IT. That is a hard
+// constraint, not a preference. The report puts RainfallCharts.jsx directly
+// under this summary, and a reader who cannot find the summary's numbers on
+// the plot concludes one of the two is broken.
 //
-// Unmeasured periods are excluded from both the average and the maximum. They
-// are not zeroes — see rainfall.ts.
+// So the line leads with the two quantities that are legible on the plot:
+//
+//   * TOTAL — how far the teal accumulator climbed across the window. This is
+//     the plateau height the eye lands on first.
+//   * PEAK RATE — the tallest spike on the blue line, in mm/h, named as a rate.
+//     The chart's top y-tick is the max across BOTH series, so this value very
+//     often IS the number printed on the axis.
+//
+// It closes with the worst single bucket's accumulation, which is NOT on the
+// chart but is what the TARP accumulation thresholds compare against. That one
+// is spelled "akumulasi 1 jam" / "1-hour accumulation" rather than "maksimum",
+// because the previous wording sat next to an axis labelled mm/mm-hr and read
+// as a rate — a 16 mm hour beside a visible 37.2 looked like a contradiction.
+//
+// THE WET-HOUR AVERAGE IS STILL COMPUTED BUT NO LONGER PRINTED. It survives on
+// RainfallPart.averageMm for anyone interrogating the workings. Keep it off the
+// page: it averages only hours above the wet threshold, so it is neither the
+// chart's shape nor a true daily mean, and readers took it for the latter.
+//
+// Unmeasured periods are excluded from every bucket statistic. They are not
+// zeroes — see rainfall.ts.
 
 import {
   SKY_LABEL,
@@ -50,6 +67,21 @@ export interface SummaryRainBucket {
   rainMm: number | null;
 }
 
+/**
+ * One poll of the gauge — the raw pair the chart plots, before any bucketing.
+ *
+ * Optional on SummaryInput so a caller that only has buckets still works; the
+ * line simply loses its peak-rate clause and falls back to the bucket sum for
+ * the total.
+ */
+export interface SummaryRainSample {
+  observedAt: Date;
+  /** Instantaneous rate, mm/h — the chart's BLUE line. Never summed. */
+  rainRateMmh: number | null;
+  /** The station's daily accumulator, mm — the chart's TEAL line. */
+  rainDailyMm: number | null;
+}
+
 export interface SummaryInput {
   windowStart: Date;
   windowEnd: Date;
@@ -60,6 +92,8 @@ export interface SummaryInput {
   assessments: readonly SummaryAssessment[];
   hourly: readonly SummaryRainBucket[];
   daily: readonly SummaryRainBucket[];
+  /** Raw gauge samples. Omit and the line degrades rather than fails. */
+  rain?: readonly SummaryRainSample[];
   constants?: WeatherConstants;
 }
 
@@ -86,14 +120,27 @@ export interface FogPart {
 
 export interface RainfallPart {
   basis: 'hourly' | 'daily';
+  /** The line the report prints. */
   text: string;
+  /**
+   * Mean over WET buckets only. Computed, deliberately NOT printed — see the
+   * file header before putting it back on the page.
+   */
   averageMm: number | null;
+  /** Largest single bucket's accumulation, mm. */
   maxMm: number | null;
   maxAt: Date | null;
+  /** Tallest instantaneous rate in the window, mm/h — the blue line's peak. */
+  peakRateMmh: number | null;
+  peakRateAt: Date | null;
+  /** First wet bucket's start and last wet bucket's end — the rain's span. */
+  wetFrom: Date | null;
+  wetTo: Date | null;
   /** Buckets that recorded rain above the wet threshold. */
   wetPeriods: number;
   /** Buckets with a measurement at all — the rest were never observed. */
   measuredPeriods: number;
+  /** Window total, mm — how far the accumulator climbed. */
   totalMm: number | null;
 }
 
@@ -170,6 +217,64 @@ const within = (t: Date, start: Date, end: Date) =>
 // Rainfall
 // ---------------------------------------------------------------------------
 
+const round1 = (v: number | null): number | null =>
+  v === null ? null : Math.round(v * 10) / 10;
+
+/**
+ * Peak rate and accumulator climb, read off the SAME two series the chart
+ * draws, so the sentence and the picture cannot disagree.
+ */
+function fromSeries(
+  samples: readonly SummaryRainSample[],
+  windowStart: Date,
+  windowEnd: Date
+): { peakRateMmh: number | null; peakRateAt: Date | null; climbMm: number | null } {
+  const ordered = samples
+    .filter((s) => within(s.observedAt, windowStart, windowEnd))
+    .slice()
+    .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
+
+  let peakRateMmh: number | null = null;
+  let peakRateAt: Date | null = null;
+  for (const s of ordered) {
+    if (s.rainRateMmh === null) continue;
+    if (peakRateMmh === null || s.rainRateMmh > peakRateMmh) {
+      peakRateMmh = s.rainRateMmh;
+      peakRateAt = s.observedAt;
+    }
+  }
+
+  // How far the teal line climbed, with the midnight reset stitched back
+  // together exactly as rainfall.ts does it: a counter that went backwards
+  // means everything on it fell after the reset, so the step IS the value.
+  //
+  // Taken from the series rather than by summing the hourly buckets BECAUSE
+  // the buckets drop any hour below MIN_COVERED_MINUTES. A window with one
+  // thin hour would otherwise print a total visibly short of the plateau the
+  // reader is looking at. The accumulator is the station's own count and
+  // survives a polling gap — the same reasoning weather_rain_daily already
+  // applies to day totals.
+  let climbMm = 0;
+  let previous: number | null = null;
+  let measured = false;
+  for (const s of ordered) {
+    if (s.rainDailyMm === null) continue;
+    measured = true;
+    if (previous !== null) {
+      climbMm +=
+        s.rainDailyMm < previous ? s.rainDailyMm : s.rainDailyMm - previous;
+    }
+    previous = s.rainDailyMm;
+  }
+
+  // Guard the float noise that turns a dry window into 1e-15 mm.
+  return {
+    peakRateMmh,
+    peakRateAt,
+    climbMm: measured ? Math.max(0, climbMm) : null,
+  };
+}
+
 function summariseRainfall(input: SummaryInput, K: WeatherConstants): RainfallPart {
   const { windowStart, windowEnd, timeZone, locale } = input;
   const S = SUMMARY_STRINGS[locale];
@@ -184,44 +289,112 @@ function summariseRainfall(input: SummaryInput, K: WeatherConstants): RainfallPa
   );
 
   const wet = buckets.filter((b) => (b.rainMm as number) > K.wetThresholdMm);
-  const totalMm = buckets.reduce((s, b) => s + (b.rainMm as number), 0);
+  const bucketTotal = buckets.reduce((s, b) => s + (b.rainMm as number), 0);
 
-  const empty: RainfallPart = {
+  const { peakRateMmh, peakRateAt, climbMm } = fromSeries(
+    input.rain ?? [],
+    windowStart,
+    windowEnd
+  );
+
+  // The accumulator is preferred; the bucket sum is the fallback for a caller
+  // that passed no raw samples.
+  const totalMm = climbMm ?? (buckets.length > 0 ? bucketTotal : null);
+
+  /** "laju puncak 37.2 mm/jam pada pukul 21:05" — omitted when the gauge saw none. */
+  const rateClause = (): string | null => {
+    if (peakRateMmh === null || peakRateAt === null || !(peakRateMmh > 0)) {
+      return null;
+    }
+    const when =
+      basis === 'hourly'
+        ? S.atHour(fmtHour(peakRateAt, timeZone))
+        : S.onDate(fmtDate(peakRateAt, timeZone, locale));
+    return `${S.peakRate} ${num(peakRateMmh)} ${S.mmPerHour} ${when}`;
+  };
+
+  const base = {
     basis,
-    text: buckets.length === 0 ? S.noData : S.noRain,
     averageMm: null,
     maxMm: null,
     maxAt: null,
+    peakRateMmh: round1(peakRateMmh),
+    peakRateAt,
+    wetFrom: null,
+    wetTo: null,
     wetPeriods: 0,
     measuredPeriods: buckets.length,
-    totalMm: buckets.length === 0 ? null : Math.round(totalMm * 10) / 10,
-  };
-  if (wet.length === 0) return empty;
+    totalMm: round1(totalMm),
+  } satisfies Omit<RainfallPart, 'text'>;
+
+  if (wet.length === 0) {
+    // Rain the accumulator counted but no bucket could attribute — every hour
+    // was too thinly polled to report. Saying "no rainfall recorded" over a
+    // chart whose teal line climbed is the worst thing this line can do.
+    if (totalMm !== null && totalMm > K.wetThresholdMm) {
+      const parts = [`${S.total} ${num(totalMm)} mm`];
+      const rate = rateClause();
+      if (rate) parts.push(rate);
+      return { ...base, text: parts.join(', ') };
+    }
+    return {
+      ...base,
+      text: buckets.length === 0 && climbMm === null ? S.noData : S.noRain,
+    };
+  }
 
   const average = wet.reduce((s, b) => s + (b.rainMm as number), 0) / wet.length;
   const peak = wet.reduce((a, b) =>
     (b.rainMm as number) > (a.rainMm as number) ? b : a
   );
 
-  const unit = basis === 'hourly' ? S.mmPerHour : S.mmPerDay;
-  const when =
+  const bucketMs = basis === 'hourly' ? 3_600_000 : 86_400_000;
+  const wetFrom = wet[0].start;
+  const wetTo = new Date(wet[wet.length - 1].start.getTime() + bucketMs);
+
+  const parts: string[] = [];
+
+  // 1. The headline. On the hourly basis it carries the span the rain occupied,
+  //    which is the other thing the eye reads straight off the plot. The daily
+  //    basis omits it: a span of dates duplicates the peak-day clause below.
+  const span =
     basis === 'hourly'
-      ? S.atHour(fmtHour(peak.start, timeZone))
-      : S.onDate(fmtDate(peak.start, timeZone, locale));
+      ? ` (${fmtHour(wetFrom, timeZone)}–${fmtHour(wetTo, timeZone)})`
+      : '';
+  parts.push(`${S.total} ${num(totalMm as number)} mm${span}`);
+
+  // 2. The tallest spike on the rate line, explicitly in mm/h.
+  const rate = rateClause();
+  if (rate) parts.push(rate);
+
+  // 3. The worst bucket's accumulation. Its time is dropped when the peak rate
+  //    already fell inside that bucket — the usual case, and repeating the
+  //    clock there reads as two separate events.
+  const label = basis === 'hourly' ? S.topHourAccum : S.topDayAccum;
+  const rateInsidePeak =
+    peakRateAt !== null &&
+    peakRateAt.getTime() >= peak.start.getTime() &&
+    peakRateAt.getTime() < peak.start.getTime() + bucketMs;
+  const peakWhen = rateInsidePeak
+    ? ''
+    : ` ${
+        basis === 'hourly'
+          ? S.atHour(fmtHour(peak.start, timeZone))
+          : S.onDate(fmtDate(peak.start, timeZone, locale))
+      }`;
+  parts.push(`${label} ${num(peak.rainMm as number)} mm${peakWhen}`);
 
   return {
-    basis,
-    // "rata-rata 5 mm/jam, maksimum 10 mm pada pukul 17:00"
-    // "rata-rata 6 mm/hari, maksimum 10 mm pada tanggal 10 Agustus 2026"
-    text: `${S.average} ${num(average)} ${unit}, ${S.maximum} ${num(
-      peak.rainMm as number
-    )} mm ${when}`,
-    averageMm: Math.round(average * 10) / 10,
-    maxMm: Math.round((peak.rainMm as number) * 10) / 10,
+    ...base,
+    // "Total 37.2 mm (16:00–22:00), laju puncak 37.2 mm/jam pada pukul 21:05,
+    //  akumulasi 1 jam tertinggi 16 mm"
+    text: parts.join(', '),
+    averageMm: round1(average),
+    maxMm: round1(peak.rainMm as number),
     maxAt: peak.start,
+    wetFrom,
+    wetTo,
     wetPeriods: wet.length,
-    measuredPeriods: buckets.length,
-    totalMm: Math.round(totalMm * 10) / 10,
   };
 }
 
