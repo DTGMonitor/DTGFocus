@@ -101,11 +101,11 @@ interface CustomTooltipProps {
 const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-black/90 backdrop-blur-md border border-white/20 rounded-xl px-3 py-2">
-        <p className="text-[9px] font-black text-white/60 uppercase mb-1">{payload[0].payload.time}</p>
+      <div className="bg-[var(--live-tooltip-bg)] backdrop-blur-md border border-[var(--live-border)] rounded-xl px-3 py-2">
+        <p className="text-[9px] font-black text-[var(--live-fg-muted)] uppercase mb-1">{payload[0].payload.time}</p>
         {payload.map((p, idx) => (
-          <p key={idx} className="text-[11px] font-bold text-white">
-            <span style={{ color: p.color }}>{p.name}:</span> <span className="text-white ml-1">{p.value}</span>
+          <p key={idx} className="text-[11px] font-bold text-[var(--live-fg)]">
+            <span style={{ color: p.color }}>{p.name}:</span> <span className="text-[var(--live-fg)] ml-1">{p.value}</span>
           </p>
         ))}
       </div>
@@ -196,16 +196,16 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
             <div className="relative">
               <button
                 onClick={() => setShowSensorPicker(!showSensorPicker)}
-                className="flex items-center gap-2 px-3 py-2 bg-[#8EB69B]/10 hover:bg-[#8EB69B]/20 border border-[#8EB69B]/30 rounded-xl transition-all"
+                className="flex items-center gap-2 px-3 py-2 bg-[var(--live-accent-soft)] hover:bg-[var(--live-accent-soft)] border border-[var(--live-accent-border)] rounded-xl transition-all"
               >
-                <Plus size={12} className="text-[#8EB69B]" />
-                <span className="text-[9px] font-black uppercase tracking-wider text-[#8EB69B]">Compare</span>
+                <Plus size={12} className="text-[var(--live-accent)]" />
+                <span className="text-[9px] font-black uppercase tracking-wider text-[var(--live-accent)]">Compare</span>
               </button>
               
               {/* Sensor Picker Dropdown */}
               {showSensorPicker && (
-                <div className="absolute top-full left-0 mt-2 w-64 bg-white/[0.08] backdrop-blur-[40px] border border-white/20 rounded-2xl shadow-2xl p-2 max-h-64 overflow-y-auto scrollbar-hide z-50">
-                  <p className="text-[8px] font-black uppercase tracking-wider text-white/40 px-3 py-2">Add Sensor to Compare</p>
+                <div className="absolute top-full left-0 mt-2 w-64 bg-[var(--live-glass-weak)] backdrop-blur-[40px] border border-[var(--live-border)] rounded-2xl shadow-2xl p-2 max-h-64 overflow-y-auto scrollbar-hide z-50">
+                  <p className="text-[8px] font-black uppercase tracking-wider text-[var(--live-fg-faint)] px-3 py-2">Add Sensor to Compare</p>
                   {availableSensors.map((s) => (
                     <button
                       key={s.id}
@@ -213,7 +213,7 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
                         onAddComparison(s);
                         setShowSensorPicker(false);
                       }}
-                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/10 rounded-xl transition-all group"
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--live-glass)] rounded-xl transition-all group"
                     >
                       <div className="flex items-center gap-2">
                         <div 
@@ -222,9 +222,9 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
                             backgroundColor: s.tarp === 1 ? '#22c55e' : s.tarp === 2 ? '#facc15' : s.tarp === 3 ? '#f97316' : '#ef4444' 
                           }} 
                         />
-                        <span className="text-[10px] font-bold text-white">{s.id}</span>
+                        <span className="text-[10px] font-bold text-[var(--live-fg)]">{s.id}</span>
                       </div>
-                      <span className="text-[8px] text-white/40 group-hover:text-white/70">{s.label}</span>
+                      <span className="text-[8px] text-[var(--live-fg-faint)] group-hover:text-[var(--live-fg-muted)]">{s.label}</span>
                     </button>
                   ))}
                 </div>
@@ -261,46 +261,46 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
         {onFullScreen && (
           <button
             onClick={onFullScreen}
-            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all flex-shrink-0"
+            className="flex items-center gap-2 px-3 py-2 bg-[var(--live-glass-weak)] hover:bg-[var(--live-glass)] border border-[var(--live-border-weak)] rounded-xl transition-all flex-shrink-0"
           >
-            <Maximize2 size={12} className="text-white/70" />
-            <span className="text-[9px] font-black uppercase tracking-wider text-white/70">Deep Analysis</span>
+            <Maximize2 size={12} className="text-[var(--live-fg-muted)]" />
+            <span className="text-[9px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Deep Analysis</span>
           </button>
         )}
       </div>
 
       {/* Date Selection UI */}
-      <div className="space-y-3 bg-black/10 border border-white/10 p-4 rounded-2xl">
+      <div className="space-y-3 bg-[var(--live-panel)] border border-[var(--live-border-weak)] p-4 rounded-2xl">
         <div className="flex items-center gap-2">
-          <Calendar size={12} className="text-white/50" />
-          <h4 className="text-[10px] font-black uppercase tracking-wider text-white/70">Date Range</h4>
+          <Calendar size={12} className="text-[var(--live-fg-subtle)]" />
+          <h4 className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Date Range</h4>
         </div>
         <div className="flex items-end justify-between gap-4">
           <div className="flex-1">
-            <label htmlFor="startDate" className="text-[9px] font-bold text-white/60 uppercase">Start Date</label>
+            <label htmlFor="startDate" className="text-[9px] font-bold text-[var(--live-fg-muted)] uppercase">Start Date</label>
             <input
               type="date"
               id="startDate"
               value={localStartDate}
               onChange={(e) => setLocalStartDate(e.target.value)}
               onBlur={handleDateChange}
-              className="w-full mt-1 bg-black/20 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white"
+              className="w-full mt-1 bg-[var(--live-glass-strong)] border border-[var(--live-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--live-fg)]"
             />
           </div>
           <div className="flex-1">
-            <label htmlFor="endDate" className="text-[9px] font-bold text-white/60 uppercase">End Date</label>
+            <label htmlFor="endDate" className="text-[9px] font-bold text-[var(--live-fg-muted)] uppercase">End Date</label>
             <input
               type="date"
               id="endDate"
               value={localEndDate}
               onChange={(e) => setLocalEndDate(e.target.value)}
               onBlur={handleDateChange}
-              className="w-full mt-1 bg-black/20 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white"
+              className="w-full mt-1 bg-[var(--live-glass-strong)] border border-[var(--live-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--live-fg)]"
             />
           </div>
         </div>
         <div>
-          <label htmlFor="date-slider" className="text-[9px] font-bold text-white/60 uppercase">End Date</label>
+          <label htmlFor="date-slider" className="text-[9px] font-bold text-[var(--live-fg-muted)] uppercase">End Date</label>
           <input
             id="date-slider"
             type="range"
@@ -312,7 +312,7 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
               const newStart = newEnd.minus({ days: 7 });
               setDateRange({ start: newStart.toISO(), end: newEnd.toISO() });
             }}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mt-2"
+            className="w-full h-2 bg-[var(--live-glass-strong)] rounded-lg appearance-none cursor-pointer mt-2"
           />
         </div>
       </div>
@@ -322,23 +322,23 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
       {/* 1. Deformation vs Time */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-white/70">Deformation vs Time</h3>
-          <span className="text-[8px] font-bold text-white/40">mm</span>
+          <h3 className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Deformation vs Time</h3>
+          <span className="text-[8px] font-bold text-[var(--live-fg-faint)]">mm</span>
         </div>
-        <div className="h-44 bg-white/5 border border-white/10 rounded-2xl p-3">
+        <div className="h-44 bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-2xl p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={mergedData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
               <XAxis 
                 dataKey="time" 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <YAxis 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend 
@@ -372,23 +372,23 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
       {/* 2. Velocity vs Time */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-white/70">Velocity vs Time</h3>
-          <span className="text-[8px] font-bold text-white/40">mm/d</span>
+          <h3 className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Velocity vs Time</h3>
+          <span className="text-[8px] font-bold text-[var(--live-fg-faint)]">mm/d</span>
         </div>
-        <div className="h-44 bg-white/5 border border-white/10 rounded-2xl p-3">
+        <div className="h-44 bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-2xl p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={mergedData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
               <XAxis 
                 dataKey="time" 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <YAxis 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend 
@@ -422,23 +422,23 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
       {/* 3. Inverse Velocity vs Time */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-white/70">Inverse Velocity vs Time</h3>
-          <span className="text-[8px] font-bold text-white/40">d/mm</span>
+          <h3 className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Inverse Velocity vs Time</h3>
+          <span className="text-[8px] font-bold text-[var(--live-fg-faint)]">d/mm</span>
         </div>
-        <div className="h-44 bg-white/5 border border-white/10 rounded-2xl p-3">
+        <div className="h-44 bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-2xl p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={mergedData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
               <XAxis 
                 dataKey="time" 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <YAxis 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend 
@@ -469,7 +469,7 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
         </div>
         <div className="flex items-start gap-2 px-1">
           <div className="w-1 h-1 rounded-full bg-yellow-500 mt-1.5 flex-shrink-0" />
-          <p className="text-[9px] text-white/50 leading-relaxed italic">
+          <p className="text-[9px] text-[var(--live-fg-subtle)] leading-relaxed italic">
             Inverse velocity trending toward zero indicates accelerating failure. Linear trend suggests time-to-failure.
           </p>
         </div>
@@ -478,23 +478,23 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
       {/* 4. Time Per Scan */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-white/70">Time Per Scan</h3>
-          <span className="text-[8px] font-bold text-white/40">min</span>
+          <h3 className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">Time Per Scan</h3>
+          <span className="text-[8px] font-bold text-[var(--live-fg-faint)]">min</span>
         </div>
-        <div className="h-44 bg-white/5 border border-white/10 rounded-2xl p-3">
+        <div className="h-44 bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-2xl p-3">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={mergedData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
               <XAxis 
                 dataKey="time" 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <YAxis 
-                stroke="rgba(255,255,255,0.3)" 
+                stroke="var(--live-chart-axis)" 
                 style={{ fontSize: '8px' }} 
-                tick={{ fill: 'rgba(255,255,255,0.5)' }}
+                tick={{ fill: 'var(--live-chart-tick)' }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend 
@@ -525,7 +525,7 @@ export const SensorAnalysisView: React.FC<SensorAnalysisProps> = ({
         </div>
         <div className="flex items-start gap-2 px-1">
           <div className="w-1 h-1 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
-          <p className="text-[9px] text-white/50 leading-relaxed italic">
+          <p className="text-[9px] text-[var(--live-fg-subtle)] leading-relaxed italic">
             Scan duration variations may indicate data quality issues or atmospheric interference.
           </p>
         </div>

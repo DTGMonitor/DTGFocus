@@ -69,7 +69,7 @@ export const ToolBar: React.FC<ToolBarProps> = ({
                 onClick={toggleAllVisibility}
                 className={`w-8 h-8 rounded-md flex items-center justify-center transition-all
                     ${!isGlobalHidden
-                    ? 'bg-[var(--dtg-gray-600)]/10 text-[#8EB69B]'
+                    ? 'bg-[var(--dtg-gray-600)]/10 text-[var(--dtg-accent-interactive)]'
                     : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}
                   `}
                 title={isGlobalHidden ? 'Enable All Sensors' : 'Disable All Sensors'}
@@ -99,7 +99,7 @@ export const ToolBar: React.FC<ToolBarProps> = ({
                     onClick={() => toggleLayer(type)}
                     className={`w-8 h-8 rounded-md flex items-center justify-center transition-all
                         ${isActive
-                        ? 'bg-[var(--dtg-gray-600)]/20 text-[#8EB69B]'
+                        ? 'bg-[var(--dtg-gray-600)]/20 text-[var(--dtg-accent-interactive)]'
                         : 'text-[var(--dtg-text-primary)] hover:bg-[var(--dtg-gray-600)]/5'}
                       `}
                     title={`${isActive ? 'Hide' : 'Show'} ${type}`}
@@ -126,7 +126,7 @@ export const ToolBar: React.FC<ToolBarProps> = ({
                   onClick={() => setActiveTool(activeTool === tool.id ? null : tool.id)}
                   className={`w-8 h-8 rounded-md flex items-center justify-center transition-all
                       ${activeTool === tool.id
-                      ? 'bg-[#8EB69B] text-black shadow-[0_0_15px_rgba(142,182,155,0.4)]'
+                      ? 'bg-[var(--dtg-accent-interactive)] text-[var(--dtg-accent-interactive-fg)] shadow-[0_0_15px_var(--dtg-accent-glow)]'
                       : 'text-[var(--dtg-text-primary)] hover:bg-[var(--dtg-gray-600)]/5'}
                     `}
                   title={tool.label}
@@ -148,7 +148,7 @@ export const ToolBar: React.FC<ToolBarProps> = ({
 {/* Toggle Handle - Seamless Attached Tab */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="absolute top-full right-4 bg-[var(--dtg-bg-card)] border-2 border-[var(--dtg-border-dark)] border-t-0 w-16 h-4 rounded-t-md flex items-center justify-center text-[var(--dtg-text-primary)] hover:text-[#8EB69B] hover:bg-[var(--dtg-bg-hover)] transition-all z-[60] -translate-y-[1px]"
+        className="absolute top-full right-4 bg-[var(--dtg-bg-card)] border-2 border-[var(--dtg-border-dark)] border-t-0 w-16 h-4 rounded-t-md flex items-center justify-center text-[var(--dtg-text-primary)] hover:text-[var(--dtg-accent-interactive)] hover:bg-[var(--dtg-bg-hover)] transition-all z-[60] -translate-y-[1px]"
         title={isOpen ? "Hide Toolbar" : "Show Toolbar"}
       >
         {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}

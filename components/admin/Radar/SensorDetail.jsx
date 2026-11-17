@@ -936,19 +936,25 @@ const SensorDetail = ({
 
             const regionIds = sharedRegions.map(r => r.id);
 
-            // Fetch 'Awaiting Feedback' items linked to the current regions
+            // Fetch 'Awaiting Feedback' items linked to the current regions.
+            //
+            // Scoped on `alarm_improvement.alarm_region`, the row's own region
+            // link, NOT through alarm_records. A recommendation no longer has to
+            // answer an alarm that already fired (migration 001), so an !inner
+            // join on alarm_records would silently drop every recommendation
+            // raised against a region that has not alarmed — which is most of
+            // the ones this gate exists to catch. `alarm_records` still rides
+            // along, left-joined, for the rows that do name one.
             const { data, error } = await supabase
                 .from('alarm_improvement')
                 .select(`
                 *,
-                alarm_records!inner (
+                alarm_records (
                     alarm_region
                 )
             `)
                 .eq('improvement_status', 'Awaiting Feedback')
-                // This 'in' filter combined with the !inner join ensures we only get 
-                // improvements related to the current wall folder's regions
-                .in('alarm_records.alarm_region', regionIds);
+                .in('alarm_region', regionIds);
 
             if (error) {
                 console.error("Error checking feedback items:", error);
@@ -1437,30 +1443,37 @@ const SensorDetail = ({
                 };
 
                 // --- BRANCH A: ALARM ITEMS (Multi-row logic) ---
-                // One row per selected region+cause. There is nothing to look up
-                // here: the modal only offers region+cause pairs that actually
-                // alarmed in the last 12 h and hands back the alarm_records id
-                // behind each tick. Resolving a "latest record for this region"
-                // at this point could land on a different cause than the one the
-                // analyst read, and would invent a link for a region that never
-                // alarmed at all.
+                // One row per selection. There is nothing to look up here: the
+                // modal hands back both the region and, where the subject
+                // answers a recorded alarm, the alarm_records id behind the
+                // tick. Resolving a "latest record for this region" at this
+                // point could land on a different cause than the one the
+                // analyst read.
+                //
+                // `alarm_record` is NULL for the one subject raised against a
+                // region rather than an alarm ("Alarm Configuration Issue" —
+                // see REGION_ONLY_SUBJECT): a configuration problem is noticed
+                // before it produces an alarm, so there is no record to point
+                // at. Every other subject still carries one. `alarm_region` is
+                // written either way and is what every reader scopes on.
                 const selections = Array.isArray(formData.alarmSelections) ? formData.alarmSelections : [];
 
                 selections.forEach((selection) => {
-                    if (!selection?.recordId) return;
+                    if (selection?.regionId == null) return;
                     rowsToInsert.push({
                         ...basePayload,
-                        alarm_record: selection.recordId,
+                        alarm_region: selection.regionId,
+                        alarm_record: selection.recordId ?? null,
                         // Per-selection mask: two regions produce two rows and
                         // each carries its own mask.
                         alarm_mask: isMaskItem ? (selection.alarmMask || null) : null,
                     });
                 });
 
-                // The modal blocks submission when there is nothing to answer, so
-                // reaching here empty means a selection lost its record id.
+                // The modal blocks submission with nothing selected, so reaching
+                // here empty means a selection lost its region id.
                 if (selections.length > 0 && rowsToInsert.length === 0) {
-                    throw new Error('No alarm record could be linked to this improvement.');
+                    throw new Error('No alarm region could be linked to this improvement.');
                 }
             }
 

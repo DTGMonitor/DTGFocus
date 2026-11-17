@@ -79,8 +79,8 @@ export default function DQPTab({
       />
 
       {/* `regions` scopes the open-recommendation list the edit modal shows for
-          an alarm row — alarm_improvement reaches a wall folder only through
-          alarm_record → alarm_region. */}
+          an alarm row — alarm_improvement reaches a wall folder through its own
+          alarm_region. */}
       <EditDqpEntryModal
         isOpen={isEditModalOpen}
         onClose={onEditModalClose}

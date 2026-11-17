@@ -22,7 +22,7 @@ function Radar({ activeSubComponent }) {
     const componentToRender = subComponents[activeSubComponent] || <RadarStatusHub />;
 
     return (
-       <div className="w-screen h-screen box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col gap-[10px]">
+       <div className="w-screen h-screen box-border overflow-y-auto overflow-x-hidden text-[var(--dtg-text-primary)] font-['Inter',sans-serif] flex flex-col gap-[10px]">
             
             {/* The old NavSection is gone. Just render the dashboard! */}
             {componentToRender}

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import PasteZone from '@/components/Reusable/PasteZone';
 import { supabase } from '@/lib/supabaseClient';
 import {
     ACCEPTED_LOGO_TYPES,
@@ -276,7 +277,18 @@ export default function SiteDetailsModal({ isOpen, onClose, siteId, onSaved }) {
                             {LOGO_SLOTS.map(({ variant, label, hint: slotHint }) => {
                                 const preview = previewFor(variant);
                                 return (
-                                    <div key={variant} className="space-y-2">
+                                    // Each slot claims its own paste: with two
+                                    // on screen, a document-level listener could
+                                    // only guess which one a pasted logo was
+                                    // meant for.
+                                    <PasteZone
+                                        key={variant}
+                                        onFiles={(files) => choose(variant, files[0])}
+                                        multiple={false}
+                                        disabled={saving}
+                                        label={label}
+                                        className="space-y-2"
+                                    >
                                         <p className="text-sm">{label}</p>
                                         <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-[var(--dtg-border-medium)] bg-white p-2">
                                             {preview ? (
@@ -322,12 +334,18 @@ export default function SiteDetailsModal({ isOpen, onClose, siteId, onSaved }) {
                                                 </Button>
                                             )}
                                         </div>
-                                        {picked[variant] && (
+                                        {picked[variant] ? (
                                             <p className="text-xs text-[var(--dtg-brand-orange)]">
                                                 {picked[variant].name} — uploads on save
                                             </p>
+                                        ) : (
+                                            !saving && (
+                                                <p className={hint}>
+                                                    …or click this box and press Ctrl+V to paste one.
+                                                </p>
+                                            )
                                         )}
-                                    </div>
+                                    </PasteZone>
                                 );
                             })}
                         </div>

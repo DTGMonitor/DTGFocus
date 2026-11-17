@@ -29,6 +29,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { DEFAULT_BOUNDARY_COLOR, NO_OFFSET, PLACEMENT_INSIDE } from './useImageAnnotation';
+import { firstImageFile } from '@/utils/clipboardImages';
 
 /** Monotonic ids, so React keys survive a removal from the middle of the list. */
 let nextId = 1;
@@ -55,26 +56,6 @@ function readAsDataUrl(file) {
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
-}
-
-/** First image on a DataTransfer / ClipboardData, or null. */
-function firstImageFile(dataTransfer) {
-  const items = dataTransfer?.items;
-  if (items?.length) {
-    for (const item of items) {
-      if (item.kind === 'file' && item.type?.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) return file;
-      }
-    }
-  }
-  const files = dataTransfer?.files;
-  if (files?.length) {
-    for (const file of files) {
-      if (file.type?.startsWith('image/')) return file;
-    }
-  }
-  return null;
 }
 
 /**

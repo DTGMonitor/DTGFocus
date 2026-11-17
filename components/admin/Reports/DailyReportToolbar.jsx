@@ -26,6 +26,7 @@ import { useState } from 'react';
 
 import { AnnotationToolbar } from '@/components/admin/Radar/report/AnnotatedImage';
 import { StationSummaryFill } from '@/components/admin/Reports/StationSummaryFill';
+import PasteZone from '@/components/Reusable/PasteZone';
 
 const panel = {
   background: '#111418',
@@ -180,20 +181,31 @@ export function DailyReportToolbar({
                           aria-label={`Area ${i + 1} name`}
                           style={{ ...field, width: 180 }}
                         />
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={(e) => {
-                              figures.addGraphs(i, e.target.files);
-                              // Reset, so re-selecting the same file fires onChange again.
-                              e.target.value = '';
-                            }}
-                            style={{ display: 'none' }}
-                          />
-                          <span style={btn}>+ Add graph(s)</span>
-                        </label>
+                        {/* Its own paste target, per area. The deformation
+                            image above it already claims pastes inside its own
+                            viewport, and a report carries several areas, so
+                            "paste a graph into area 2" has to be expressible by
+                            aiming at area 2. */}
+                        <PasteZone
+                          onFiles={(files) => figures.addGraphs(i, files)}
+                          label={`Area ${i + 1} graphs`}
+                          style={{ display: 'inline-flex' }}
+                        >
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) => {
+                                figures.addGraphs(i, e.target.files);
+                                // Reset, so re-selecting the same file fires onChange again.
+                                e.target.value = '';
+                              }}
+                              style={{ display: 'none' }}
+                            />
+                            <span style={btn}>+ Add graph(s) / Ctrl+V</span>
+                          </label>
+                        </PasteZone>
                         {figures.figures.length > 1 ? (
                           <button type="button" onClick={() => figures.removeFigure(i)} style={btn}>
                             ✕ Remove area

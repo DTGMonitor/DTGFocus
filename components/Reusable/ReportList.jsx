@@ -476,7 +476,7 @@ const ReportsList = ({ refreshTrigger, page = null, reportData = null }) => {
                         className="w-11/12 h-5/6 bg-[var(--dtg-bg-secondary)] rounded-lg overflow-hidden flex flex-col relative"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="px-5 py-4 border-b border-[var(--dtg-border-medium)] flex justify-between items-center bg-neutral-900">
+                        <div className="px-5 py-4 border-b border-[var(--dtg-border-medium)] flex justify-between items-center bg-[var(--dtg-bg-secondary)]">
                             <h3 className="m-0 text-[var(--dtg-text-primary)] text-base">
                                 Preview: {previewTitle}
                             </h3>

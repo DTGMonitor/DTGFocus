@@ -75,7 +75,7 @@ const REPORTS = [
 // --- Sub-components ---
 
 const GlassPanel = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-  <div className={`bg-[#051F20]/5 backdrop-blur-sm border border-white/20 shadow-2xl overflow-hidden ${className}`}>
+  <div className={`bg-[var(--live-panel)] backdrop-blur-sm border border-[var(--live-border)] shadow-2xl overflow-hidden ${className}`}>
     {children}
   </div>
 );
@@ -262,13 +262,13 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
   };
 
   return (
-    <div className="relative h-full w-full bg-[#020d0d] overflow-hidden font-sans text-white selection:bg-[#8EB69B]/30">
+    <div className="relative h-full w-full bg-[var(--live-surface)] overflow-hidden font-sans text-[var(--live-fg)] selection:bg-[var(--live-accent-soft)]">
 
       {/* 100% FULL-SCREEN MAP LAYER */}
       <div className="absolute inset-0 z-0" style={{ opacity: dronePhotoOpacity }}>
         <PitMap onSensorSelect={handleSensorClick} />
         {/* We keep the gradient overlay so your UI panels still pop */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none z-10" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[var(--live-scrim-from)] via-transparent to-[var(--live-scrim-to)] pointer-events-none z-10" />
       </div>
 
       {/* DEFORMATION HEATMAP OVERLAY (Only visible in Analysis mode) */}
@@ -300,17 +300,17 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
           >
             {/* ... (Keep existing Drawer Content) ... */}
             <GlassPanel className="h-full rounded-[3rem] flex flex-col">
-              <div className="p-8 pb-4 border-b border-white/5 flex items-center justify-between">
+              <div className="p-8 pb-4 border-b border-[var(--live-border-weak)] flex items-center justify-between">
                 <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/70">AI Analytics Engine</h3>
-                  <h2 className="text-[18px] font-black uppercase text-white mt-1">Network Intelligence</h2>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-[var(--live-fg-muted)]">AI Analytics Engine</h3>
+                  <h2 className="text-[18px] font-black uppercase text-[var(--live-fg)] mt-1">Network Intelligence</h2>
                 </div>
-                <button onClick={() => setIsDrawerOpen(false)} className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 transition-colors">
+                <button onClick={() => setIsDrawerOpen(false)} className="w-10 h-10 rounded-full bg-[var(--live-panel)] flex items-center justify-center hover:bg-[var(--live-glass-strong)] transition-colors">
                   <X size={18} />
                 </button>
               </div>
               {/* Placeholder content for drawer */}
-              <div className="p-8 text-white/50 text-sm">AI Insights loading...</div>
+              <div className="p-8 text-[var(--live-fg-subtle)] text-sm">AI Insights loading...</div>
             </GlassPanel>
           </motion.div>
         )}
@@ -344,7 +344,7 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
             >
               <GlassPanel className={`rounded-[2.5rem] h-full flex flex-col border border-${tarpBorder}`}>
                 <div
-                  className="px-6 py-4 flex items-center justify-between border-b border-white/5"
+                  className="px-6 py-4 flex items-center justify-between border-b border-[var(--live-border-weak)]"
                   style={{ backgroundColor: tarpColorLight }}
                 >
                   <div className="flex items-center gap-3">
@@ -354,11 +354,11 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => toggleSensorVisibility(selectedSensor.id)}
-                      className="text-white/50 hover:text-white transition-colors p-1"
+                      className="text-[var(--live-fg-subtle)] hover:text-[var(--live-fg)] transition-colors p-1"
                     >
                       {hiddenSensors.includes(selectedSensor.id) ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
-                    <button onClick={() => setSelectedSensor(null)} className="text-white/50 hover:text-white transition-colors p-1">
+                    <button onClick={() => setSelectedSensor(null)} className="text-[var(--live-fg-subtle)] hover:text-[var(--live-fg)] transition-colors p-1">
                       <X size={18} />
                     </button>
                   </div>
@@ -370,7 +370,7 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
                   {activeView === 'LIVE' ? (
                     <div className="p-8 space-y-6">
                       <div>
-                        <h2 className="text-[18px] font-black uppercase text-white leading-tight">{selectedSensor.label}</h2>
+                        <h2 className="text-[18px] font-black uppercase text-[var(--live-fg)] leading-tight">{selectedSensor.label}</h2>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
@@ -382,23 +382,23 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
                             borderColor: tarpBorder
                           }}
                         >
-                          <p className="text-[8px] font-black text-white/70 uppercase mb-1">TARP LEVEL</p>
+                          <p className="text-[8px] font-black text-[var(--live-fg-muted)] uppercase mb-1">TARP LEVEL</p>
                           <p className="text-[14px] font-black" style={{ color: tarpColor }}>LEVEL {selectedSensor.tarp}</p>
                         </div>
 
                         {/* DATA QUALITY */}
-                        <div className="p-4 bg-black/5 border border-white/20 rounded-2xl">
-                          <p className="text-[8px] font-black text-white/70 uppercase mb-1">DATA QUALITY</p>
-                          <p className="text-[14px] font-black text-[#8EB69B]">{selectedSensor.dataQuality}%</p>
+                        <div className="p-4 bg-[var(--live-panel)] border border-[var(--live-border)] rounded-2xl">
+                          <p className="text-[8px] font-black text-[var(--live-fg-muted)] uppercase mb-1">DATA QUALITY</p>
+                          <p className="text-[14px] font-black text-[var(--live-accent)]">{selectedSensor.dataQuality}%</p>
                         </div>
 
                         {/* VELOCITY */}
                         <div
-                          className="p-4 bg-black/5 border border-white/20 rounded-2xl"
+                          className="p-4 bg-[var(--live-panel)] border border-[var(--live-border)] rounded-2xl"
                         >
-                          <p className="text-[8px] font-black text-white/70 uppercase mb-1">VELOCITY</p>
+                          <p className="text-[8px] font-black text-[var(--live-fg-muted)] uppercase mb-1">VELOCITY</p>
                           <p className="text-[14px] font-black" style={{
-                            color: selectedSensor.tarp >= 3 ? tarpColor : '#8EB69B'
+                            color: selectedSensor.tarp >= 3 ? tarpColor : 'var(--live-accent)'
                           }}>
                             {/* Use the last calculated velocity from history if available */}
                             {sensorHistory.length > 0 ? `${sensorHistory[sensorHistory.length - 1].velocity} mm/d` : 'Loading...'}
@@ -406,37 +406,37 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
                         </div>
 
                         {/* AREA SIZE */}
-                        <div className="p-4 bg-black/5 border border-white/20 rounded-2xl">
-                          <p className="text-[8px] font-black text-white/70 uppercase mb-1">AREA SIZE</p>
-                          <p className="text-[14px] font-black text-white">{selectedSensor.area.toLocaleString()} m²</p>
+                        <div className="p-4 bg-[var(--live-panel)] border border-[var(--live-border)] rounded-2xl">
+                          <p className="text-[8px] font-black text-[var(--live-fg-muted)] uppercase mb-1">AREA SIZE</p>
+                          <p className="text-[14px] font-black text-[var(--live-fg)]">{selectedSensor.area.toLocaleString()} m²</p>
                         </div>
                       </div>
 
                       {/* Coordinates Section */}
                       {selectedSensor.coordinates && (
                         <div
-                          className="p-4 bg-black/5 border border-white/20 rounded-2xl space-y-3"
+                          className="p-4 bg-[var(--live-panel)] border border-[var(--live-border)] rounded-2xl space-y-3"
                         >
                           <div className="flex items-center gap-2 mb-2">
-                            <Crosshair size={12} className="text-white/50" />
-                            <p className="text-[8px] font-black text-white/70 uppercase tracking-wider">Geodetic Position</p>
+                            <Crosshair size={12} className="text-[var(--live-fg-subtle)]" />
+                            <p className="text-[8px] font-black text-[var(--live-fg-muted)] uppercase tracking-wider">Geodetic Position</p>
                           </div>
                           <div className="grid grid-cols-3 gap-3">
                             <div>
-                              <p className="text-[7px] font-black text-white/60 uppercase mb-1">Easting</p>
-                              <p className="text-[11px] font-bold text-white">
+                              <p className="text-[7px] font-black text-[var(--live-fg-muted)] uppercase mb-1">Easting</p>
+                              <p className="text-[11px] font-bold text-[var(--live-fg)]">
                                 {selectedSensor.coordinates.easting.toLocaleString()} m
                               </p>
                             </div>
                             <div>
-                              <p className="text-[7px] font-black text-white/60 uppercase mb-1">Northing</p>
-                              <p className="text-[11px] font-bold text-white">
+                              <p className="text-[7px] font-black text-[var(--live-fg-muted)] uppercase mb-1">Northing</p>
+                              <p className="text-[11px] font-bold text-[var(--live-fg)]">
                                 {selectedSensor.coordinates.northing.toLocaleString()} m
                               </p>
                             </div>
                             <div>
-                              <p className="text-[7px] font-black text-white/60 uppercase mb-1">Elevation</p>
-                              <p className="text-[11px] font-bold text-white">
+                              <p className="text-[7px] font-black text-[var(--live-fg-muted)] uppercase mb-1">Elevation</p>
+                              <p className="text-[11px] font-bold text-[var(--live-fg)]">
                                 {selectedSensor.coordinates.elevation.toLocaleString()} m
                               </p>
                             </div>
@@ -491,7 +491,7 @@ export function LiveView({ pageMode, visibleLayers = ['Radar', 'Prism', 'InSAR',
           >
             {/* ... (Keep existing Legend) ... */}
             <GlassPanel className={`rounded-2xl transition-all ${isLegendMinimized ? 'p-2.5 w-[240px]' : 'p-5 w-[420px]'}`}>
-              <div className="flex items-center justify-center text-white/50 text-xs">Legend Controls</div>
+              <div className="flex items-center justify-center text-[var(--live-fg-subtle)] text-xs">Legend Controls</div>
             </GlassPanel>
           </motion.div>
         )}

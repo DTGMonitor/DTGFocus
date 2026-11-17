@@ -86,13 +86,18 @@ export function formatImprovementDay(iso, shift) {
  * its name; the improvement row has neither, so the region map has to be passed
  * in — the same join the alarm pie already needs (see reportAlarms).
  *
- * @param {object} row      alarm_improvement, with `alarm_records` embedded.
+ * @param {object} row      alarm_improvement, carrying its own `alarm_region`,
+ *   with `alarm_records` optionally embedded (a recommendation raised against a
+ *   region that has not alarmed has no alarm record, and so no cause).
  * @param {Map} regionById  alarm_regions.id → row.
  * @param {(iso: string) => (string|null)} shift  fromUTC bound to the site tz.
  */
 export function normalizeImprovement(row, regionById, shift) {
   const record = row?.alarm_records ?? null;
-  const region = regionById?.get(record?.alarm_region) ?? null;
+  // The row's own region first; the alarm's region is the fallback for rows
+  // predating migration 001 and for callers selecting only the join.
+  const regionId = row?.alarm_region ?? record?.alarm_region ?? null;
+  const region = regionById?.get(regionId) ?? null;
   const status = (row?.improvement_status ?? '').trim() || 'Unknown';
 
   return {
@@ -107,7 +112,7 @@ export function normalizeImprovement(row, regionById, shift) {
     issue: (row?.issue ?? '').trim() || null,
     action: (row?.action ?? '').trim() || null,
     alarmMask: (row?.alarm_mask ?? '').trim() || null,
-    regionId: record?.alarm_region ?? null,
+    regionId,
     regionName: region?.name ?? null,
     // Lowercased so the block can index the alarm palette directly; the column
     // stores 'Red' / 'red' inconsistently (see the sample rows).

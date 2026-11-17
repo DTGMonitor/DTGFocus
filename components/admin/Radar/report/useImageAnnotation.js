@@ -22,17 +22,16 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { firstImageFile, pasteClaimedByZone } from '@/utils/clipboardImages';
+
+export { DROPZONE_ATTR } from '@/utils/clipboardImages';
 
 export const DEFAULT_BOUNDARY_COLOR = '#FF1744';
 
-/**
- * Marks an interactive annotation drop zone in the DOM.
- *
- * The document-level paste listener reads it to tell "the user pasted into a
- * figure" from "the user pasted with nothing focused" — see handleDocumentPaste.
- * AnnotatedImage stamps it on its viewport.
- */
-export const DROPZONE_ATTR = 'data-annotation-dropzone';
+/* DROPZONE_ATTR — the mark that tells "the user pasted into a figure" from
+   "the user pasted with nothing focused" — is re-exported above from
+   @/utils/clipboardImages, where every upload surface now reads it from.
+   AnnotatedImage stamps it on its viewport. */
 
 /** Where a zone's label sits relative to its polygon. */
 export const PLACEMENT_INSIDE = 'inside';
@@ -170,26 +169,6 @@ export function resolveLabelAnchor(b) {
   return { at, leader: from ? { from, to: at } : null };
 }
 
-/** First image on a DataTransfer / ClipboardData, or null. */
-function firstImageFile(dataTransfer) {
-  const items = dataTransfer?.items;
-  if (items?.length) {
-    for (const item of items) {
-      if (item.kind === 'file' && item.type?.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) return file;
-      }
-    }
-  }
-  const files = dataTransfer?.files;
-  if (files?.length) {
-    for (const file of files) {
-      if (file.type?.startsWith('image/')) return file;
-    }
-  }
-  return null;
-}
-
 /**
  * @param {string|null} initialImage  Data URL to seed with (e.g. the deformation
  *   heatmap already pulled from storage). The user can replace it.
@@ -258,9 +237,7 @@ export function useImageAnnotation(initialImage = null, { pasteEnabled = true } 
    */
   const handleDocumentPaste = useCallback(
     (e) => {
-      if (e.defaultPrevented) return;
-      const target = e.target;
-      if (target && typeof target.closest === 'function' && target.closest(`[${DROPZONE_ATTR}]`)) return;
+      if (pasteClaimedByZone(e)) return;
       handlePaste(e);
     },
     [handlePaste]

@@ -307,9 +307,15 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
       if (cancelled) return;
 
       // ── Alarm improvements: recommendations raised or resolved this period ──
-      // Scoped through the same region list as the alarms above (alarm_improvement
-      // reaches a wall folder only via alarm_record → alarm_region), so a report
-      // spanning several folders picks up every one of them.
+      // Scoped through the same region list as the alarms above, on the row's own
+      // `alarm_region`, so a report spanning several folders picks up every one
+      // of them.
+      //
+      // NOT through alarm_records: since migration 001 a recommendation can be
+      // raised against a region that has not alarmed, and it then has no
+      // alarm_record at all. An !inner join would leave those out of the report
+      // entirely. The join below is a LEFT join, so `cause` is present for the
+      // rows that answer a specific alarm and null for the rest.
       //
       // The server-side pair is a lossless prefilter for the window test in
       // selectImprovementsInWindow, not the test itself:
@@ -322,13 +328,13 @@ export function useComprehensiveReportData(sensor, frequency, endDate, enabled =
         ? await supabase
             .from('alarm_improvement')
             .select(
-              'id, recommendation_submission, improvement_status, site_action, site_engineer, type, issue, action, alarm_mask, ' +
+              'id, recommendation_submission, improvement_status, site_action, site_engineer, type, issue, action, alarm_mask, alarm_region, ' +
               // `cause` rides along so the table can name what the alarm was
               // attributed to — the same field the cause pie aggregates, so a
               // recommendation and the slice it belongs to agree by construction.
-              'alarm_records!inner(id, alarm_region, location, cause)'
+              'alarm_records(id, alarm_region, location, cause)'
             )
-            .in('alarm_records.alarm_region', regionIds)
+            .in('alarm_region', regionIds)
             .lte('recommendation_submission', windowEnd.toISOString())
             .or(`site_action.gte.${windowStart.toISOString()},site_action.is.null`)
             .then((r) => { if (r.error) throw r.error; return r.data; })

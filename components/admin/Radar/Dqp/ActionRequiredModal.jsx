@@ -12,6 +12,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import ImprovementResolution from "@/components/admin/Radar/Dqp/ImprovementResolution";
 import { useOpenImprovements } from "@/components/admin/Radar/Dqp/useOpenImprovements";
 import { isResolved } from "@/utils/dqpImprovements";
+import { usePasteImages } from "@/utils/usePasteImages";
 
 /**
  * How far back an alarm has to have been raised for its region/cause to be
@@ -23,6 +24,24 @@ const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 
 /** One improvement row per region+cause, so the key has to carry both. */
 const selectionKey = (regionId, cause) => `${regionId}::${cause ?? ''}`;
+
+/**
+ * The one subject that is raised against a REGION rather than against an alarm.
+ *
+ * "Alarm Configuration Issue" is noticed BEFORE the alarm it would have
+ * produced — a region whose configuration is wrong is usually a region that has
+ * not alarmed and should have. Requiring an alarm_records row first therefore
+ * either blocked the analyst or pushed them into logging a fictitious alarm to
+ * get past the form, so for this subject every region on the wall folder is
+ * offered and the improvement row carries no alarm_record at all.
+ *
+ * Every OTHER subject still answers a specific alarm, and still picks from the
+ * region+cause pairs that actually fired in the last 12 hours: an "Alarm Since
+ * Time Adjustment" or a mask recommendation is a response to alarms that
+ * happened, and pinning it to the record whose cause the analyst read is the
+ * whole point of that flow.
+ */
+const REGION_ONLY_SUBJECT = 'Alarm Configuration';
 
 export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetStatus, alarmRegions = [], defaultSubject }) => {
     const [formData, setFormData] = useState({
@@ -68,7 +87,21 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
      * newest, which is how improvements ended up attached to alarms nobody was
      * responding to. The alarm gets logged in the Alarm tab first.
      */
-    const alarmTargetsUnavailable = isAlarmItem && !alarmOptionsLoading && alarmOptions.length === 0;
+    /**
+     * Raised against a region, with no alarm to answer — see
+     * REGION_ONLY_SUBJECT. Only ever true on an alarm row.
+     */
+    const isRegionOnlySubject = isAlarmItem && formData.subject === REGION_ONLY_SUBJECT;
+
+    /**
+     * Nothing to answer, so nothing to raise — the alarm gets logged in the
+     * Alarm tab first. This gate belongs ONLY to the subjects that answer a
+     * recorded alarm; the region-only subject has no such precondition, and
+     * is blocked solely by a wall folder with no regions at all.
+     */
+    const alarmTargetsUnavailable =
+        isAlarmItem && !isRegionOnlySubject && !alarmOptionsLoading && alarmOptions.length === 0;
+    const noRegionsConfigured = isRegionOnlySubject && alarmRegions.length === 0;
 
     /**
      * Recommendations already awaiting feedback, answerable in the same submit.
@@ -289,6 +322,27 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
         return () => { cancelled = true; };
     }, [isOpen, isAlarmItem, regionIdKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    /**
+     * Every alarm region on the wall folder, for the region-only subject.
+     *
+     * `alarmRegions` is already that list — SensorDetail loads it on sensor
+     * change, independently of the Alarm tab being mounted — so there is
+     * nothing to fetch. `recordId: null` is what distinguishes these from the
+     * record-backed options above, and is carried all the way into the insert.
+     */
+    const regionOnlyOptions = useMemo(() => (
+        (alarmRegions ?? [])
+            .filter((r) => r?.id != null)
+            .map((r) => ({
+                key: selectionKey(r.id, null),
+                recordId: null,
+                regionId: r.id,
+                regionName: r.name || `Region ${r.id}`,
+                cause: null,
+            }))
+            .sort((a, b) => a.regionName.localeCompare(b.regionName))
+    ), [alarmRegions]);
+
     const optionsByRegion = useMemo(() => {
         const byRegion = new Map();
         alarmOptions.forEach((opt) => {
@@ -301,6 +355,16 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
     }, [alarmOptions]);
 
     const selectedList = useMemo(() => Object.values(selections), [selections]);
+
+    /**
+     * Switching subject switches which list is on screen, so what was ticked in
+     * the other one has to go. A region+cause key kept across the flip would
+     * submit a row the analyst can no longer see, and the region-only keys
+     * (`id::`) are not even valid entries in the record-backed list.
+     */
+    useEffect(() => {
+        setSelections({});
+    }, [isRegionOnlySubject]);
 
     const toggleSelection = (option) => {
         setSelections(prev => {
@@ -375,8 +439,14 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
             toast.error("Log the alarm and its cause in the Alarm tab first — an improvement has to answer a recorded alarm.");
             return;
         }
+        if (noRegionsConfigured) {
+            toast.error("This wall folder has no alarm regions. Add them in the Alarm tab first.");
+            return;
+        }
         if (isAlarmItem && selectedList.length === 0) {
-            toast.error("Please select at least one alarm region and cause.");
+            toast.error(isRegionOnlySubject
+                ? "Please select at least one alarm region."
+                : "Please select at least one alarm region and cause.");
             return;
         }
         if (isMaskItem && selectedList.some(sel => !sel.mask?.trim())) {
@@ -404,7 +474,8 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
             // Kept for the email body and any caller still reading region ids.
             alarmRegions: [...new Set(selectedList.map(sel => sel.regionId))],
             alarmSelections: selectedList.map(sel => ({
-                recordId: sel.recordId,
+                // null for the region-only subject: there is no alarm to answer.
+                recordId: sel.recordId ?? null,
                 regionId: sel.regionId,
                 regionName: sel.regionName,
                 cause: sel.cause,
@@ -444,6 +515,19 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
         const droppedFiles = Array.from(e.dataTransfer.files);
         addFiles(droppedFiles);
     };
+
+    /**
+     * Ctrl+V anywhere in the modal appends the clipboard's images, which is how
+     * a DQP figure is actually produced: the analyst snips the radar view and
+     * would otherwise have to save it to disk purely to pick it back out of a
+     * file dialog.
+     *
+     * Armed only while the figure section is actually showing. `isOpen` alone
+     * would leave it live on a row with figures switched off; `needImage` alone
+     * would leave it live behind a CLOSED modal, swallowing the user's
+     * clipboard image from anywhere else in the app.
+     */
+    usePasteImages(addFiles, { enabled: isOpen && needImage });
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}> <Toaster position="top-center" reverseOrder={false} />
@@ -503,7 +587,11 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
 
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <label>Alarm Region &amp; Cause (last 12 hours)</label>
+                                    <label>
+                                        {isRegionOnlySubject
+                                            ? 'Alarm Region'
+                                            : 'Alarm Region & Cause (last 12 hours)'}
+                                    </label>
                                     {selectedList.length > 0 && (
                                         <span className="text-xs text-[var(--dtg-text-secondary)]">
                                             {selectedList.length} improvement row{selectedList.length > 1 ? 's' : ''}
@@ -511,7 +599,46 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                                     )}
                                 </div>
 
-                                {alarmOptionsLoading ? (
+                                {isRegionOnlySubject ? (
+                                    noRegionsConfigured ? (
+                                        <div className="border border-amber-500/40 bg-amber-500/5 rounded p-3 space-y-1.5">
+                                            <p className="text-sm text-amber-500 flex items-start gap-2 font-medium">
+                                                <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                                                No alarm region is configured on this wall folder.
+                                            </p>
+                                            <p className="text-xs text-[var(--dtg-text-secondary)]">
+                                                A configuration recommendation is raised against a region, so
+                                                add the wall folder&apos;s regions in the <strong>Alarm</strong>{' '}
+                                                tab first, then set this status again.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* Flat list, not grouped by region: each region IS one option
+                                                here, so a region header above its own single checkbox would
+                                                print the same name twice. */}
+                                            <div className="border border-[var(--dtg-border-light)] p-2 rounded max-h-[220px] overflow-y-auto space-y-1.5">
+                                                {regionOnlyOptions.map((opt) => (
+                                                    <div key={opt.key} className="flex items-center space-x-2">
+                                                        <Checkbox
+                                                            id={`region-${opt.key}`}
+                                                            checked={Boolean(selections[opt.key])}
+                                                            onCheckedChange={() => toggleSelection(opt)}
+                                                        />
+                                                        <label htmlFor={`region-${opt.key}`} className="text-sm cursor-pointer select-none">
+                                                            {opt.regionName}
+                                                        </label>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <p className="text-xs text-[var(--dtg-gray-500)]">
+                                                A configuration issue does not have to have alarmed yet, so
+                                                every region on the wall folder is offered and no alarm record
+                                                is attached.
+                                            </p>
+                                        </>
+                                    )
+                                ) : alarmOptionsLoading ? (
                                     <div className="flex items-center gap-2 text-sm text-[var(--dtg-text-secondary)] p-2">
                                         <Loader size={14} className="animate-spin" /> Loading recent alarms...
                                     </div>
@@ -652,6 +779,9 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                                         <p className="text-[var(--dtg-gray-500)] text-xs mt-1">
                                             Supports all image types • Multiple files allowed
                                         </p>
+                                        <p className="text-[var(--dtg-gray-500)] text-xs mt-1">
+                                            …or just press <strong>Ctrl+V</strong> to paste a screenshot
+                                        </p>
                                     </div>
 
                                     {/* Carried-over figures keep the low figure numbers; anything
@@ -768,8 +898,14 @@ export const ActionRequiredModal = ({ isOpen, onClose, onSubmit, item, targetSta
                     <Button variant="outline" onClick={onClose}>Cancel</Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={alarmTargetsUnavailable}
-                        title={alarmTargetsUnavailable ? 'Record the alarm and its cause in the Alarm tab first' : undefined}
+                        disabled={alarmTargetsUnavailable || noRegionsConfigured}
+                        title={
+                            alarmTargetsUnavailable
+                                ? 'Record the alarm and its cause in the Alarm tab first'
+                                : noRegionsConfigured
+                                ? "Add this wall folder's alarm regions in the Alarm tab first"
+                                : undefined
+                        }
                     >
                         Submit &amp; Update{resolvingCount > 0 ? ` (closing ${resolvingCount})` : ''}
                     </Button>

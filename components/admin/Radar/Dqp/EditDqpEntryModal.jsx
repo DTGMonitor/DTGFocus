@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient';
 import ImprovementResolution from '@/components/admin/Radar/Dqp/ImprovementResolution';
 import { useOpenImprovements } from '@/components/admin/Radar/Dqp/useOpenImprovements';
 import { isResolved } from '@/utils/dqpImprovements';
+import PasteZone from '@/components/Reusable/PasteZone';
 
 /** The DQP parameters that carry alarm recommendations. */
 const ALARM_PARAM_IDS = [20, 21];
@@ -210,9 +211,16 @@ export default function EditDqpEntryModal({ isOpen, onClose, onSubmit, item, reg
                             </p>
                         ) : (
                             <div className="space-y-2">
+                                {/* Each figure claims its own paste: replacing
+                                    figure 2 means aiming at figure 2, which a
+                                    document-level listener could not express. */}
                                 {figures.map((f, index) => (
-                                    <div
+                                    <PasteZone
                                         key={f.id}
+                                        onFiles={(files) => setReplacement(f.id, files[0])}
+                                        multiple={false}
+                                        disabled={f.removed || isSaving}
+                                        label={`Figure ${index + 1}`}
                                         className={`p-2 rounded border space-y-2 ${
                                             f.removed
                                                 ? 'border-red-500/40 bg-red-500/5 opacity-60'
@@ -241,7 +249,7 @@ export default function EditDqpEntryModal({ isOpen, onClose, onSubmit, item, reg
                                                             ? 'will be detached'
                                                             : f.replacement
                                                             ? `replaced with ${f.replacement.name}`
-                                                            : 'unchanged'}
+                                                            : 'unchanged — click, then Ctrl+V to replace'}
                                                     </span>
                                                 </div>
                                             </div>
@@ -275,7 +283,7 @@ export default function EditDqpEntryModal({ isOpen, onClose, onSubmit, item, reg
                                             disabled={f.removed}
                                             onChange={(e) => setCaption(f.id, e.target.value)}
                                         />
-                                    </div>
+                                    </PasteZone>
                                 ))}
                             </div>
                         )}

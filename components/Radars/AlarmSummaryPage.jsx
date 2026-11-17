@@ -405,14 +405,14 @@ function AlarmSummaryPage() {
         <ResponsiveContainer width="100%">
           <BarChart data={data} >
             <XAxis dataKey="name"
-              stroke="#ccc" fontSize={12}
+              stroke="var(--dtg-text-secondary)" fontSize={12}
               scale="point"
               padding={{ left: 30, right: 30 }}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#1B1B1B",
-                border: "1px solid #5A6474",
+                backgroundColor: "var(--dtg-bg-primary)",
+                border: "1px solid var(--dtg-border-medium)",
                 padding: "10px",
                 borderRadius: "6px",
                 fontSize: "12px",
@@ -519,7 +519,8 @@ function AlarmSummaryPage() {
     color: "#fff",
     fontSize: "14px"
   }; const chartCard = {
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     padding: "20px",
     borderRadius: "10px",
   };
@@ -527,17 +528,18 @@ function AlarmSummaryPage() {
   const chartTitle = {
     marginBottom: "10px",
     fontSize: "18px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     marginTop: 0
   };
 
   const cardStyle = {
     flex: "1",
     minWidth: "200px",
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     borderRadius: "10px",
     padding: "20px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     textAlign: "left",
     display: "flex",
     flexDirection: "column",
@@ -548,7 +550,7 @@ function AlarmSummaryPage() {
     fontSize: "18px",
     margin: 0,
     marginBottom: "5px",
-    color: "#f5f5f5"
+    color: "var(--dtg-text-primary)"
   };
 
   const cardValueStyle = {
@@ -577,11 +579,11 @@ function AlarmSummaryPage() {
 
     return (
       <div style={{
-        backgroundColor: "#1B1B1B",
-        border: "1px solid #5A6474",
+        backgroundColor: "var(--dtg-bg-primary)",
+        border: "1px solid var(--dtg-border-medium)",
         padding: "10px",
         borderRadius: "6px",
-        color: "#f5f5f5",
+        color: "var(--dtg-text-primary)",
         fontSize: "12px",
         maxWidth: "320px"
       }}>
@@ -611,7 +613,7 @@ function AlarmSummaryPage() {
           <div key={`status-${idx}`} style={{ marginBottom: "6px" }}>
             <div style={{
               fontWeight: "bold",
-              color: statusColorMap[status] || "#fff"
+              color: statusColorMap[status] || "var(--dtg-text-primary)"
             }}>
               {status} ({entries.length})
             </div>
@@ -627,7 +629,7 @@ function AlarmSummaryPage() {
               });
 
               return Object.entries(countMap).map(([key, count], i) => (
-                <div key={i} style={{ marginLeft: "10px", fontSize: "11px", color: "#ccc" }}>
+                <div key={i} style={{ marginLeft: "10px", fontSize: "11px", color: "var(--dtg-text-secondary)" }}>
                   • {key}{count > 1 ? ` (${count})` : ""}
                 </div>
               ));
@@ -646,11 +648,11 @@ function AlarmSummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "8px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -669,11 +671,11 @@ function AlarmSummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "6px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -711,7 +713,7 @@ function AlarmSummaryPage() {
           justifyContent: "center",
           alignItems: "center",
           height: "250px",
-          color: "#ccc",
+          color: "var(--dtg-text-secondary)",
           fontStyle: "italic",
         }}
       >
@@ -727,20 +729,20 @@ function AlarmSummaryPage() {
       <ResponsiveContainer width="100%" height={300}>
         {viewMode === "Total" ? (
           <BarChart data={ssrChartData} margin={{ top: 20, right: 10, bottom: 0, left: 0 }}>
-            <XAxis dataKey="name" tick={false} tickLine={false} stroke="#ccc" fontSize={12} scale="point" padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
-            <YAxis stroke="#ccc" fontSize={12}>
+            <XAxis dataKey="name" tick={false} tickLine={false} stroke="var(--dtg-text-secondary)" fontSize={12} scale="point" padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
+            <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
               <Label
                 value="Total Alarms"
                 angle={-90}
                 position="insideLeft"
                 dy={30}
-                style={{ fill: "#ccc", fontSize: "12px" }}
+                style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
               />
             </YAxis>
             <Tooltip
               content={<CustomBarTooltip />}
             />
-            <Bar dataKey="value" barSize={dynamicssrBarSize} radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#fff", fontSize: 10 }}>
+            <Bar dataKey="value" barSize={dynamicssrBarSize} radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-primary)", fontSize: 10 }}>
               {ssrChartData.map((entry) => (
                 <Cell
                   key={entry.name}
@@ -752,7 +754,7 @@ function AlarmSummaryPage() {
               content={() => {
                 const radarsToShow = ssrChartData.map((d) => d.name);
                 return (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "#aaa", justifyContent: "center", margin: 0 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "var(--dtg-text-muted)", justifyContent: "center", margin: 0 }}>
                     {radarsToShow.map((name) => (
                       <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <div
@@ -823,7 +825,7 @@ function AlarmSummaryPage() {
                         alignItems: "center",
                         fontSize: "14px",
                         marginBottom: "20px",
-                        color: "#f5f5f5",
+                        color: "var(--dtg-text-primary)",
                       }}
                     >
                       <div
@@ -831,7 +833,7 @@ function AlarmSummaryPage() {
                           display: "flex",
                           alignItems: "center",
                           fontSize: "12px",
-                          color: "#ccc",
+                          color: "var(--dtg-text-secondary)",
                         }}
                       >
                         <span
@@ -874,7 +876,7 @@ function AlarmSummaryPage() {
           <div
             style={{
               textAlign: "center",
-              color: "#ccc",
+              color: "var(--dtg-text-secondary)",
               fontStyle: "italic",
               padding: "30px",
             }}
@@ -885,7 +887,7 @@ function AlarmSummaryPage() {
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={regionBarChartData} margin={{ top: 20, right: 10, bottom: 0, left: 0 }}>
               <XAxis dataKey="name"
-                stroke="#ccc"
+                stroke="var(--dtg-text-secondary)"
                 fontSize={9}
                 angle={-45}
                 textAnchor="end"
@@ -893,9 +895,9 @@ function AlarmSummaryPage() {
                 interval={0}
                 dy={10}
                 scale="point" padding={{ left: regionPointPadding, right: regionPointPadding }} />
-              <YAxis stroke="#ccc" fontSize={12} />
+              <YAxis stroke="var(--dtg-text-secondary)" fontSize={12} />
               <Tooltip content={<CustomBarTooltip />} />
-              <Bar dataKey="value" barSize={dynamicregionBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#fff", fontSize: 10 }}>
+              <Bar dataKey="value" barSize={dynamicregionBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-primary)", fontSize: 10 }}>
                 {chartKeys.map((key, index) => (
                   <Cell key={key} fill={isSingleRadar ? regionColorMap[key] : fullRadarColorMap[key]} />))}
               </Bar>
@@ -903,7 +905,7 @@ function AlarmSummaryPage() {
                 content={() => {
                   const regionToShow = regionBarChartData.map((d) => d.name);
                   return (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "#aaa", justifyContent: "center", margin: 0 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "var(--dtg-text-muted)", justifyContent: "center", margin: 0 }}>
                       {regionToShow.map((name) => (
                         <div key={name} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           <div
@@ -945,7 +947,7 @@ function AlarmSummaryPage() {
                       <text
                         x={x}
                         y={y}
-                        fill="#fff"
+                        fill="var(--dtg-text-primary)"
                         textAnchor="middle"
                         dominantBaseline="central"
                         fontSize="11px"
@@ -974,7 +976,7 @@ function AlarmSummaryPage() {
                       alignItems: "center",
                       fontSize: "14px",
                       marginBottom: "20px",
-                      color: "#f5f5f5",
+                      color: "var(--dtg-text-primary)",
                     }}
                   >
                     <div
@@ -982,7 +984,7 @@ function AlarmSummaryPage() {
                         display: "flex",
                         alignItems: "center",
                         fontSize: "10px",
-                        color: "#ccc",
+                        color: "var(--dtg-text-secondary)",
                       }}
                     >
                       <span
@@ -1021,7 +1023,7 @@ function AlarmSummaryPage() {
 
 
   return (
-    <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
+    <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[var(--dtg-text-primary)] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
 
       <div style={{
         display: "flex",
@@ -1075,9 +1077,9 @@ function AlarmSummaryPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: "40px", color: "#EC834E", fontWeight: "bold" }}> {totalAlarms}</h2>
-                <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0 }}>{alarmsPerDay} alarms/day</p>
+                <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0 }}>{alarmsPerDay} alarms/day</p>
               </div>
-              <div style={{ display: "block", color: "#ccc" }}>
+              <div style={{ display: "block", color: "var(--dtg-text-secondary)" }}>
                 <p style={{ fontSize: "12px", margin: 0 }}>
                   <span style={{ color: "green" }}>☑ </span>
                   <span style={{ fontWeight: "bold" }}>{percentageValid}%</span> Valid Alarms
@@ -1173,7 +1175,7 @@ function AlarmSummaryPage() {
                     justifyContent: "center",
                     alignItems: "center",
                     height: "250px", // Match your chart height
-                    color: "#ccc",
+                    color: "var(--dtg-text-secondary)",
                     fontStyle: "italic",
                   }}
                 >
@@ -1203,11 +1205,11 @@ function AlarmSummaryPage() {
                         ))}
                       </Pie>
                       <Tooltip contentStyle={{
-                        backgroundColor: "#1B1B1B",
-                        border: "1px solid #5A6474",
+                        backgroundColor: "var(--dtg-bg-primary)",
+                        border: "1px solid var(--dtg-border-medium)",
                         padding: "10px",
                         borderRadius: "6px",
-                        color: "#f5f5f5",
+                        color: "var(--dtg-text-primary)",
                         fontSize: "12px"
                       }}
                         itemStyle={{ color: "f5f5f5" }}
@@ -1230,10 +1232,10 @@ function AlarmSummaryPage() {
                             alignItems: "center",
                             fontSize: "14px",
                             marginBottom: "6px",
-                            color: "#f5f5f5",
+                            color: "var(--dtg-text-primary)",
                           }}>
                             {/* Left side: icon + reason name */}
-                            <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "#ccc" }}>
+                            <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "var(--dtg-text-secondary)" }}>
                               <span style={{
                                 display: "inline-block",
                                 width: 12,
@@ -1287,7 +1289,7 @@ function AlarmSummaryPage() {
                   justifyContent: "center",
                   alignItems: "center",
                   height: "250px", // Match your chart height
-                  color: "#ccc",
+                  color: "var(--dtg-text-secondary)",
                   fontStyle: "italic",
                 }}
               >
@@ -1303,14 +1305,14 @@ function AlarmSummaryPage() {
                   <ResponsiveContainer width="100%" height={250}>
                     <LineChart data={chartDataToUse} margin={{ left: 10, right: 10, top: 10 }}>
                       <CartesianGrid stroke="#444" strokeDasharray="3 3" />
-                      <XAxis dataKey="name" stroke="#ccc" fontSize={12} />
-                      <YAxis stroke="#ccc" fontSize={12} margin={0}>
+                      <XAxis dataKey="name" stroke="var(--dtg-text-secondary)" fontSize={12} />
+                      <YAxis stroke="var(--dtg-text-secondary)" fontSize={12} margin={0}>
                         <Label
                           value={showCumulative ? "Cumulative Alarms" : "Daily Alarms"}
                           angle={-90}
                           position="insideLeft"
                           dy={40}
-                          style={{ fill: "#ccc", fontSize: "12px" }}
+                          style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
                         />
                       </YAxis>
                       <Tooltip content={<CustomTooltip markers={improvementMarkers} />} />
@@ -1336,7 +1338,7 @@ function AlarmSummaryPage() {
                             }
 
                             r={6}
-                            fill={statusColorMap[m.status] || "#ccc"}
+                            fill={statusColorMap[m.status] || "var(--dtg-text-secondary)"}
                             ifOverflow="visible"
                           />
                         ))
@@ -1351,7 +1353,7 @@ function AlarmSummaryPage() {
                                   : regionLineChartData.find(d => d.name === m.date)?.[m.region] || 0
                               }
                               r={6}
-                              fill={statusColorMap[m.status] || "#ccc"}
+                              fill={statusColorMap[m.status] || "var(--dtg-text-secondary)"}
                               ifOverflow="visible"
                             />
                           ))}
@@ -1367,7 +1369,7 @@ function AlarmSummaryPage() {
               gap: "10px",
               marginTop: "10px",
               fontSize: "12px",
-              color: "#ccc"
+              color: "var(--dtg-text-secondary)"
             }}>
               {Object.entries(statusLegendMap).map(([status, { color, description }]) => (
                 <div key={status} style={{ display: "flex", alignItems: "center", gap: "8px" }}>

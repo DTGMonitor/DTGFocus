@@ -510,11 +510,11 @@ function Rainfall() {
         const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
         return (
             <div style={{
-                backgroundColor: "#1B1B1B",
+                backgroundColor: "var(--dtg-bg-card)",
                 border: "1px solid #5A6474",
                 padding: "10px",
                 borderRadius: "6px",
-                color: "#f5f5f5",
+                color: "var(--dtg-text-primary)",
                 fontSize: "12px"
             }}>
                 <p style={{ marginBottom: "6px" }}>{formatTick(label)}</p>
@@ -533,11 +533,11 @@ function Rainfall() {
         const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
         return (
             <div style={{
-                backgroundColor: "#1B1B1B",
+                backgroundColor: "var(--dtg-bg-card)",
                 border: "1px solid #5A6474",
                 padding: "10px",
                 borderRadius: "6px",
-                color: "#f5f5f5",
+                color: "var(--dtg-text-primary)",
                 fontSize: "12px"
             }}>
                 <p style={{ marginBottom: "6px" }}>{label}</p>
@@ -557,7 +557,8 @@ function Rainfall() {
     // 🔹 Styles (same as yours, omitted for brevity)
     const cardStyle = {
         flex: "1",
-        backgroundColor: "#1B1B1B",
+        backgroundColor: "var(--dtg-bg-card)",
+        border: "1px solid var(--dtg-border-card)",
         borderRadius: "10px",
         padding: "10px 20px",
         color: "#f5f5ff",
@@ -573,8 +574,8 @@ function Rainfall() {
                 width: "100vw",
                 height: "100vh",
                 boxSizing: "border-box",
-                backgroundColor: "#050910",
-                color: "#f5f5f5",
+                backgroundColor: "var(--dtg-bg-primary)",
+                color: "var(--dtg-text-primary)",
                 fontFamily: "Inter, sans-serif",
                 display: "flex",
                 flexDirection: "column",
@@ -728,13 +729,13 @@ function Rainfall() {
                                         textAnchor="end"
                                         height={60}
                                     />
-                                    <YAxis stroke="#ccc" fontSize={12}>
+                                    <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
                                         <Label
                                             value="Rainfall (mm)"
                                             angle={-90}
                                             position="insideLeft"
                                             dy={30}
-                                            style={{ fill: "#ccc", fontSize: "12px" }}
+                                            style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
                                         />
                                     </YAxis>
                                     <Tooltip content={CustomTooltip} />
@@ -907,11 +908,11 @@ function Rainfall() {
                     >
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             <div>
-                                <p style={{ color: "#fff", fontSize: "30px", margin: 0 }}>
+                                <p style={{ color: "var(--dtg-text-primary)", fontSize: "30px", margin: 0 }}>
                                     {totalRainfall.toFixed(1)}
-                                    <span style={{ color: "#ccc" }}> mm</span>
+                                    <span style={{ color: "var(--dtg-text-secondary)" }}> mm</span>
                                 </p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Total Rainfall</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Total Rainfall</p>
                             </div>
                             <div style={{ padding: "10px", borderRadius: "10px", background: "#032f2cff" }}>
                                 <LuDroplets style={{ color: "#AFF7F2" }} size={50} />
@@ -927,16 +928,16 @@ function Rainfall() {
                             }}
                         >
                             <div>
-                                <p style={{ color: "#fff", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{averageRainfall.toFixed(1)}</p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Average</p>
+                                <p style={{ color: "var(--dtg-text-primary)", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{averageRainfall.toFixed(1)}</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Average</p>
                             </div>
                             <div>
-                                <p style={{ color: "#fff", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{highestRainfall.toFixed(1)}</p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Highest</p>
+                                <p style={{ color: "var(--dtg-text-primary)", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{highestRainfall.toFixed(1)}</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Highest</p>
                             </div>
                             <div>
-                                <p style={{ color: "#fff", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{lowestRainfall.toFixed(1)}</p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Lowest</p>
+                                <p style={{ color: "var(--dtg-text-primary)", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{lowestRainfall.toFixed(1)}</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Lowest</p>
                             </div>
                         </div>
                     </div>
@@ -945,20 +946,20 @@ function Rainfall() {
                     >
 
                         <div>
-                            <p style={{ color: "#fff", fontSize: "30px", margin: 0 }}>
+                            <p style={{ color: "var(--dtg-text-primary)", fontSize: "30px", margin: 0 }}>
                                 {averageTemperature.toFixed(1)}
-                                <span style={{ color: "#ccc" }}> °C</span>
+                                <span style={{ color: "var(--dtg-text-secondary)" }}> °C</span>
                             </p>
-                            <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Average Temperature</p>
+                            <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Average Temperature</p>
                         </div>
                         <div>
                             <div>
-                                <p style={{ color: "#fff", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{highestTemperature.toFixed(1)}</p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Highest</p>
+                                <p style={{ color: "var(--dtg-text-primary)", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{highestTemperature.toFixed(1)}</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Highest</p>
                             </div>
                             <div>
-                                <p style={{ color: "#fff", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{lowestTemperature.toFixed(1)}</p>
-                                <p style={{ color: "#aaa", fontSize: "14px", margin: 0 }}>Lowest</p>
+                                <p style={{ color: "var(--dtg-text-primary)", fontWeight: "bold", fontSize: "16px", margin: 0 }}>{lowestTemperature.toFixed(1)}</p>
+                                <p style={{ color: "var(--dtg-text-muted)", fontSize: "14px", margin: 0 }}>Lowest</p>
                             </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", padding: "10px", borderRadius: "10px", background: "#0A3643" }}>
@@ -969,7 +970,7 @@ function Rainfall() {
                     </div>
                     <div
                         style={{ ...cardStyle, alignItems: "center" }}>
-                        <p style={{ color: "#aaa", paddingTop: "10px", fontSize: "14px", margin: 0, alignSelf: "flex-start" }}>Wind Speed & Direction</p>
+                        <p style={{ color: "var(--dtg-text-muted)", paddingTop: "10px", fontSize: "14px", margin: 0, alignSelf: "flex-start" }}>Wind Speed & Direction</p>
                         <ResponsiveContainer>
                             <RadarChart
                                 cx="50%"
@@ -981,7 +982,7 @@ function Rainfall() {
                                 <PolarGrid stroke="#393939" />
                                 <PolarAngleAxis dataKey="direction" style={{ fontSize: "10px" }} />
                                 {/* This axis shows the percentage (e.g., 0%, 5%, 10%) */}
-                                <PolarRadiusAxis angle={45} domain={[0, 'auto']} style={{ fontSize: "12px" }} tickFormatter={(value) => `${value.toFixed(0)}%`} stroke="#aaa" />
+                                <PolarRadiusAxis angle={45} domain={[0, 'auto']} style={{ fontSize: "12px" }} tickFormatter={(value) => `${value.toFixed(0)}%`} stroke="var(--dtg-text-muted)" />
 
                                 {/* Create one "Radar" (layer) for each speed bin */}
                                 {speedBins.map((bin, index) => (
@@ -1000,7 +1001,7 @@ function Rainfall() {
                                 />
                             </RadarChart>
                         </ResponsiveContainer>
-                        <div style={{ display: "flex", gap: "5px", fontSize: "10px", color: "#aaa", justifyContent: "center", marginTop: 10 }}>
+                        <div style={{ display: "flex", gap: "5px", fontSize: "10px", color: "var(--dtg-text-muted)", justifyContent: "center", marginTop: 10 }}>
                             {speedBins.map((bin, index) => (
                                 <div key={bin} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                     <div

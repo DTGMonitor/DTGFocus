@@ -21,6 +21,7 @@ import {
 } from "@/config/movementTableStyle";
 import { areaKey } from "@/utils/dailyStatusRows";
 import { ensureOnboarding } from "@/components/admin/Radar/Onboarding/useOnboarding";
+import PasteZone from "@/components/Reusable/PasteZone";
 import {
   ACCEPTED_LOGO_TYPES,
   LOGO_COLUMN,
@@ -121,6 +122,28 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
     full: null,
     mark: null,
   });
+
+  /**
+   * Take a logo for a slot, or say why it cannot be used.
+   *
+   * One validating setter behind both ways in — the file dialog and a paste —
+   * so a pasted logo is held to the same type and size rules as a chosen one.
+   * A screenshot pasted at full screen resolution is routinely over the 2 MB
+   * logo ceiling, so this path rejects more often than the file dialog does and
+   * has to say why rather than failing quietly at save time.
+   *
+   * @returns true when the file was taken.
+   */
+  const acceptLogo = useCallback((variant: LogoVariant, file: File | null | undefined) => {
+    if (!file) return false;
+    const problem = validateLogoFile(file);
+    if (problem) {
+      toast.error(problem);
+      return false;
+    }
+    setNewLogos((prev) => ({ ...prev, [variant]: file }));
+    return true;
+  }, []);
 
   // Which movement table this radar's daily report prints. Follows the radar
   // number until the operator says otherwise — a PS is monitored as a fixed set
@@ -591,9 +614,19 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
 
                 {/* Company logos. Optional — the reports fall back to DTG's own
                     mark, and Site & Company Details can add them later. */}
+                {/* Each slot takes its own paste: with two of them on screen a
+                    document-level listener could only guess which one a pasted
+                    logo was meant for. Clicking a slot focuses it, and the next
+                    Ctrl+V lands there. */}
                 <div className="grid grid-cols-2 gap-3">
                   {LOGO_SLOTS.map(({ variant, label, hint }) => (
-                    <div key={variant} className={field}>
+                    <PasteZone
+                      key={variant}
+                      onFiles={(files: File[]) => acceptLogo(variant, files[0])}
+                      multiple={false}
+                      label={label}
+                      className={field}
+                    >
                       <label className={hintClass}>{label}</label>
                       <input
                         type="file"
@@ -604,18 +637,17 @@ export default function AddSensorModal({ isOpen, onClose, userID, onSuccess }: A
                             setNewLogos((prev) => ({ ...prev, [variant]: null }));
                             return;
                           }
-                          const problem = validateLogoFile(file);
-                          if (problem) {
-                            toast.error(problem);
-                            e.target.value = "";
-                            return;
-                          }
-                          setNewLogos((prev) => ({ ...prev, [variant]: file }));
+                          if (!acceptLogo(variant, file)) e.target.value = "";
                         }}
                         className="w-full text-xs text-[var(--dtg-gray-700)] file:mr-2 file:rounded-md file:border file:border-[var(--dtg-border-medium)] file:bg-transparent file:px-2 file:py-1 file:text-xs file:text-[var(--dtg-text-primary)]"
                       />
                       <p className={hintClass}>{hint}</p>
-                    </div>
+                      <p className={hintClass}>
+                        {newLogos[variant]
+                          ? `Pasted/selected: ${newLogos[variant]?.name || "image"}`
+                          : "Click this box, then Ctrl+V to paste."}
+                      </p>
+                    </PasteZone>
                   ))}
                 </div>
 

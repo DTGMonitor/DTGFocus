@@ -13,7 +13,8 @@ import { LEAVE_OPEN, RESOLUTION_STATUSES, NAMES_ENGINEER, unresolved } from '@/u
  * resolution means is decided.
  *
  * Props:
- *   improvements {Array}    open alarm_improvement rows, alarm_records embedded
+ *   improvements {Array}    open alarm_improvement rows, each carrying its own
+ *                           `alarm_region`; `alarm_records` may be embedded
  *   regions      {Array}    {id, name, type} — names and colours the badges
  *   value        {object}   id → { status, site_engineer }
  *   onChange     {function} (id, patch) => void
@@ -45,7 +46,12 @@ export default function ImprovementResolution({
     }
 
     const regionById = new Map((regions ?? []).map((r) => [String(r.id), r]));
-    const regionFor = (row) => regionById.get(String(row?.alarm_records?.alarm_region));
+
+    // The row's own region first. `alarm_records.alarm_region` is the fallback
+    // for rows written before migration 001 backfilled the column, and for any
+    // caller still selecting the join without it.
+    const regionIdOf = (row) => row?.alarm_region ?? row?.alarm_records?.alarm_region ?? null;
+    const regionFor = (row) => regionById.get(String(regionIdOf(row)));
 
     // The alarm's band colour, so a recommendation raised against a Red region
     // reads as one at a glance. Unknown bands stay neutral rather than guessing.
@@ -59,7 +65,7 @@ export default function ImprovementResolution({
 
     const regionName = (row) =>
         regionFor(row)?.name
-        || (row?.alarm_records?.alarm_region != null ? `Region ${row.alarm_records.alarm_region}` : 'Unknown Region');
+        || (regionIdOf(row) != null ? `Region ${regionIdOf(row)}` : 'Unknown Region');
 
     const openCount = unresolved(improvements, value).length;
 

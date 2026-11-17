@@ -255,6 +255,7 @@ const RadarCard = ({
 
   const cardStyle = {
     backgroundColor: isOff ? "var(--dtg-bg-hover)" : "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     borderRadius: 32,
     padding: 32,
     color: "var(--dtg-text-primary)",

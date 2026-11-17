@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { sectionsForCategory } from '@/config/reportSections';
+import { firstImageFile } from '@/utils/clipboardImages';
 import {
     normalizeLayout,
     serializeLayout,
@@ -61,24 +62,6 @@ function readAsDataUrl(file) {
         reader.onerror = () => resolve(null);
         reader.readAsDataURL(file);
     });
-}
-
-/** First image on a DataTransfer / ClipboardData, or null. */
-function firstImageFile(source) {
-    const items = source?.items;
-    if (items?.length) {
-        for (const item of items) {
-            if (item.kind === 'file' && item.type?.startsWith('image/')) {
-                const file = item.getAsFile();
-                if (file) return file;
-            }
-        }
-    }
-    const files = source?.files;
-    if (files?.length) {
-        for (const file of files) if (file.type?.startsWith('image/')) return file;
-    }
-    return null;
 }
 
 /** Stable identities, so a derived fallback is not a new object each render. */

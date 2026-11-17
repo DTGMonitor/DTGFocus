@@ -279,7 +279,8 @@ export default function DataQualitySummaryPage() {
   };
 
   const chartCard = {
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     padding: "20px",
     borderRadius: "10px",
   };
@@ -287,16 +288,17 @@ export default function DataQualitySummaryPage() {
   const chartTitle = {
     marginBottom: "10px",
     fontSize: "18px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     marginTop: 0
   };
 
   const cardStyle = {
     flex: "1",
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     borderRadius: "10px",
     padding: "20px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     textAlign: "left",
     display: "flex",
     flexDirection: "column",
@@ -307,7 +309,7 @@ export default function DataQualitySummaryPage() {
     fontSize: "18px",
     margin: 0,
     marginBottom: "5px",
-    color: "#f5f5f5"
+    color: "var(--dtg-text-primary)"
   };
 
   const cardValueStyle = {
@@ -333,11 +335,11 @@ export default function DataQualitySummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "8px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -473,7 +475,7 @@ export default function DataQualitySummaryPage() {
   //CONTENT
 
   return (
-   <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
+   <div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[var(--dtg-text-primary)] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       <div style={{
         display: "flex",
         gap: "10px",
@@ -535,7 +537,7 @@ export default function DataQualitySummaryPage() {
                     textAlign: "left",
                     paddingRight: "8px",
                     fontSize: "12px",
-                    color: "#aaa",
+                    color: "var(--dtg-text-muted)",
                   }}
                 >
                   {item.title}
@@ -587,7 +589,7 @@ export default function DataQualitySummaryPage() {
                 const iconSize = outerRadius;
 
                 return (
-                  <div key={i} style={{ ...chartCard, backgroundColor: chart.title === "Overall" ? "#595959" : "#262626" }}>
+                  <div key={i} style={{ ...chartCard, backgroundColor: chart.title === "Overall" ? "#595959" : "var(--dtg-bg-card)" }}>
                     <h4 style={chartTitle}>{
                       chart.title === "Overall"
                         ? "Quality Summary"
@@ -639,11 +641,11 @@ export default function DataQualitySummaryPage() {
                                 alignItems: "center",
                                 fontSize: "14px",
                                 marginBottom: "6px",
-                                color: "#f5f5f5",
+                                color: "var(--dtg-text-primary)",
                               }}
                             >
                               {/* Left: color circle + status name */}
-                              <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "#ccc" }}>
+                              <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "var(--dtg-text-secondary)" }}>
                                 <span
                                   style={{
                                     display: "inline-block",
@@ -711,11 +713,11 @@ export default function DataQualitySummaryPage() {
                           alignItems: "center",
                           fontSize: "14px",
                           marginBottom: "6px",
-                          color: "#f5f5f5",
+                          color: "var(--dtg-text-primary)",
                         }}
                       >
                         {/* Left: color circle + status name */}
-                        <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "#ccc" }}>
+                        <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "var(--dtg-text-secondary)" }}>
                           <span
                             style={{
                               display: "inline-block",
@@ -761,7 +763,7 @@ export default function DataQualitySummaryPage() {
                       ticks={ticks}
                       tickFormatter={(ms) => DateTime.fromMillis(ms).toFormat("yyyy-MM-dd")}
                       fontSize={12}
-                      stroke="#ccc"
+                      stroke="var(--dtg-text-secondary)"
                     />
                     <YAxis
                       dataKey="y"
@@ -820,11 +822,11 @@ export default function DataQualitySummaryPage() {
           ${tooltipPos.y > containerSize.height - 80 ? "-100%" : "8px"}
         )
       `,
-                      background: "#1B1B1B",
-                      border: "1px solid #5A6474",
+                      background: "var(--dtg-bg-primary)",
+                      border: "1px solid var(--dtg-border-medium)",
                       padding: 10,
                       borderRadius: 6,
-                      color: "#f5f5f5",
+                      color: "var(--dtg-text-primary)",
                       fontSize: 12,
                       zIndex: 999,
                       pointerEvents: "none"

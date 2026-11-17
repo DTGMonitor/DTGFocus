@@ -678,6 +678,7 @@
   --dtg-bg-sidebar: #2f5233;
   /* Sidebar is dark in both themes */
   --dtg-bg-card: #ffffff;
+  --dtg-border-card: #e2e8f0;
   --dtg-bg-hover: #f3f4f6;
   --dtg-border-light: #e5e7eb;
   --dtg-border-medium: #d1d5db;
@@ -787,6 +788,61 @@
   /* Decorative line/particle blending: darken against light surfaces */
   --auth-line-blend: multiply;
   --auth-line-opacity: 0.35;
+
+  /* --- Client Live view (map / photo overlay surface) --- */
+  /* The client's Live, Pit Map and Analysis views are a glass UI floating over
+     a drone photograph, so their colours cannot come from the card tokens: the
+     backdrop is an image, not a surface. These are that overlay's own palette,
+     and every value has a counterpart in the html.dark block below.
+
+     In DARK the overlay is white-on-black glass, which is exactly how these
+     views have always looked. In LIGHT it inverts to white glass with the
+     auth surface's deep blue ink — the same hue pairing the sign-in screen
+     already uses, so the two themes are one design rather than two.
+
+     Alpha is baked into each token rather than left to a Tailwind `/N`
+     modifier. The two themes do not want the SAME alpha: a 5% white veil
+     reads as a panel over a dark photo and as nothing at all over a light
+     one, so each theme states the opacity its own surface needs. */
+  --live-surface: #F0F9FF;
+  --live-fg: #0B3C5D;
+  --live-fg-muted: rgb(11 60 93 / 0.78);
+  --live-fg-subtle: rgb(11 60 93 / 0.62);
+  --live-fg-faint: rgb(11 60 93 / 0.46);
+  --live-glass-weak: rgb(255 255 255 / 0.55);
+  --live-glass: rgb(255 255 255 / 0.72);
+  --live-glass-strong: rgb(255 255 255 / 0.86);
+  --live-panel: rgb(255 255 255 / 0.62);
+  --live-border-weak: rgb(0 106 173 / 0.14);
+  --live-border: rgb(0 106 173 / 0.26);
+  --live-accent: #006AAD;
+  --live-accent-soft: rgb(0 106 173 / 0.12);
+  --live-accent-border: rgb(0 106 173 / 0.32);
+  --live-on-accent: #FFFFFF;
+  /* The scrim that keeps overlay text legible against the photograph. It
+     lightens the image in light mode and darkens it in dark mode — opposite
+     directions, same job. */
+  --live-scrim-from: rgb(255 255 255 / 0.35);
+  --live-scrim-to: rgb(255 255 255 / 0.70);
+  --live-tooltip-bg: rgb(255 255 255 / 0.95);
+  --live-tooltip-fg: #0B3C5D;
+  /* The full-screen wash behind a modal. Its own token because a Tailwind
+     `/95` modifier cannot apply an alpha to an arbitrary var() value. */
+  --live-veil: rgb(240 249 255 / 0.95);
+  /* Recharts chrome. Grid, axis and tick are three distinct weights of the
+     same ink, so they move together between themes and a chart never ends up
+     with a visible grid and invisible labels. */
+  --live-chart-grid: rgb(11 60 93 / 0.12);
+  --live-chart-axis: rgb(11 60 93 / 0.38);
+  --live-chart-tick: rgb(11 60 93 / 0.68);
+
+  /* --- Interactive accent (shared chrome) --- */
+  /* The toolbar's active pill and its hover colour. Dark keeps the sage the
+     chrome has always used; light takes the logo blue, because sage on a white
+     surface does not clear AA for the small uppercase labels it is used on. */
+  --dtg-accent-interactive: #006AAD;
+  --dtg-accent-interactive-fg: #FFFFFF;
+  --dtg-accent-glow: rgb(0 106 173 / 0.35);
 }
 
 /* ------------------------------------------------------------- */
@@ -876,6 +932,7 @@ html.dark {
   --dtg-bg-secondary: #2a2a2a;
   --dtg-bg-sidebar: #2f5233;
   --dtg-bg-card: #2a2a2a;
+  --dtg-border-card: transparent;
   --dtg-bg-hover: #333;
   --dtg-border-light: #404040;
   --dtg-border-medium: #525252;
@@ -981,6 +1038,38 @@ html.dark {
   /* Decorative line/particle blending: lighten against dark surfaces */
   --auth-line-blend: screen;
   --auth-line-opacity: 0.15;
+
+  /* --- Client Live view (map / photo overlay surface) --- */
+  /* Preserves the original mission-control green overlay exactly as it was
+     before these became tokens; see :root for the light pairing. */
+  --live-surface: #020d0d;
+  --live-fg: #FFFFFF;
+  --live-fg-muted: rgb(255 255 255 / 0.70);
+  --live-fg-subtle: rgb(255 255 255 / 0.50);
+  --live-fg-faint: rgb(255 255 255 / 0.40);
+  --live-glass-weak: rgb(255 255 255 / 0.05);
+  --live-glass: rgb(255 255 255 / 0.10);
+  --live-glass-strong: rgb(0 0 0 / 0.20);
+  --live-panel: rgb(0 0 0 / 0.05);
+  --live-border-weak: rgb(255 255 255 / 0.10);
+  --live-border: rgb(255 255 255 / 0.20);
+  --live-accent: #8EB69B;
+  --live-accent-soft: rgb(142 182 155 / 0.15);
+  --live-accent-border: rgb(142 182 155 / 0.30);
+  --live-on-accent: #020d0d;
+  --live-scrim-from: rgb(0 0 0 / 0.60);
+  --live-scrim-to: rgb(0 0 0 / 0.80);
+  --live-tooltip-bg: rgb(0 0 0 / 0.90);
+  --live-tooltip-fg: #FFFFFF;
+  --live-veil: rgb(2 13 13 / 0.95);
+  --live-chart-grid: rgb(255 255 255 / 0.08);
+  --live-chart-axis: rgb(255 255 255 / 0.35);
+  --live-chart-tick: rgb(255 255 255 / 0.55);
+
+  /* --- Interactive accent (shared chrome) --- */
+  --dtg-accent-interactive: #8EB69B;
+  --dtg-accent-interactive-fg: #000000;
+  --dtg-accent-glow: rgb(142 182 155 / 0.4);
 }
 
 

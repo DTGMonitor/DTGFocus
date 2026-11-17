@@ -10,6 +10,32 @@ import GaugeLive from "@/components/Radars/Live/gaugelive";
 import DqpAppendixPreview from "@/components/Reusable/DqpAppendixPreview";
 import { defTypeColour, labelColour, recordColour, tarpPriority, COLOUR_RANK } from "@/config/riskDisplay";
 import { formatFromUTC } from "@/utils/timezoneUtils";
+import { chainHeads } from "@/utils/dailyStatusRows";
+
+/**
+ * What the deformation list shows when nothing is live.
+ *
+ * Reached two ways — no records at all, and records that all resolve away as
+ * superseded nodes of a chain — so it is stated once rather than twice.
+ */
+const EMPTY_DEF_LIST = {
+  sorted: [{
+    id: "fallback",
+    // No level: a site that quotes no TARP numbers must not be told
+    // "TARP 1" as the wording for having nothing active.
+    tarp_level: "",
+    def_type: "No Significant",
+    mappedDefDetail: "No significant deformation trend",
+    location: "the scan area",
+  }],
+  counts: {
+    "Linear Long-term": 0,
+    "Linear": 0,
+    "TARP 4": 0
+  },
+  summary: ["No significant deformation trend observed."],
+  fallback: true,
+};
 
 function splitRadarName(radar) {
   if (!radar) return { prefix: "", model: "" };
@@ -55,7 +81,7 @@ function DeformationHeatmap({ heatmapUrl, radar }) {
           <p
             style={{
               fontSize: "12px",
-              color: "#aaa",
+              color: "var(--dtg-text-muted)",
               fontStyle: "italic",
             }}
           >
@@ -80,7 +106,7 @@ function DeformationHeatmap({ heatmapUrl, radar }) {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#111",
+              background: "var(--dtg-bg-card)",
               padding: "12px",
               borderRadius: "10px",
               boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
@@ -105,8 +131,8 @@ function DeformationHeatmap({ heatmapUrl, radar }) {
               onClick={() => setOpen(false)}
               style={{
                 marginTop: "10px",
-                background: "#444",
-                color: "#fff",
+                background: "var(--dtg-gray-200)",
+                color: "var(--dtg-text-primary)",
                 border: "none",
                 borderRadius: "6px",
                 padding: "6px 14px",
@@ -191,7 +217,7 @@ const IssueCard = ({ issue }) => {
         borderRadius: "10px",
         padding: "10px",
         marginBottom: "10px",
-        color: "#fff",
+        color: "var(--dtg-text-primary)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -280,7 +306,7 @@ const DefCard = ({ def }) => {
         borderRadius: "10px",
         padding: "10px",
         marginBottom: "10px",
-        color: "#fff",
+        color: "var(--dtg-text-primary)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -297,16 +323,62 @@ const DefCard = ({ def }) => {
         </strong>
       </div>
       <p style={{ margin: "5px 0", fontSize: "12px" }}>{def.mappedDefDetail} observed over {def.location}</p>
-      {def.appendix && (
-        <a href={def.appendix} style={{ color: "#4FC3F7", fontWeight: "bold" }}>
-          [Appendix A]
-        </a>
-      )}
+      {/* `def_records` has no `appendix` column and the query never selected
+          one, so this link could never render. The appendix lives on the
+          published report, which the Reports tab serves. */}
     </div>
   );
 };
 
-const AlarmCard = ({ al, rec }) => {
+/**
+ * One alarm region: what it is, where its recommendation stands, when it last
+ * fired.
+ *
+ * It used to print `isactive | reason | cause`, which answered none of those.
+ * `isactive` is already carried by the bell icon beside it (hidden unless the
+ * region is Active), and `reason`/`cause` describe the last alarm's triage
+ * rather than the region — a blank pair being by far the most common reading,
+ * since most regions have no record in hand at all.
+ *
+ * What replaces them:
+ *   improvement  where DTG's recommendation for this region stands, or "—".
+ *                "Awaiting Feedback" is the one that asks something of the
+ *                site, so it is the one the client is here to see.
+ *   last trigger when the region last alarmed, on the SITE's clock — a reader
+ *                watching another country's pit would otherwise read their own
+ *                hour with nothing marking it as theirs.
+ */
+/**
+ * A trigger instant, short enough for a 9px column: "17/11 14:30".
+ *
+ * Built from `formatFromUTC`'s output rather than from a second Intl call, so
+ * the day and the hour here can never disagree with the long form in the
+ * tooltip — they are the same string, trimmed.
+ */
+const formatTriggerStamp = (iso, timezone) => {
+  if (!iso) return "Never";
+  const full = formatFromUTC(iso, timezone || "UTC");
+  if (!full) return "Never";
+  // "17/11/2026, 14:30:05" → "17/11 14:30"
+  const m = full.match(/^(\d{2})\/(\d{2})\/\d{4},?\s+(\d{2}):(\d{2})/);
+  return m ? `${m[1]}/${m[2]} ${m[3]}:${m[4]}` : full;
+};
+
+/** Recommendation status → colour. Unknown statuses stay neutral. */
+const improvementStatusColor = (status) => {
+  switch ((status || "").toLowerCase()) {
+    case "awaiting feedback":
+      return "#FFC000";
+    case "modified":
+      return "#47D45A";
+    case "not implemented":
+      return "#E97132";
+    default:
+      return "var(--dtg-text-light)";
+  }
+};
+
+const AlarmCard = ({ al, rec, improvement, timezone }) => {
 
   const COLORS = {
     green: "#13501B",
@@ -357,37 +429,60 @@ const AlarmCard = ({ al, rec }) => {
         marginBottom: "10px"
       }}
     >
-      <FaRegBell color={rec?.reason === "False" ? "#fff" : alarmstatusColor(al.alarmtype)}
+      <FaRegBell color={rec?.reason === "False" ? "var(--dtg-text-primary)" : alarmstatusColor(al.alarmtype)}
         size="1em"
         style={{
           visibility: al.isactive !== "Active" ? "hidden" : "visible",
-          filter: rec?.reason === "False" ? `drop-shadow(0 0 8px #fff)` : alarmGlow(al.alarmtype)
+          filter: rec?.reason === "False" ? `drop-shadow(0 0 8px var(--dtg-text-primary))` : alarmGlow(al.alarmtype)
         }}
       />
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 70px 70px 1fr",
-          backgroundColor: "#404040",
+          gridTemplateColumns: "1fr 110px 118px",
+          alignItems: "center",
+          gap: "6px",
+          backgroundColor: "var(--dtg-gray-200)",
           borderRadius: "10px",
-          padding: "0 10px",
-          color: al.isactive !== "Active" ? "#7f7f7f" : rec?.reason === "False" ? "#fff" : alarmstatusColor(al.alarmtype)
+          padding: "3px 10px",
+          color: al.isactive !== "Active"
+            ? "var(--dtg-text-light)"
+            : rec?.reason === "False"
+            ? "var(--dtg-text-primary)"
+            : alarmstatusColor(al.alarmtype)
         }}
       >
-        <div style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "9px", textAlign: "left" }}>
+        <div style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "9px", textAlign: "left", minWidth: 0 }}>
           <div
             style={{
               width: "10px",
               height: "10px",
               borderRadius: "50%",
+              flexShrink: 0,
               backgroundColor: alarmstatusColor(al.alarmtype)
             }}
           />
-          {al.name}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {al.name}
+          </span>
         </div>
-        <p style={{ fontSize: "9px" }}>| {al.isactive}</p>
-        <p style={{ fontSize: "9px" }}>| {rec?.reason}</p>
-        <p style={{ fontSize: "9px" }}>| {rec?.cause}</p>
+
+        {/* Where the recommendation stands. Coloured on its own axis rather
+            than inheriting the band: "Awaiting Feedback" is an outstanding
+            request, which is not the same statement as a red alarm region. */}
+        <p
+          style={{ fontSize: "9px", margin: 0, color: improvementStatusColor(improvement?.improvement_status) }}
+          title={improvement?.type || undefined}
+        >
+          | {improvement?.improvement_status || "No recommendation"}
+        </p>
+
+        <p
+          style={{ fontSize: "9px", margin: 0 }}
+          title={rec?.triggered_at ? formatFromUTC(rec.triggered_at, timezone || "UTC") ?? undefined : undefined}
+        >
+          | {formatTriggerStamp(rec?.triggered_at, timezone)}
+        </p>
       </div>
     </div>
   );
@@ -398,7 +493,7 @@ function RadarDetail({ radar, onBack }) {
 
   if (!radar) {
     return (
-      <div style={{ color: "#ccc", padding: "20px" }}>
+      <div style={{ color: "var(--dtg-text-secondary)", padding: "20px" }}>
         Select a radar to view details
       </div>
     );
@@ -415,15 +510,24 @@ function RadarDetail({ radar, onBack }) {
 
     const loadData = async () => {
       try {
+        // `isactive = 'Yes'` is the live set. Without this filter the list
+        // printed every record the folder had ever carried, so a trend
+        // archived months ago sat alongside the current ones and the counts
+        // beside the heading grew forever.
+        //
+        // `properties` comes along because chain resolution reads
+        // `chain_branch_id` out of it — resolveChainTips cannot see which
+        // branch of a merge event is still open without it.
         const { data, error } = await supabase
           .from("def_records")
           .select(`
-          id, created_at, location, precursors, def_type, tarp_level, isactive, start,
+          id, created_at, location, precursors, def_type, tarp_level, isactive, start, properties,
           wall_folder:radar_wall_folders!inner(
             id, type, name, radar_id
           )
         `)
-          .eq("wall_folder.name", radar.WallFolder)   // ✅ filter on actual column
+          .eq("wall_folder.name", radar.WallName)   // filter by human-readable name, not wallfolder_id UUID
+          .eq("isactive", "Yes")
           .order("created_at", { ascending: false });
 
         if (error) throw error;
@@ -517,28 +621,20 @@ function RadarDetail({ radar, onBack }) {
 
   // --- Main computed list ---
   const defList = useMemo(() => {
-    if (!defRecords || defRecords.length === 0) {
-      return {
-        sorted: [{
-          id: "fallback",
-          // No level: a site that quotes no TARP numbers must not be told
-          // "TARP 1" as the wording for having nothing active.
-          tarp_level: "",
-          def_type: "No Significant",
-          mappedDefDetail: "No significant deformation trend",
-          location: "the scan area",
-        },],
-        counts: {
-          "Linear Long-term": 0,
-          "Linear": 0,
-          "TARP 4": 0
-        },
-        summary: ["No significant deformation trend observed."],
-        fallback: true,
-      };
-    }
+    if (!defRecords || defRecords.length === 0) return EMPTY_DEF_LIST;
 
-    const enriched = defRecords.map((rec) => ({
+    // One entry per LIVE CHAIN, not one per record — `chainHeads` is the same
+    // resolution the admin board and both reports use, so the client sees the
+    // same set of current trends the documents describe.
+    //
+    // Without it a chain printed every node it had ever had: a Linear continued
+    // four times read as four separate trends on the same wall, and a chain
+    // whose current node is a Rainfall or Blast printed the event instead of
+    // the movement that is still happening.
+    const heads = chainHeads(defRecords);
+    if (heads.length === 0) return EMPTY_DEF_LIST;
+
+    const enriched = heads.map((rec) => ({
       ...rec,
       mappedDefDetail: mapDefDetail(rec.def_type),
     }));
@@ -563,13 +659,12 @@ function RadarDetail({ radar, onBack }) {
         const { data, error1 } = await supabase
           .from("alarm_regions")
           .select(`
-            id, name,isactive,alarmtype,
+            id, name, isactive, alarmtype,
             wallfolder:radar_wall_folders!inner(
-            id, type, name, radar_id
-          )
-          )
-        `)
-          .eq("wallfolder.name", radar.WallFolder)
+              id, type, name, radar_id
+            )
+          `)
+          .eq("wallfolder.name", radar.WallName)
 
         if (error1) throw error1;
 
@@ -594,40 +689,39 @@ function RadarDetail({ radar, onBack }) {
 
     const loadRecords = async () => {
       try {
-        // collect only ACTIVE region IDs
-        const activeRegionIds = alarmRegions
-          .filter(r => r.isactive)
-          .map(r => r.id);
+        // Every region on the folder, not only the Active ones: the card now
+        // prints a last-trigger time, and when a Standby region last fired is
+        // exactly the kind of thing a reader looks here for.
+        const regionIds = alarmRegions.map((r) => r.id).filter((id) => id != null);
 
-        if (activeRegionIds.length === 0) {
+        if (regionIds.length === 0) {
           setAlarmRecords([]);
           return;
         }
 
-        // fetch latest alarm per region
-        const latestRecords = [];
-        for (const regionId of activeRegionIds) {
-          const { data, error } = await supabase
-            .from("alarm_records")
-            .select(`
+        // ONE query, newest first, reduced to the latest per region. This was a
+        // loop issuing a request per region — a folder with a dozen regions
+        // opened with a dozen round trips, each fetching a single row.
+        const { data, error } = await supabase
+          .from("alarm_records")
+          .select(`
             id, created_at, triggered_at, location, reason, cause,
-            alarm_region:alarm_regions!inner(
+            alarm_region:alarm_regions(
               id, name, isactive, alarmtype
             )
           `)
-            .eq("alarm_regions.isactive", "Active")
-            .eq("alarm_region", regionId)
-            .order("triggered_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(); // only one latest record
+          .in("alarm_region", regionIds)
+          .order("triggered_at", { ascending: false });
 
-          if (error) throw error;
-          if (data) latestRecords.push(data);
-        }
+        if (error) throw error;
 
-        setAlarmRecords(latestRecords);
+        const latestByRegion = new Map();
+        (data || []).forEach((record) => {
+          const key = String(record.alarm_region?.id ?? "");
+          if (key && !latestByRegion.has(key)) latestByRegion.set(key, record);
+        });
 
-        console.log("latest alarm_records", latestRecords);
+        setAlarmRecords([...latestByRegion.values()]);
       } catch (err) {
         console.error("Error loading alarm records:", err);
         setError2("Failed to load alarm records.");
@@ -648,23 +742,36 @@ function RadarDetail({ radar, onBack }) {
     const loadRecords = async () => {
       try {
 
+        // Scoped on the recommendation's own region, which `alarmRegions`
+        // already holds for this wall folder. The previous query reached the
+        // folder through alarm_records!inner → alarm_regions, so a
+        // recommendation raised against a region that has not alarmed — which
+        // migration 001 made possible, and which is the normal case for an
+        // alarm configuration problem — never reached the client banner.
+        const regionIds = alarmRegions.map((r) => r.id).filter((id) => id != null);
+        if (regionIds.length === 0) {
+          setAlarmImprovement([]);
+          return;
+        }
+
         const { data, error3 } = await supabase
           .from("alarm_improvement")
           .select(`
-            id, recommendation_submission,type,improvement_status,site_action,site_engineer,
-            alarm_records:alarm_records!inner(
-              id, alarm_region:alarm_regions!inner(name,wallfolder:radar_wall_folders!inner(name))
+            id, recommendation_submission,type,improvement_status,site_action,site_engineer,alarm_region,
+            alarm_records(
+              id, alarm_region:alarm_regions(name,wallfolder:radar_wall_folders(name))
             )
           `)
-          .eq("alarm_records.alarm_region.wallfolder.name", radar.WallFolder)
-          .eq("improvement_status", "Awaiting Feedback")
+          .in("alarm_region", regionIds)
           .order("recommendation_submission", { ascending: false })
 
         if (error3) throw error3;
 
-        setAlarmImprovement(data);
-
-        console.log("improvement", data);
+        // Every status, not only "Awaiting Feedback". The banner still counts
+        // the outstanding ones (see improvementBanner), but each region's card
+        // states where its own latest recommendation stands — and "Modified"
+        // is a real answer, not an absence.
+        setAlarmImprovement(data || []);
       } catch (err) {
         console.error("Error loading alarm improvement:", err);
         setError2("Failed to load alarm improvement.");
@@ -674,15 +781,38 @@ function RadarDetail({ radar, onBack }) {
     loadRecords();
   }, [radar, alarmRegions]);
 
+  /** Still awaiting site feedback — the only ones that ask anything of anyone. */
+  const outstandingImprovements = useMemo(
+    () => (alarmImprovement ?? []).filter(
+      (row) => (row?.improvement_status || "").toLowerCase() === "awaiting feedback"
+    ),
+    [alarmImprovement]
+  );
+
+  /**
+   * Each region's latest recommendation, whatever its status.
+   *
+   * `alarmImprovement` arrives newest-first, so the first row seen for a region
+   * is its current position.
+   */
+  const improvementByRegion = useMemo(() => {
+    const byRegion = new Map();
+    (alarmImprovement ?? []).forEach((row) => {
+      const key = String(row?.alarm_region ?? row?.alarm_records?.alarm_region ?? "");
+      if (key && !byRegion.has(key)) byRegion.set(key, row);
+    });
+    return byRegion;
+  }, [alarmImprovement]);
+
   const improvementBanner = useMemo(() => {
-    if (!alarmImprovement || alarmImprovement.length === 0) {
+    if (outstandingImprovements.length === 0) {
       return [{
         action: "",
         type: "No action required"
       }];
     }
 
-    const typeCounts = alarmImprovement.reduce((acc, item) => {
+    const typeCounts = outstandingImprovements.reduce((acc, item) => {
       const { type } = item;
       acc[type] = (acc[type] || 0) + 1;
       return acc;
@@ -692,7 +822,7 @@ function RadarDetail({ radar, onBack }) {
       action: "[ACTION REQUIRED]",
       type: count > 1 ? `${type} (${count}x)` : type,
     }));
-  }, [alarmImprovement]);
+  }, [outstandingImprovements]);
 
   // DOWNTIME
   const [downtime, setDowntime] = useState([]);
@@ -803,13 +933,16 @@ function RadarDetail({ radar, onBack }) {
   const [heatmapUrl, setHeatmapUrl] = useState(null);
 
   useEffect(() => {
-    if (!radar?.Company || !radar?.Site || !radar?.WallFolder) return;
+    if (!radar?.Site || !radar?.WallName) return;
 
     const fetchImage = async () => {
-      // Normalize inputs
-      const company = radar.Company?.trim();
-      const site = radar.Site?.trim();
-      let wall = radar.WallFolder?.trim();
+      // Mirror the path used by useDailyReportData / useComprehensiveReportData:
+      //   {company ?? site_name}/{site_name}/{wall_name}.jpg
+      // Company is not reliably populated from the gallery view, so fall back to
+      // Site (site_name) the same way the report generators do.
+      const company = (radar.Company ?? radar.Site).trim();
+      const site = radar.Site.trim();
+      let wall = radar.WallName.trim();
 
       // Avoid double ".jpg"
       if (!wall.toLowerCase().endsWith(".jpg")) {
@@ -830,9 +963,8 @@ function RadarDetail({ radar, onBack }) {
       }
     };
 
-
     fetchImage();
-  }, [radar?.Company, radar?.Site, radar?.WallFolder]);
+  }, [radar?.Company, radar?.Site, radar?.WallName]);
 
 
   // Define orderings
@@ -970,7 +1102,7 @@ function RadarDetail({ radar, onBack }) {
               width: 4,
               height: (i + 1) * 4, // increasing bar heights
               borderRadius: 2,
-              backgroundColor: i < bars ? color : "#7F7F7F", // filled vs empty
+              backgroundColor: i < bars ? color : "var(--dtg-border-dark)", // filled vs empty
             }}
           />
         ))}
@@ -1015,10 +1147,11 @@ function RadarDetail({ radar, onBack }) {
   };
 
   const cardStyle = {
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     borderRadius: 32,
     padding: 32,
-    color: "#fff",
+    color: "var(--dtg-text-primary)",
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -1042,7 +1175,7 @@ function RadarDetail({ radar, onBack }) {
       style={{
         padding: "20px",
         borderRadius: "12px",
-        color: "#f5f5f5",
+        color: "var(--dtg-text-primary)",
         display: "flex",
         flexDirection: "column",
         gap: "20px",
@@ -1054,23 +1187,24 @@ function RadarDetail({ radar, onBack }) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        backgroundColor: "#262626",
+        backgroundColor: "var(--dtg-bg-card)",
+        border: "1px solid var(--dtg-border-card)",
         borderRadius: "10px",
         padding: "5px 20px",
         boxShadow: getGlowColor(radar.Notes)
       }}>
         <h2 style={{ margin: 0, fontSize: "20px" }}>
-          <span style={{ color: isOff ? "#ccc" : radar.BrandColor || "#ccc", fontWeight: "bold" }}>
+          <span style={{ color: isOff ? "var(--dtg-text-secondary)" : radar.BrandColor || "var(--dtg-text-secondary)", fontWeight: "bold" }}>
             {prefix}
           </span>
-          <span style={{ color: isOff ? "#ccc" : "#fff" }}>{model}</span>
+          <span style={{ color: isOff ? "var(--dtg-text-secondary)" : "var(--dtg-text-primary)" }}>{model}</span>
         </h2>
         <div style={{
           display: "flex",
           padding: "0 20px",
           gap: "10px",
           alignItems: "center",
-          backgroundColor: "#404040",
+          backgroundColor: "var(--dtg-gray-200)",
           borderRadius: "20px",
           fontSize: "14px",
         }}>
@@ -1093,9 +1227,9 @@ function RadarDetail({ radar, onBack }) {
           gap: "10px",
           fontSize: "14px",
           fontWeight: "bold",
-          color: isOff ? "#777" : "#fff"
+          color: isOff ? "var(--dtg-text-light)" : "var(--dtg-text-primary)"
         }}>
-          <FaSyncAlt color={isOff ? "#777" : "#009688"} />
+          <FaSyncAlt color={isOff ? "var(--dtg-text-light)" : "#009688"} />
           {/* The site's clock, not the viewer's: toLocaleString() renders in the
               browser's zone, which for a monitoring team watching another
               country's site is a different hour with nothing to mark it. */}
@@ -1191,12 +1325,12 @@ function RadarDetail({ radar, onBack }) {
                       fontWeight: "bold",
                       color: isGenerateReport
                         ? "#00D6D1"
-                        : "#fff",
+                        : "var(--dtg-text-primary)",
                       background: isGenerateReport
-                        ? "#171717" // orange for GENERATE REPORT
+                        ? "var(--dtg-bg-primary)" // orange for GENERATE REPORT
                         : isActive
-                          ? "#404040" // bright green for active
-                          : "#171717",
+                          ? "var(--dtg-gray-200)" // bright green for active
+                          : "var(--dtg-bg-primary)",
                       transition: "all 0.3s ease",
                       position: "relative",
                       padding: "10px 20px",
@@ -1209,7 +1343,7 @@ function RadarDetail({ radar, onBack }) {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", height: "100%", width: "100%" }}>
-              <div style={{ display: "flex", flexDirection: "column", flex: 2 / 5, backgroundColor: "#3A3A3A", borderRadius: "10px", padding: "20px", gap: "20px" }}>
+              <div style={{ display: "flex", flexDirection: "column", flex: 2 / 5, backgroundColor: "var(--dtg-bg-secondary)", borderRadius: "10px", padding: "20px", gap: "20px" }}>
                 <div style={{ backgroundColor: overallCol, borderRadius: "8px", padding: "8px", fontSize: "14px" }}>Overall Score: <strong>{radar.parameters.Overall?.value.toUpperCase()}</strong></div>
                 <span>
                   <p style={{ fontWeight: "bold", fontSize: "12px", margin: 0 }}>SUMMARY:</p>
@@ -1220,7 +1354,7 @@ function RadarDetail({ radar, onBack }) {
                   <p style={{ fontSize: "12px", margin: 0 }}>{radar.Action}</p>
                 </span>
               </div>
-              <div style={{ display: "block", flex: 3 / 5, backgroundColor: "#3A3A3A", borderRadius: "10px", padding: "20px 20px 0" }}>
+              <div style={{ display: "block", flex: 3 / 5, backgroundColor: "var(--dtg-bg-secondary)", borderRadius: "10px", padding: "20px 20px 0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flex: 1 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: "14px" }}>
                     <IoMdMenu />
@@ -1283,7 +1417,7 @@ function RadarDetail({ radar, onBack }) {
                           outline: "none",
                           cursor: "pointer",
                           fontSize: "20px",
-                          color: "#fff",
+                          color: "var(--dtg-text-primary)",
                           transform: dqaAtEnd ? "rotate(180deg)" : "none",
                           transition: "transform 0.3s",
                         }}
@@ -1315,6 +1449,25 @@ function RadarDetail({ radar, onBack }) {
               <strong>{banner.action}</strong> {banner.type}
             </div>))}
           <div style={{ paddingTop: "10px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            {/* Column names: three unlabelled 9px columns are a puzzle, and the
+                middle one in particular ("Modified") says nothing on its own. */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "20px 1fr 110px 118px",
+                gap: "6px",
+                padding: "0 10px 4px",
+                fontSize: "8px",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: "var(--dtg-text-muted)",
+              }}
+            >
+              <span />
+              <span>Region</span>
+              <span>| Recommendation</span>
+              <span>| Last trigger</span>
+            </div>
             <div
               ref={alarmRef}
               onScroll={alarmScroll}
@@ -1322,8 +1475,16 @@ function RadarDetail({ radar, onBack }) {
             >
               {
                 sortedRegions.map((al) => {
-                  const rec = alarmRecords.find(r => r.alarm_region.id === al.id);
-                  return <AlarmCard key={al.id} al={al} rec={rec} />;
+                  const rec = alarmRecords.find(r => r.alarm_region?.id === al.id);
+                  return (
+                    <AlarmCard
+                      key={al.id}
+                      al={al}
+                      rec={rec}
+                      improvement={improvementByRegion.get(String(al.id))}
+                      timezone={radar.Timezone}
+                    />
+                  );
                 })
               }
 
@@ -1338,7 +1499,7 @@ function RadarDetail({ radar, onBack }) {
                     outline: "none",
                     cursor: "pointer",
                     fontSize: "20px",
-                    color: "#fff",
+                    color: "var(--dtg-text-primary)",
                     transform: alarmAtEnd ? "rotate(180deg)" : "none",
                     transition: "transform 0.3s",
                   }}
@@ -1401,12 +1562,12 @@ function RadarDetail({ radar, onBack }) {
                       fontWeight: "bold",
                       color: isGenerateReport
                         ? "#00D6D1"
-                        : "#fff",
+                        : "var(--dtg-text-primary)",
                       background: isGenerateReport
-                        ? "#171717" // orange for GENERATE REPORT
+                        ? "var(--dtg-bg-primary)" // orange for GENERATE REPORT
                         : isActive
-                          ? "#404040" // bright green for active
-                          : "#171717",
+                          ? "var(--dtg-gray-200)" // bright green for active
+                          : "var(--dtg-bg-primary)",
                       transition: "all 0.3s ease",
                       position: "relative",
                       padding: "10px 20px",
@@ -1424,7 +1585,7 @@ function RadarDetail({ radar, onBack }) {
                   display: "flex",
                   flexDirection: "column",
                   flex: 2 / 5,
-                  backgroundColor: "#3A3A3A",
+                  backgroundColor: "var(--dtg-bg-secondary)",
                   borderRadius: "10px",
                   padding: "20px",
                   gap: "20px",
@@ -1448,7 +1609,7 @@ function RadarDetail({ radar, onBack }) {
                     <div
                       style={{
                         marginTop: "0px",
-                        color: "#fff",
+                        color: "var(--dtg-text-primary)",
                         fontSize: "12px",
                       }}
                     >
@@ -1462,7 +1623,7 @@ function RadarDetail({ radar, onBack }) {
                 </div>
               </div>
 
-              <div style={{ display: "block", flex: 3 / 5, backgroundColor: "#3A3A3A", borderRadius: "10px", padding: "20px 20px 0" }}>
+              <div style={{ display: "block", flex: 3 / 5, backgroundColor: "var(--dtg-bg-secondary)", borderRadius: "10px", padding: "20px 20px 0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flex: 1 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: "14px" }}>
                     <IoMdMenu />
@@ -1525,7 +1686,7 @@ function RadarDetail({ radar, onBack }) {
                           outline: "none",
                           cursor: "pointer",
                           fontSize: "20px",
-                          color: "#fff",
+                          color: "var(--dtg-text-primary)",
                           transform: defAtEnd ? "rotate(180deg)" : "none",
                           transition: "transform 0.3s",
                         }}

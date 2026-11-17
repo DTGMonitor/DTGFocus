@@ -6,9 +6,15 @@ import { OPEN_STATUS, initialResolutions } from '@/utils/dqpImprovements';
  * The recommendations still awaiting site feedback on a wall folder's alarm
  * regions, plus the per-row choices a form makes about them.
  *
- * `alarm_improvement` has no wall-folder column — it reaches one only through
- * alarm_record → alarm_region — so the region list IS the scope, exactly as
+ * `alarm_improvement` has no wall-folder column — it reaches one through its
+ * own `alarm_region` — so the region list IS the scope, exactly as
  * SensorDetail's "→ Optimal" gate has always scoped it.
+ *
+ * The scope is the row's own region, not the region of the alarm it answers: a
+ * recommendation raised against a region that has not alarmed has no
+ * alarm_records row at all (migration 001), and an !inner join on alarm_records
+ * would drop it. The join is kept as a LEFT join so the rows that do name an
+ * alarm still carry its cause for display.
  *
  * Choices are re-seeded on every open, never carried between openings: a
  * resolution the analyst picked and then cancelled out of must not reappear
@@ -50,9 +56,9 @@ export function useOpenImprovements(enabled, regions, opts = {}) {
             try {
                 const { data, error } = await supabase
                     .from('alarm_improvement')
-                    .select('id, type, issue, action, alarm_mask, recommendation_submission, alarm_records!inner(id, alarm_region, cause)')
+                    .select('id, type, issue, action, alarm_mask, recommendation_submission, alarm_region, alarm_records(id, alarm_region, cause)')
                     .eq('improvement_status', OPEN_STATUS)
-                    .in('alarm_records.alarm_region', regionIds)
+                    .in('alarm_region', regionIds)
                     .order('recommendation_submission', { ascending: false });
 
                 if (error) throw error;

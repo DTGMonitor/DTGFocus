@@ -161,7 +161,7 @@ export default function UserDropdown({
                     </p>
                 </div>
             </div>
-            <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[#3a3a3a] w-full"></div>
+            <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[var(--dtg-border-medium)] w-full"></div>
             <button
                 type="button"
                 disabled
@@ -212,7 +212,7 @@ export default function UserDropdown({
                 <FiSettings color="#aaa" size={18} />
                 Preferences
             </button>
-            <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[#3a3a3a] w-full"></div>
+            <div role="separator" aria-orientation="horizontal" data-slot="dropdown-menu-separator" className="my-1 h-px bg-[var(--dtg-border-medium)] w-full"></div>
             <button
                 type="button"
                 onClick={async () => {

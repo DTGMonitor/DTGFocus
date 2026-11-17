@@ -386,7 +386,7 @@ function DeformationSummaryPage() {
     color: "#fff",
     fontSize: "14px"
   }; const chartCard = {
-    backgroundColor: "#1B1B1B",
+    backgroundColor: "var(--dtg-bg-primary)",
     padding: "20px",
     borderRadius: "10px",
   };
@@ -432,10 +432,10 @@ function DeformationSummaryPage() {
   const cardStyle = {
     flex: "1",
     minWidth: "200px",
-    backgroundColor: "#1B1B1B",
+    backgroundColor: "var(--dtg-bg-primary)",
     borderRadius: "10px",
     padding: "20px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     textAlign: "left",
     display: "flex",
     flexDirection: "column",
@@ -463,11 +463,11 @@ function DeformationSummaryPage() {
 
     return (
       <div style={{
-        backgroundColor: "#1B1B1B",
-        border: "1px solid #5A6474",
+        backgroundColor: "var(--dtg-bg-primary)",
+        border: "1px solid var(--dtg-border-medium)",
         padding: "10px",
         borderRadius: "6px",
-        color: "#f5f5f5",
+        color: "var(--dtg-text-primary)",
         fontSize: "12px"
       }}>
         <p style={{ marginBottom: "6px" }}>{label}</p>
@@ -494,11 +494,11 @@ function DeformationSummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "8px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -517,11 +517,11 @@ function DeformationSummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "6px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -546,7 +546,7 @@ function DeformationSummaryPage() {
     // Skip rendering if value is null/undefined or index is out of range
     if (value == null || !priorityChartData[index]) return null;
 
-    const fill = priorityChartData[index].fill || "#fff"; // fallback color
+    const fill = priorityChartData[index].fill || "var(--dtg-text-primary)"; // fallback color
 
     return (
       <text
@@ -582,7 +582,7 @@ function DeformationSummaryPage() {
           justifyContent: "center",
           alignItems: "center",
           height: "250px",
-          color: "#ccc",
+          color: "var(--dtg-text-secondary)",
           fontStyle: "italic",
         }}
       >
@@ -599,28 +599,28 @@ function DeformationSummaryPage() {
         {viewMode === "Total" ? (
           <BarChart data={ssrChartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#444" strokeDasharray="3 3" />
-            <XAxis dataKey="name" stroke="#ccc" fontSize={12} scale="point" padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
-            <YAxis stroke="#ccc" fontSize={12}>
+            <XAxis dataKey="name" stroke="var(--dtg-text-secondary)" fontSize={12} scale="point" padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
+            <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
               <Label
                 value="Total Alarms"
                 angle={-90}
                 position="insideLeft"
                 dy={30}
-                style={{ fill: "#ccc", fontSize: "12px" }}
+                style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
               />
             </YAxis>
             <Tooltip
               contentStyle={{
-                backgroundColor: "#1B1B1B",
-                border: "1px solid #5A6474",
+                backgroundColor: "var(--dtg-bg-primary)",
+                border: "1px solid var(--dtg-border-medium)",
                 padding: "10px",
                 borderRadius: "6px",
-                color: "#f5f5f5",
+                color: "var(--dtg-text-primary)",
                 fontSize: "12px",
               }}
               formatter={(value) => [value, "Alarms"]}
             />
-            <Bar dataKey="value" barSize={dynamicssrBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#fff", fontSize: 10 }} />
+            <Bar dataKey="value" barSize={dynamicssrBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-primary)", fontSize: 10 }} />
           </BarChart>
         ) : (
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
@@ -675,7 +675,7 @@ function DeformationSummaryPage() {
                         alignItems: "center",
                         fontSize: "14px",
                         marginBottom: "20px",
-                        color: "#f5f5f5",
+                        color: "var(--dtg-text-primary)",
                       }}
                     >
                       <div
@@ -683,7 +683,7 @@ function DeformationSummaryPage() {
                           display: "flex",
                           alignItems: "center",
                           fontSize: "12px",
-                          color: "#ccc",
+                          color: "var(--dtg-text-secondary)",
                         }}
                       >
                         <span
@@ -726,7 +726,7 @@ function DeformationSummaryPage() {
           <div
             style={{
               textAlign: "center",
-              color: "#ccc",
+              color: "var(--dtg-text-secondary)",
               fontStyle: "italic",
               padding: "30px",
             }}
@@ -738,16 +738,16 @@ function DeformationSummaryPage() {
             <BarChart data={regionBarChartData} margin={{ top: 20, right: 10, bottom: 80, left: 0 }}>
               <CartesianGrid stroke="#444" strokeDasharray="3 3" />
               <XAxis dataKey="name"
-                stroke="#ccc"
+                stroke="var(--dtg-text-secondary)"
                 fontSize={9}
                 angle={-45}
                 textAnchor="end"
                 interval={0}
                 dy={10}
                 scale="point" padding={{ left: regionPointPadding, right: regionPointPadding }} />
-              <YAxis stroke="#ccc" fontSize={12} />
+              <YAxis stroke="var(--dtg-text-secondary)" fontSize={12} />
               <Tooltip content={<CustomBarTooltip />} />
-              <Bar dataKey="value" barSize={dynamicregionBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#fff", fontSize: 10 }} />
+              <Bar dataKey="value" barSize={dynamicregionBarSize} fill="#14B8A6" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-primary)", fontSize: 10 }} />
             </BarChart>
           </ResponsiveContainer>
         ) : (<div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
@@ -773,7 +773,7 @@ function DeformationSummaryPage() {
                       <text
                         x={x}
                         y={y}
-                        fill="#fff"
+                        fill="var(--dtg-text-primary)"
                         textAnchor="middle"
                         dominantBaseline="central"
                         fontSize="11px"
@@ -802,7 +802,7 @@ function DeformationSummaryPage() {
                       alignItems: "center",
                       fontSize: "14px",
                       marginBottom: "20px",
-                      color: "#f5f5f5",
+                      color: "var(--dtg-text-primary)",
                     }}
                   >
                     <div
@@ -810,7 +810,7 @@ function DeformationSummaryPage() {
                         display: "flex",
                         alignItems: "center",
                         fontSize: "10px",
-                        color: "#ccc",
+                        color: "var(--dtg-text-secondary)",
                       }}
                     >
                       <span
@@ -869,8 +869,8 @@ function DeformationSummaryPage() {
       boxSizing: "border-box",
       overflowY: "auto",
       overflowX: "hidden",
-      backgroundColor: "#050910",
-      color: "#f5f5f5",
+      backgroundColor: "var(--dtg-bg-primary)",
+      color: "var(--dtg-text-primary)",
       fontFamily: "Inter, sans-serif",
       display: "flex",
       flexDirection: "column",

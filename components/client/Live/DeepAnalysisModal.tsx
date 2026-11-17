@@ -97,11 +97,11 @@ interface CustomTooltipProps {
 const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-black/95 backdrop-blur-md border border-white/30 rounded-xl px-4 py-3 shadow-2xl">
-        <p className="text-[10px] font-black text-white/60 uppercase mb-2">{payload[0].payload.time}</p>
+      <div className="bg-[var(--live-tooltip-bg)] backdrop-blur-md border border-[var(--live-border)] rounded-xl px-4 py-3 shadow-2xl">
+        <p className="text-[10px] font-black text-[var(--live-fg-muted)] uppercase mb-2">{payload[0].payload.time}</p>
         {payload.map((p, idx) => (
           <p key={idx} className="text-[11px] font-bold mb-1">
-            <span style={{ color: p.color }}>{p.name}:</span> <span className="text-white ml-1">{p.value}</span>
+            <span style={{ color: p.color }}>{p.name}:</span> <span className="text-[var(--live-fg)] ml-1">{p.value}</span>
           </p>
         ))}
       </div>
@@ -154,45 +154,45 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[200] bg-[#020d0d]/95 backdrop-blur-xl flex items-center justify-center p-8"
+          className="fixed inset-0 z-[200] bg-[var(--live-veil)] backdrop-blur-xl flex items-center justify-center p-8"
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-full max-w-[1600px] bg-white/[0.08] backdrop-blur-[40px] border border-white/20 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col"
+            className="w-full h-full max-w-[1600px] bg-[var(--live-glass-weak)] backdrop-blur-[40px] border border-[var(--live-border)] rounded-[3rem] overflow-hidden shadow-2xl flex flex-col"
           >
             {/* Header */}
-            <div className="px-10 py-6 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-[#051F20]/50 to-transparent">
+            <div className="px-10 py-6 border-b border-[var(--live-border-weak)] flex items-center justify-between bg-gradient-to-r from-[var(--live-scrim-from)] to-transparent">
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tarpColor }} />
-                  <h2 className="text-[12px] font-black uppercase tracking-[0.3em] text-white/40">Deep Analysis Mode</h2>
+                  <h2 className="text-[12px] font-black uppercase tracking-[0.3em] text-[var(--live-fg-faint)]">Deep Analysis Mode</h2>
                 </div>
-                <h1 className="text-[24px] font-black uppercase text-white">
+                <h1 className="text-[24px] font-black uppercase text-[var(--live-fg)]">
                   {primarySensor.label}
                   {comparisonSensors.length > 0 && (
-                    <span className="text-[#8EB69B] ml-3">
+                    <span className="text-[var(--live-accent)] ml-3">
                       +{comparisonSensors.length} Comparison{comparisonSensors.length > 1 ? 's' : ''}
                     </span>
                   )}
                 </h1>
               </div>
               <div className="flex items-center gap-3">
-                <button className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all">
-                  <Calendar size={14} className="text-white/70" />
-                  <span className="text-[10px] font-black uppercase tracking-wider text-white/70">7 Days</span>
+                <button className="flex items-center gap-2 px-4 py-2 bg-[var(--live-glass-weak)] hover:bg-[var(--live-glass)] border border-[var(--live-border-weak)] rounded-xl transition-all">
+                  <Calendar size={14} className="text-[var(--live-fg-muted)]" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--live-fg-muted)]">7 Days</span>
                 </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-[#8EB69B]/10 hover:bg-[#8EB69B]/20 border border-[#8EB69B]/30 rounded-xl transition-all">
-                  <Download size={14} className="text-[#8EB69B]" />
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#8EB69B]">Export Data</span>
+                <button className="flex items-center gap-2 px-4 py-2 bg-[var(--live-accent-soft)] hover:bg-[var(--live-accent-soft)] border border-[var(--live-accent-border)] rounded-xl transition-all">
+                  <Download size={14} className="text-[var(--live-accent)]" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--live-accent)]">Export Data</span>
                 </button>
                 <button 
                   onClick={onClose}
-                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all"
+                  className="w-10 h-10 rounded-full bg-[var(--live-glass-weak)] hover:bg-[var(--live-glass)] flex items-center justify-center transition-all"
                 >
-                  <X size={18} className="text-white/70" />
+                  <X size={18} className="text-[var(--live-fg-muted)]" />
                 </button>
               </div>
             </div>
@@ -202,23 +202,23 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
               {/* 1. Deformation vs Time */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[12px] font-black uppercase tracking-wider text-white">Deformation vs Time</h3>
-                  <span className="text-[10px] font-bold text-white/40">mm</span>
+                  <h3 className="text-[12px] font-black uppercase tracking-wider text-[var(--live-fg)]">Deformation vs Time</h3>
+                  <span className="text-[10px] font-bold text-[var(--live-fg-faint)]">mm</span>
                 </div>
-                <div className="h-[400px] bg-white/5 border border-white/10 rounded-3xl p-6">
+                <div className="h-[400px] bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-3xl p-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={mergedData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
                       <XAxis 
                         dataKey="time" 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <YAxis 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend 
@@ -252,23 +252,23 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
               {/* 2. Velocity vs Time */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[12px] font-black uppercase tracking-wider text-white">Velocity vs Time</h3>
-                  <span className="text-[10px] font-bold text-white/40">mm/d</span>
+                  <h3 className="text-[12px] font-black uppercase tracking-wider text-[var(--live-fg)]">Velocity vs Time</h3>
+                  <span className="text-[10px] font-bold text-[var(--live-fg-faint)]">mm/d</span>
                 </div>
-                <div className="h-[400px] bg-white/5 border border-white/10 rounded-3xl p-6">
+                <div className="h-[400px] bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-3xl p-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={mergedData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
                       <XAxis 
                         dataKey="time" 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <YAxis 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend 
@@ -302,23 +302,23 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
               {/* 3. Inverse Velocity vs Time */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[12px] font-black uppercase tracking-wider text-white">Inverse Velocity vs Time</h3>
-                  <span className="text-[10px] font-bold text-white/40">d/mm</span>
+                  <h3 className="text-[12px] font-black uppercase tracking-wider text-[var(--live-fg)]">Inverse Velocity vs Time</h3>
+                  <span className="text-[10px] font-bold text-[var(--live-fg-faint)]">d/mm</span>
                 </div>
-                <div className="h-[400px] bg-white/5 border border-white/10 rounded-3xl p-6">
+                <div className="h-[400px] bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-3xl p-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={mergedData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
                       <XAxis 
                         dataKey="time" 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <YAxis 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend 
@@ -349,7 +349,7 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
                 </div>
                 <div className="flex items-start gap-2 px-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 mt-2 flex-shrink-0" />
-                  <p className="text-[10px] text-white/50 leading-relaxed italic">
+                  <p className="text-[10px] text-[var(--live-fg-subtle)] leading-relaxed italic">
                     Inverse velocity trending toward zero indicates accelerating failure. Linear trend suggests time-to-failure prediction.
                   </p>
                 </div>
@@ -358,23 +358,23 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
               {/* 4. Time Per Scan */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[12px] font-black uppercase tracking-wider text-white">Time Per Scan</h3>
-                  <span className="text-[10px] font-bold text-white/40">min</span>
+                  <h3 className="text-[12px] font-black uppercase tracking-wider text-[var(--live-fg)]">Time Per Scan</h3>
+                  <span className="text-[10px] font-bold text-[var(--live-fg-faint)]">min</span>
                 </div>
-                <div className="h-[400px] bg-white/5 border border-white/10 rounded-3xl p-6">
+                <div className="h-[400px] bg-[var(--live-glass-weak)] border border-[var(--live-border-weak)] rounded-3xl p-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={mergedData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--live-chart-grid)" />
                       <XAxis 
                         dataKey="time" 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <YAxis 
-                        stroke="rgba(255,255,255,0.4)" 
+                        stroke="var(--live-chart-axis)" 
                         style={{ fontSize: '10px' }} 
-                        tick={{ fill: 'rgba(255,255,255,0.6)' }}
+                        tick={{ fill: 'var(--live-chart-tick)' }}
                       />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend 
@@ -405,7 +405,7 @@ export const DeepAnalysisModal: React.FC<DeepAnalysisModalProps> = ({
                 </div>
                 <div className="flex items-start gap-2 px-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
-                  <p className="text-[10px] text-white/50 leading-relaxed italic">
+                  <p className="text-[10px] text-[var(--live-fg-subtle)] leading-relaxed italic">
                     Scan duration variations may indicate data quality issues or atmospheric interference patterns.
                   </p>
                 </div>

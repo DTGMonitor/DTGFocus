@@ -26,7 +26,7 @@ function RadarStatusHub() {
   };
 
   return (
- <div className="bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
+ <div className="bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[var(--dtg-text-primary)] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       {/* Status filter toggle only visible in gallery mode */}
       {!selectedRadar && (
         <ToggleGroup

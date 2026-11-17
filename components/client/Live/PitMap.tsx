@@ -86,7 +86,7 @@ export default function PitMap({ onSensorSelect }: PitMapProps) {
     };
 
     return (
-        <div className="w-full h-screen bg-[#020d0d]">
+        <div className="w-full h-screen bg-[var(--live-surface)]">
             <Map
                 initialViewState={initialViewState}
                 mapStyle={{
@@ -149,7 +149,7 @@ export default function PitMap({ onSensorSelect }: PitMapProps) {
                     const isCritical = sensor.latest_deformation > 5.0;
                     const isWarning = sensor.latest_deformation > 2.0;
 
-                    const markerColor = isCritical ? 'bg-red-500' : isWarning ? 'bg-orange-500' : 'bg-[#8EB69B]';
+                    const markerColor = isCritical ? 'bg-red-500' : isWarning ? 'bg-orange-500' : 'bg-[var(--live-accent)]';
 
                     return (
                         <Marker key={sensor.id} longitude={lng} latitude={lat} anchor="center">
@@ -161,12 +161,12 @@ export default function PitMap({ onSensorSelect }: PitMapProps) {
                                 }}
                             >
                                 {isCritical && <div className={`w-6 h-6 rounded-full ${markerColor} opacity-50 animate-ping absolute`} />}
-                                <div className={`w-4 h-4 rounded-full ${markerColor} border border-white flex items-center justify-center z-10 shadow-lg`}>
-                                    <Target size={10} className="text-[#020d0d]" />
+                                <div className={`w-4 h-4 rounded-full ${markerColor} border border-[var(--live-fg)] flex items-center justify-center z-10 shadow-lg`}>
+                                    <Target size={10} className="text-[var(--live-on-accent)]" />
                                 </div>
 
-                                <div className="absolute bottom-full mb-2 hidden group-hover:block bg-black/90 text-white text-[10px] px-2 py-1 rounded border border-white/20 whitespace-nowrap z-50">
-                                    <span className={`font-bold ${isCritical ? 'text-red-400' : 'text-[#8EB69B]'}`}>{sensor.id}</span> <br />
+                                <div className="absolute bottom-full mb-2 hidden group-hover:block bg-[var(--live-tooltip-bg)] text-[var(--live-fg)] text-[10px] px-2 py-1 rounded border border-[var(--live-border)] whitespace-nowrap z-50">
+                                    <span className={`font-bold ${isCritical ? 'text-red-400' : 'text-[var(--live-accent)]'}`}>{sensor.id}</span> <br />
                                     Def: {sensor.latest_deformation.toFixed(2)} mm
                                 </div>
                             </div>

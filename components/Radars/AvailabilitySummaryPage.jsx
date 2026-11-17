@@ -628,23 +628,25 @@ function AvailabilitySummaryPage() {
     fontSize: "14px"
   };
   const chartCard = {
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     padding: "20px",
     borderRadius: "10px",
   };
   const chartTitle = {
     marginBottom: "10px",
     fontSize: "16px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     marginTop: 0
   };
   const cardStyle = {
     flex: "1",
     minWidth: "200px",
-    backgroundColor: "#262626",
+    backgroundColor: "var(--dtg-bg-card)",
+    border: "1px solid var(--dtg-border-card)",
     borderRadius: "10px",
     padding: "20px",
-    color: "#f5f5f5",
+    color: "var(--dtg-text-primary)",
     textAlign: "left",
     display: "flex",
     flexDirection: "column",
@@ -654,7 +656,7 @@ function AvailabilitySummaryPage() {
     fontSize: "18px",
     margin: 0,
     marginBottom: "5px",
-    color: "#f5f5f5"
+    color: "var(--dtg-text-primary)"
   };
   const cardValueStyle = {
     fontSize: "28px",
@@ -667,11 +669,11 @@ function AvailabilitySummaryPage() {
     const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
     return (
       <div style={{
-        backgroundColor: "#1B1B1B",
-        border: "1px solid #5A6474",
+        backgroundColor: "var(--dtg-bg-primary)",
+        border: "1px solid var(--dtg-border-medium)",
         padding: "10px",
         borderRadius: "6px",
-        color: "#f5f5f5",
+        color: "var(--dtg-text-primary)",
         fontSize: "12px"
       }}>
         <p style={{ marginBottom: "6px" }}>{label}</p>
@@ -691,11 +693,11 @@ function AvailabilitySummaryPage() {
     const matchingMarkers = markers.filter(m => m.date === label);
     return (
       <div style={{
-        backgroundColor: "#1B1B1B",
-        border: "1px solid #5A6474",
+        backgroundColor: "var(--dtg-bg-primary)",
+        border: "1px solid var(--dtg-border-medium)",
         padding: "10px",
         borderRadius: "6px",
-        color: "#f5f5f5",
+        color: "var(--dtg-text-primary)",
         fontSize: "12px"
       }}>
         <p style={{ marginBottom: "6px" }}>{label}</p>
@@ -716,7 +718,7 @@ function AvailabilitySummaryPage() {
           ))}
         {/* ServiceCommenced / Off Service info */}
         {matchingMarkers.length > 0 && (
-          <div style={{ marginTop: "8px", borderTop: "1px solid #5A6474", paddingTop: "6px" }}>
+          <div style={{ marginTop: "8px", borderTop: "1px solid var(--dtg-border-medium)", paddingTop: "6px" }}>
             {matchingMarkers.map((m, i) => (
               <div key={i} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <span style={{
@@ -740,11 +742,11 @@ function AvailabilitySummaryPage() {
       return (
         <div
           style={{
-            backgroundColor: "#1B1B1B",
-            border: "1px solid #5A6474",
+            backgroundColor: "var(--dtg-bg-primary)",
+            border: "1px solid var(--dtg-border-medium)",
             padding: "10px",
             borderRadius: "8px",
-            color: "#f5f5f5",
+            color: "var(--dtg-text-primary)",
             fontSize: "12px",
             minWidth: "100px",
           }}
@@ -757,7 +759,7 @@ function AvailabilitySummaryPage() {
   };
 
   return (
-<div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[#f5f5f5] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
+<div className="w-screen h-screen bg-[var(--dtg-bg-primary)] box-border overflow-y-auto overflow-x-hidden text-[var(--dtg-text-primary)] font-['Inter',sans-serif] flex flex-col p-[10px] gap-[10px]">
       <div style={{
         display: "flex",
         gap: "10px",
@@ -810,7 +812,7 @@ function AvailabilitySummaryPage() {
                 <h2 style={chartTitle}>DURATION</h2>
                 <div>
                   <p style={{ ...cardValueStyle, margin: 0, fontSize: "40px", color: "#EC834E" }}>{totalTimeHours.toFixed(0)}</p>
-                  <p style={{ fontSize: "12px", margin: 0, color: "#ccc" }}>hours</p>
+                  <p style={{ fontSize: "12px", margin: 0, color: "var(--dtg-text-secondary)" }}>hours</p>
                 </div>
               </div>
               <div style={{ ...cardStyle, flexDirection: "row", alignItems: "center", gap: 20, minWidth: 0 }}>
@@ -831,27 +833,27 @@ function AvailabilitySummaryPage() {
             <div style={{ ...cardStyle, minWidth: 0 }}>
               <h2 style={chartTitle}>SUMMARY</h2>
               <div>
-                <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#fff" }}>Top Issue</p>
+                <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "var(--dtg-text-primary)" }}>Top Issue</p>
                 <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#EC834E" }}>
                   {topReason ? `${topReason} (${topDuration.toFixed(2)} hrs)` : "—"}
                 </p>
               </div>
               <div>
-                <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#fff" }}>Major Downtime</p>
+                <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "var(--dtg-text-primary)" }}>Major Downtime</p>
                 {longestRecord ? (
                   <div>
                     <p style={{ fontWeight: "bold", fontSize: "14px", margin: 0, color: "#EC834E" }}>
                       {Number(longestRecord?.duration_hours ?? 0).toFixed(2)} hours
                     </p>
-                    <p style={{ fontSize: "12px", margin: 0, color: "#ccc" }}>
+                    <p style={{ fontSize: "12px", margin: 0, color: "var(--dtg-text-secondary)" }}>
                       {longestRecord.downtime_from_local} - {longestRecord.downtime_to_local}
                     </p>
-                    <p style={{ fontSize: "12px", margin: 0, color: "#ccc" }}>
+                    <p style={{ fontSize: "12px", margin: 0, color: "var(--dtg-text-secondary)" }}>
                       {longestRecord.radar_number} | Reason: {longestRecord.reason}
                     </p>
                   </div>
                 ) : (
-                  <p style={{ fontSize: "12px", margin: 0, color: "#ccc" }}>No downtime records</p>
+                  <p style={{ fontSize: "12px", margin: 0, color: "var(--dtg-text-secondary)" }}>No downtime records</p>
                 )}
               </div>
             </div>
@@ -884,17 +886,17 @@ function AvailabilitySummaryPage() {
                 <p style={{ ...cardTitleStyle, fontWeight: "bold", marginBottom: 0 }}>Radar Operating Time</p>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {showPct(physicalAvailability)}</h2>
+                <h2 style={{ margin: 0, fontSize: "40px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}> {showPct(physicalAvailability)}</h2>
                 <div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowUp size="10px" color="#47D45A" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalRadarUptime)}</p>
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total radar uptime</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}>{showHours(totalRadarUptime)}</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0, textWrap: "balance" }}>total radar uptime</p>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowDown size="10px" color="#F28B82" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalRadarDowntime)}</p>
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total radar downtime</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}>{showHours(totalRadarDowntime)}</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0, textWrap: "balance" }}>total radar downtime</p>
                   </div>
                 </div>
               </div>
@@ -919,17 +921,17 @@ function AvailabilitySummaryPage() {
                 <p style={{ ...cardTitleStyle, fontWeight: "bold", marginBottom: 0 }}>Monitoring Use of Availability</p>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}> {showPct(monitoringAvailability)}</h2>
+                <h2 style={{ margin: 0, fontSize: "40px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}> {showPct(monitoringAvailability)}</h2>
                 <div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowUp size="10px" color="#47D45A" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalMonitoringUptime)}</p>
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total available time</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}>{showHours(totalMonitoringUptime)}</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0, textWrap: "balance" }}>total available time</p>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                     <FaArrowDown size="10px" color="#F28B82" />
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#fff", fontWeight: "bold" }}>{showHours(totalMonitoringDowntime)}</p>
-                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>total unavailable time</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}>{showHours(totalMonitoringDowntime)}</p>
+                    <p style={{ ...cardValueStyle, fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0, textWrap: "balance" }}>total unavailable time</p>
                   </div>
                 </div>
               </div>
@@ -953,13 +955,13 @@ function AvailabilitySummaryPage() {
               <p style={{ ...cardTitleStyle, fontWeight: "bold", marginBottom: 0 }}>Downtime</p>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0, fontSize: "40px", color: "#fff", fontWeight: "bold" }}>
+              <h2 style={{ margin: 0, fontSize: "40px", color: "var(--dtg-text-primary)", fontWeight: "bold" }}>
                 {totalDowntime ?? "—"}
                 <span style={{ fontSize: "12px" }}> hours</span>
               </h2>
               <div style={{ display: "block", textAlign: "right" }}>
-                <p style={{ fontSize: "14px", color: "#ccc", fontWeight: "bold", margin: 0 }}>Downtime Frequency</p>
-                <p style={{ fontSize: "12px", color: "#ccc", margin: 0, textWrap: "balance" }}>{downtimeFrequency ?? "—"} hours/day</p>
+                <p style={{ fontSize: "14px", color: "var(--dtg-text-secondary)", fontWeight: "bold", margin: 0 }}>Downtime Frequency</p>
+                <p style={{ fontSize: "12px", color: "var(--dtg-text-secondary)", margin: 0, textWrap: "balance" }}>{downtimeFrequency ?? "—"} hours/day</p>
               </div>
             </div>
           </div>
@@ -976,7 +978,7 @@ function AvailabilitySummaryPage() {
                   justifyContent: "center",
                   alignItems: "center",
                   height: "100%",
-                  color: "#ccc",
+                  color: "var(--dtg-text-secondary)",
                   fontStyle: "italic",
                 }}
               >
@@ -989,9 +991,9 @@ function AvailabilitySummaryPage() {
                     data={barData}
                     margin={{ top: 20 }}
                   >
-                    <XAxis dataKey="radar" tick={false} tickLine={false} stroke="#ccc" fontSize={12} scale={xAxisScale} padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
+                    <XAxis dataKey="radar" tick={false} tickLine={false} stroke="var(--dtg-text-secondary)" fontSize={12} scale={xAxisScale} padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
                     <YAxis
-                      stroke="#ccc"
+                      stroke="var(--dtg-text-secondary)"
                       fontSize={12}
                       domain={[0, 100]}
                       tickFormatter={(value) => `${value}%`}
@@ -999,7 +1001,7 @@ function AvailabilitySummaryPage() {
                     <Tooltip
                       content={CustomTooltip}
                     />
-                    <Bar dataKey="Radar" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#ccc", fontSize: 10, formatter: (val) => `${val}%` }}>
+                    <Bar dataKey="Radar" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-secondary)", fontSize: 10, formatter: (val) => `${val}%` }}>
                       {barData.map((entry, index) => (
                         <Cell key={`cell-r-${index}`} fill={entry.fill} />))}
                     </Bar>
@@ -1007,7 +1009,7 @@ function AvailabilitySummaryPage() {
                       content={() => {
                         const radarsToShow = barData.map((d) => d.radar);
                         return (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "#aaa", justifyContent: "center", margin: 0 }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "var(--dtg-text-muted)", justifyContent: "center", margin: 0 }}>
                             {radarsToShow.map((radar) => (
                               <div key={radar} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                 <div
@@ -1041,7 +1043,7 @@ function AvailabilitySummaryPage() {
                   justifyContent: "center",
                   alignItems: "center",
                   height: "100%",
-                  color: "#ccc",
+                  color: "var(--dtg-text-secondary)",
                   fontStyle: "italic",
                 }}
               >
@@ -1054,9 +1056,9 @@ function AvailabilitySummaryPage() {
                     data={barData}
                     margin={{ top: 20 }}
                   >
-                    <XAxis dataKey="radar" stroke="#ccc" tick={false} tickLine={false} fontSize={12} scale={xAxisScale} padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
+                    <XAxis dataKey="radar" stroke="var(--dtg-text-secondary)" tick={false} tickLine={false} fontSize={12} scale={xAxisScale} padding={{ left: ssrPointPadding, right: ssrPointPadding }} />
                     <YAxis
-                      stroke="#ccc"
+                      stroke="var(--dtg-text-secondary)"
                       fontSize={12}
                       domain={[0, 100]}
                       tickFormatter={(value) => `${value}%`}
@@ -1064,14 +1066,14 @@ function AvailabilitySummaryPage() {
                     <Tooltip
                       content={CustomTooltip}
                     />
-                    <Bar dataKey="Monitoring" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "#ccc", fontSize: 10, formatter: (val) => `${val}%` }}>
+                    <Bar dataKey="Monitoring" radius={[5, 5, 0, 0]} label={{ position: "top", fill: "var(--dtg-text-secondary)", fontSize: 10, formatter: (val) => `${val}%` }}>
                       {barData.map((entry, index) => (
                         <Cell key={`cell-r-${index}`} fill={entry.fill} />))}</Bar>
                     <Legend
                       content={() => {
                         const radarsToShow = barData.map((d) => d.radar);
                         return (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "#aaa", justifyContent: "center", margin: 0 }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "10px", color: "var(--dtg-text-muted)", justifyContent: "center", margin: 0 }}>
                             {radarsToShow.map((radar) => (
                               <div key={radar} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                 <div
@@ -1104,7 +1106,7 @@ function AvailabilitySummaryPage() {
                   justifyContent: "center",
                   alignItems: "center",
                   height: "100%",
-                  color: "#ccc",
+                  color: "var(--dtg-text-secondary)",
                   fontStyle: "italic",
                 }}
               >
@@ -1141,11 +1143,11 @@ function AvailabilitySummaryPage() {
                           alignItems: "center",
                           fontSize: "14px",
                           marginBottom: "6px",
-                          color: "#f5f5f5",
+                          color: "var(--dtg-text-primary)",
                           gap: "20px"
                         }}>
                           {/* Left side: icon + reason name */}
-                          <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "#ccc" }}>
+                          <div style={{ display: "flex", alignItems: "center", fontSize: "12px", color: "var(--dtg-text-secondary)" }}>
                             <span style={{
                               display: "inline-block",
                               width: 12,
@@ -1188,14 +1190,14 @@ function AvailabilitySummaryPage() {
             <ResponsiveContainer width="100%" height="80%">
               <LineChart data={radarLineData} margin={{ left: 10, right: 10, top: 10 }}>
                 <CartesianGrid stroke="#444" strokeDasharray="3 3" />
-                <XAxis dataKey="record_date" stroke="#ccc" fontSize={12} />
-                <YAxis stroke="#ccc" fontSize={12}>
+                <XAxis dataKey="record_date" stroke="var(--dtg-text-secondary)" fontSize={12} />
+                <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
                   <Label
                     value="Downtime (hrs)"
                     angle={-90}
                     position="insideLeft"
                     dy={40}
-                    style={{ fill: "#ccc", fontSize: "12px" }}
+                    style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
                   />
                 </YAxis>
                 <Tooltip content={<CustomLineTooltip markers={markers}/>} />
@@ -1238,14 +1240,14 @@ function AvailabilitySummaryPage() {
                 margin={{ left: 10, right: 10, top: 10 }}
               >
                 <CartesianGrid stroke="#444" strokeDasharray="3 3" />
-                <XAxis dataKey="record_date" stroke="#ccc" fontSize={12} />
-                <YAxis stroke="#ccc" fontSize={12}>
+                <XAxis dataKey="record_date" stroke="var(--dtg-text-secondary)" fontSize={12} />
+                <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
                   <Label
                     value="Downtime (hrs)"
                     angle={-90}
                     position="insideLeft"
                     dy={40}
-                    style={{ fill: "#ccc", fontSize: "12px" }}
+                    style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
                   />
                 </YAxis>
                 <Tooltip content={<CustomLineTooltip markers={markers}/>} />
@@ -1286,7 +1288,7 @@ function AvailabilitySummaryPage() {
                   justifyContent: "center",
                   alignItems: "center",
                   height: "100%",
-                  color: "#ccc",
+                  color: "var(--dtg-text-secondary)",
                   fontStyle: "italic",
                 }}
               >
@@ -1296,14 +1298,14 @@ function AvailabilitySummaryPage() {
               <ResponsiveContainer width="100%" height="80%">
                 <LineChart data={reasonLineData} margin={{ left: 10, right: 10, top: 10 }}>
                   <CartesianGrid stroke="#444" strokeDasharray="3 3" />
-                  <XAxis dataKey="record_date" stroke="#ccc" fontSize={12} />
-                  <YAxis stroke="#ccc" fontSize={12}>
+                  <XAxis dataKey="record_date" stroke="var(--dtg-text-secondary)" fontSize={12} />
+                  <YAxis stroke="var(--dtg-text-secondary)" fontSize={12}>
                     <Label
                       value="Downtime (hrs)"
                       angle={-90}
                       position="insideLeft"
                       dy={40}
-                      style={{ fill: "#ccc", fontSize: "12px" }}
+                      style={{ fill: "var(--dtg-text-secondary)", fontSize: "12px" }}
                     />
                   </YAxis>
                   <Tooltip content={<CustomLineTooltip />} />
