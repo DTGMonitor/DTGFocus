@@ -10,42 +10,34 @@
  *
  * Two details that are easy to get wrong:
  *
- * 1. `items` and `files` are BOTH needed. A screenshot pasted from the OS
- *    snipping tool arrives only as an `items` entry of kind 'file' with an
- *    empty `files` list in some browsers, while a file dragged from Explorer
- *    arrives in `files`. Reading one and not the other loses half the cases.
+ * 1. `items` and `files` overlap but neither is always complete. A screenshot
+ *    from the OS snipping tool arrives only as an `items` entry in some
+ *    browsers, while other sources may fill only `files`. Chrome fills BOTH
+ *    with the same image, so they are alternatives, never added together.
  * 2. `getAsFile()` is only valid synchronously inside the event handler. Any
  *    caller that awaits before reading must read here first and await after.
  */
 
 /** Every image on a DataTransfer / ClipboardData, in the order offered. */
 export function imageFilesFrom(source) {
-  const out = [];
-  const seen = new Set();
+  const isImage = (file) => Boolean(file && file.type?.startsWith('image/'));
 
-  const take = (file) => {
-    if (!file || !file.type?.startsWith('image/')) return;
-    // A paste can surface the same bitmap through `items` AND `files`. The pair
-    // is not reference-equal, so identity is name + size + type + mtime.
-    const id = `${file.name}|${file.size}|${file.type}|${file.lastModified}`;
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(file);
-  };
-
-  const items = source?.items;
-  if (items?.length) {
-    for (const item of items) {
-      if (item.kind === 'file' && item.type?.startsWith('image/')) take(item.getAsFile());
+  // `items` and `files` are two views of the SAME payload, not two payloads.
+  // Chrome lists a pasted screenshot in both, and each access mints a fresh
+  // File whose `lastModified` is the moment of access — so the pair cannot be
+  // de-duplicated by identity, and reading both doubles every paste. Read
+  // `items` (the superset: it is the only place a snipping-tool paste appears
+  // in some browsers) and fall back to `files` only when it yielded nothing.
+  const fromItems = [];
+  for (const item of source?.items ?? []) {
+    if (item.kind === 'file' && item.type?.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (isImage(file)) fromItems.push(file);
     }
   }
+  if (fromItems.length) return fromItems;
 
-  const files = source?.files;
-  if (files?.length) {
-    for (const file of files) take(file);
-  }
-
-  return out;
+  return Array.from(source?.files ?? []).filter(isImage);
 }
 
 /** First image on a DataTransfer / ClipboardData, or null. */
